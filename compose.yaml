@@ -1,5 +1,7 @@
 name: trakia
 
+# Keep generated artifacts in Docker volumes so container UID mapping cannot
+# change ownership of the host's dist directories.
 services:
   contracts:
     build:
@@ -14,6 +16,7 @@ services:
       - api_node_modules:/workspace/apps/api/node_modules
       - web_node_modules:/workspace/apps/web/node_modules
       - contracts_node_modules:/workspace/packages/contracts/node_modules
+      - contracts_dist:/workspace/packages/contracts/dist
     healthcheck:
       test: ["CMD", "node", "-e", "require('node:fs').accessSync('/tmp/contracts-ready')"]
       interval: 2s
@@ -36,6 +39,8 @@ services:
       - api_node_modules:/workspace/apps/api/node_modules
       - web_node_modules:/workspace/apps/web/node_modules
       - contracts_node_modules:/workspace/packages/contracts/node_modules
+      - web_dist:/workspace/apps/web/dist
+      - contracts_dist:/workspace/packages/contracts/dist
     depends_on:
       contracts:
         condition: service_healthy
@@ -50,7 +55,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile.dev
-    command: pnpm --filter @trakia/api dev
+    command: pnpm --filter @trakia/api dev:docker
     environment:
       PORT: 3033
     ports:
@@ -61,6 +66,7 @@ services:
       - api_node_modules:/workspace/apps/api/node_modules
       - web_node_modules:/workspace/apps/web/node_modules
       - contracts_node_modules:/workspace/packages/contracts/node_modules
+      - contracts_dist:/workspace/packages/contracts/dist
     depends_on:
       contracts:
         condition: service_healthy
@@ -93,6 +99,8 @@ volumes:
   api_node_modules:
   web_node_modules:
   contracts_node_modules:
+  web_dist:
+  contracts_dist:
   postgres_data:
 
 networks:

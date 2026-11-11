@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon --watch src --watch ../../packages/contracts/dist --ext ts,js,json --exec \"nest start --watch\"",
+    "dev:docker": "nodemon --watch src --watch ../../packages/contracts/dist --ext ts,js,json --exec \"nest start --watch --config nest-cli.docker.json\"",
     "build": "nest build",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "test": "node --test test/*.test.mjs"
