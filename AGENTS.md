@@ -24,6 +24,13 @@
 - No implementes trabajo de tareas posteriores ni cambies una decisión arquitectónica sin que la tarea lo autorice.
 - Actualiza `docs/progress.md` cuando una tarea HC cambie de estado o complete trabajo relevante.
 
+## Skills de TRAKIA
+
+- Las tareas HC siguen el procedimiento de [.agents/skills/trakia-task/SKILL.md](.agents/skills/trakia-task/SKILL.md).
+- Las revisiones arquitectónicas utilizan ADR-015 y [module-conventions.md](docs/architecture/module-conventions.md), según [.agents/skills/trakia-architecture/SKILL.md](.agents/skills/trakia-architecture/SKILL.md).
+- Mantén sincronizados los comandos de las skills con [docs/skills-cheatsheet.md](docs/skills-cheatsheet.md).
+- Las operaciones Git siguen gestionándose mediante `trakia-git`; las operaciones Docker, mediante `trakia-docker`.
+
 ## Arquitectura modular
 
 - Para la organización de backend, frontend y contratos, sigue la decisión [ADR-015](docs/decisions/ADR-015-arquitectura-modular.md) y la guía obligatoria [module-conventions.md](docs/architecture/module-conventions.md).

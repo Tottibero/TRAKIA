@@ -12,6 +12,7 @@
 | HC-01-03c | Implementada y verificada localmente, pendiente de revisión | Skill `trakia-docker` para iniciar, detener, consultar estado y logs, reiniciar y reconstruir exclusivamente el proyecto local TRAKIA. Compose, estado saludable de los cuatro servicios, logs limitados de API y volúmenes persistentes consultados; no se ejecutaron operaciones de ciclo de vida porque el entorno ya estaba activo. |
 | HC-01-03d | Implementada localmente, pendiente de revisión | Skill `trakia-git` e instrucciones de GitHub Flow por bloques HC. |
 | HC-01-03e | Implementada localmente, pendiente de revisión | ADR-015 y guía de arquitectura modular para backend, frontend, contratos, pruebas y reglas verificables. Las comprobaciones automáticas de límites quedan para HC-01-04. Verificaciones realizadas: revisión de ADR y estructura existente, coherencia documental y `git diff --check`; sin builds ni tests de aplicación por tratarse de documentación. |
+| HC-01-03f | Implementada localmente, pendiente de revisión | Skills `trakia-task` y `trakia-architecture`, cheatsheet de comandos e integración mínima en `AGENTS.md`. Verificaciones estáticas de frontmatter, operaciones, referencias y sincronización de comandos; sin builds ni tests de aplicación. No se encontró un validador oficial general de skills; el descubrimiento se comprobó mediante la convención `.agents/skills/` del repositorio. |
 | Tareas posteriores | Pendientes | Implementación según el diseño aprobado. |
 
 Este registro no anticipa detalles técnicos que todavía no se hayan definido.
