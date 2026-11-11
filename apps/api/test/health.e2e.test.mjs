@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
+import { resolve } from 'node:path'
 import { after, before, test } from 'node:test'
 
 let apiProcess
@@ -20,11 +21,12 @@ async function getAvailablePort() {
 }
 
 before(async () => {
+  if (!process.env.TRAKIA_TEST_DATABASE_URL) return
   const port = await getAvailablePort()
   apiUrl = `http://127.0.0.1:${port}/api/health`
-  apiProcess = spawn(process.execPath, ['dist/main.js'], {
+  apiProcess = spawn(process.execPath, [resolve(process.cwd(), process.env.TRAKIA_DB_DIST ?? 'dist', 'main.js')], {
     cwd: process.cwd(),
-    env: { ...process.env, PORT: String(port) },
+    env: { ...process.env, DATABASE_URL: process.env.TRAKIA_TEST_DATABASE_URL, PORT: String(port) },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   apiProcess.stdout.on('data', (chunk) => { processOutput += chunk })
@@ -58,7 +60,7 @@ after(async () => {
   if (apiProcess.exitCode === null) apiProcess.kill('SIGKILL')
 })
 
-test('GET /api/health returns HTTP 200 and the shared health response shape', async () => {
+test('GET /api/health returns HTTP 200 and the shared health response shape', { skip: !process.env.TRAKIA_TEST_DATABASE_URL }, async () => {
   const response = await fetch(apiUrl)
   assert.equal(response.status, 200)
   assert.deepEqual(await response.json(), { status: 'ok' })

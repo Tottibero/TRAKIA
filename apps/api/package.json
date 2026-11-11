@@ -7,16 +7,24 @@
     "dev": "nodemon --watch src --watch ../../packages/contracts/dist --ext ts,js,json --exec \"nest start --watch\"",
     "dev:docker": "nodemon --watch src --watch ../../packages/contracts/dist --ext ts,js,json --exec \"nest start --watch --config nest-cli.docker.json\"",
     "build": "nest build",
-    "typecheck": "tsc --noEmit -p tsconfig.build.json",
+    "db:build": "nest build --config nest-cli.docker.json",
+    "db:migration:run": "typeorm migration:run -d ${TRAKIA_DB_DIST:-dist}/database/data-source.js",
+    "db:migration:show": "typeorm migration:show -d ${TRAKIA_DB_DIST:-dist}/database/data-source.js",
+    "db:migration:revert": "typeorm migration:revert -d ${TRAKIA_DB_DIST:-dist}/database/data-source.js",
+    "db:migration:generate": "typeorm migration:generate src/database/migrations/$npm_config_name -d ${TRAKIA_DB_DIST:-dist}/database/data-source.js",
+    "typecheck": "tsc --noEmit --incremental false -p tsconfig.build.json",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@nestjs/common": "12.4.2",
     "@nestjs/core": "12.4.2",
     "@nestjs/platform-express": "12.4.2",
+    "@nestjs/typeorm": "^11.0.0",
     "@trakia/contracts": "workspace:*",
+    "pg": "^8.16.3",
     "reflect-metadata": "0.2.2",
-    "rxjs": "7.8.2"
+    "rxjs": "7.8.2",
+    "typeorm": "^0.3.27"
   },
   "devDependencies": {
     "@nestjs/cli": "12.0.12",

@@ -55,9 +55,13 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile.dev
-    command: pnpm --filter @trakia/api dev:docker
+    env_file:
+      - .env.docker
     environment:
+      DATABASE_URL: postgres://db:5432/trakia_dev
       PORT: 3033
+      DATABASE_SSL: "false"
+      TRAKIA_DB_DIST: node_modules/.cache/trakia-api-dist
     ports:
       - "127.0.0.1:3033:3033"
     volumes:
@@ -69,6 +73,8 @@ services:
       - contracts_dist:/workspace/packages/contracts/dist
     depends_on:
       contracts:
+        condition: service_healthy
+      db:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3033/api/health').then(r => process.exit(r.status === 200 ? 0 : 1)).catch(() => process.exit(1))"]

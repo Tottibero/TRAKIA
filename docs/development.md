@@ -84,6 +84,24 @@ docker compose down
 
 No añadas `-v`: PostgreSQL guarda sus datos en el volumen nombrado `trakia_postgres_data`, que sobrevive a `stop`, `down` y a la reconstrucción de web/API.
 
-Los tres servicios principales son `web`, `api` y `db`. El servicio interno `contracts` realiza la compilación inicial y vigila `packages/contracts/src`; web y API no arrancan hasta que existe el artefacto ESM inicial. Nodemon reinicia Nest al cambiar `apps/api/src` o `packages/contracts/dist`. Vite ejecuta HMR sobre los archivos del host y su proxy `/api` usa `http://api:3033` dentro de Compose. API no depende del arranque de PostgreSQL porque todavía no consume la base de datos; esa integración corresponde a HC-01-03b.
+Los servicios principales son `web`, `api` y `db`. El servicio interno `contracts` realiza la compilación inicial y vigila `packages/contracts/src`; web y API no arrancan hasta que existen los artefactos necesarios y PostgreSQL está saludable para la API. Nodemon reinicia Nest al cambiar `apps/api/src` o `packages/contracts/dist`. Vite ejecuta HMR sobre los archivos del host y su proxy `/api` usa `http://api:3033` dentro de Compose.
 
 En desarrollo local sin Docker, `pnpm dev:web` y `pnpm dev:api` continúan usando `localhost`; Vite conserva el proxy local a `http://localhost:3033`. En Compose se montan las fuentes del workspace y volúmenes separados para los `node_modules` instalados en Docker, de modo que los enlaces workspace de pnpm y sus dependencias no se sustituyen por dependencias del host.
+
+### PostgreSQL y migraciones
+
+La API requiere `DATABASE_URL`. En Compose apunta a `db:5432`; las credenciales proceden del mismo `.env.docker` que configura PostgreSQL (`POSTGRES_DB`, `POSTGRES_USER` y `POSTGRES_PASSWORD`). Desde el host PostgreSQL se publica únicamente en `127.0.0.1:5434`. Para ejecución local, proporciona la URL de la base de desarrollo por el entorno. `DATABASE_SSL` acepta `true` o `false`; por defecto TLS está desactivado en desarrollo y activado en `NODE_ENV=production`. TLS valida el certificado del servidor. `DATABASE_URL` puede incluir credenciales y no debe compartirse ni registrarse.
+
+TypeORM no sincroniza ni modifica el esquema al iniciar la API. Las migraciones son explícitas y están versionadas en `apps/api/src/database/migrations`. Compila la API antes de usar sus comandos CLI:
+
+```sh
+pnpm --filter @trakia/api db:build
+pnpm --filter @trakia/api db:migration:show
+pnpm --filter @trakia/api db:migration:run
+pnpm --filter @trakia/api db:migration:revert
+pnpm --filter @trakia/api db:migration:generate --name=NombreMigracion
+```
+
+En Compose los scripts usan el artefacto aislado bajo `apps/api/node_modules/.cache/trakia-api-dist`; desde el monorepo local usan `apps/api/dist`. Por ejemplo, tras iniciar el entorno de desarrollo: `docker compose exec api pnpm --filter @trakia/api db:migration:show`. Para ejecutar una migración dentro del contenedor: `docker compose exec api pnpm --filter @trakia/api db:migration:run`. La generación requiere que PostgreSQL esté disponible y compara el esquema con las entidades compiladas.
+
+En un despliegue, compila previamente JavaScript con `pnpm --filter @trakia/api build`, configura `DATABASE_URL` y ejecuta el script `db:migration:run` desde `apps/api` antes de iniciar el servidor. El comando CLI no inicia Nest ni requiere Compose; con migraciones pendientes las aplica y con estado actualizado termina correctamente.
