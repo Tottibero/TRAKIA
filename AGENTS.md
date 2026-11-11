@@ -26,6 +26,8 @@
 
 ## Entorno Docker de desarrollo
 
+- Usa la skill `trakia-docker` como procedimiento preferente para gestionar Docker Compose. Docker solo se inicia cuando el usuario lo solicita; limita toda gestión al proyecto `trakia`, conserva los datos persistentes y no ejecutes limpiezas globales. La skill no realiza operaciones Git.
+- Mantén aislados los artefactos de compilación de Docker y del host.
 - Opera los comandos Docker Compose únicamente sobre el proyecto TRAKIA (`compose.yaml`, nombre `trakia`).
 - Inicia el entorno solo cuando el usuario lo solicite; no configures arranque automático.
 - Antes de iniciar, reconstruir o detener, consulta `docker compose ps` y limita las acciones a los recursos de TRAKIA.
