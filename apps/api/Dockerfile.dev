@@ -9,4 +9,4 @@ COPY packages/contracts/package.json packages/contracts/package.json
 RUN corepack pnpm install --frozen-lockfile
 
 EXPOSE 3033
-CMD ["pnpm", "--filter", "@trakia/api", "dev"]
+CMD ["pnpm", "--filter", "@trakia/api", "dev:docker"]

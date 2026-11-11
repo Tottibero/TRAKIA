@@ -55,6 +55,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile.dev
+    command: pnpm --filter @trakia/api dev:docker
     env_file:
       - .env.docker
     environment:

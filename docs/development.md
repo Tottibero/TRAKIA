@@ -14,6 +14,16 @@ pnpm --version
 pnpm install
 ```
 
+Si `nvm` no está cargado en la terminal que ejecuta los comandos, cárgalo explícitamente desde la raíz del repositorio antes de `nvm use`:
+
+```sh
+source "$HOME/.nvm/nvm.sh"
+nvm use
+node --version
+```
+
+`.nvmrc` fija Node.js 26.13.0, pero no cambia automáticamente la versión activa de shells o herramientas que no cargan `nvm`.
+
 ## Aplicaciones
 
 Arranca cada aplicación en una terminal distinta:
@@ -87,6 +97,8 @@ No añadas `-v`: PostgreSQL guarda sus datos en el volumen nombrado `trakia_post
 Los servicios principales son `web`, `api` y `db`. El servicio interno `contracts` realiza la compilación inicial y vigila `packages/contracts/src`; web y API no arrancan hasta que existen los artefactos necesarios y PostgreSQL está saludable para la API. Nodemon reinicia Nest al cambiar `apps/api/src` o `packages/contracts/dist`. Vite ejecuta HMR sobre los archivos del host y su proxy `/api` usa `http://api:3033` dentro de Compose.
 
 En desarrollo local sin Docker, `pnpm dev:web` y `pnpm dev:api` continúan usando `localhost`; Vite conserva el proxy local a `http://localhost:3033`. En Compose se montan las fuentes del workspace y volúmenes separados para los `node_modules` instalados en Docker, de modo que los enlaces workspace de pnpm y sus dependencias no se sustituyen por dependencias del host.
+
+En Compose, la API arranca con `dev:docker` y `nest-cli.docker.json`; sus artefactos JavaScript y metadatos incrementales quedan bajo `apps/api/node_modules/.cache`, dentro del volumen `api_node_modules`. Las compilaciones del host usan `apps/api/dist` y `apps/api/tsconfig.build.tsbuildinfo`. No ejecutes el script `dev` de la API dentro de Docker porque utiliza las salidas del host.
 
 ### PostgreSQL y migraciones
 
