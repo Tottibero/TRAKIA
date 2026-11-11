@@ -2,11 +2,15 @@
 
 ## GitHub y Git
 
+- Sigue GitHub Flow por bloques funcionales `HC-XX`: una rama por bloque y una pull request por bloque, salvo entregas parciales acordadas.
+- Usa preferentemente la skill local `trakia-git` para iniciar, consultar y cerrar el workflow Git/GitHub del proyecto.
+- Usa Conventional Commits con el identificador de tarea, por ejemplo `feat(api): add exercise catalog [HC-02-01]`.
 - GitHub CLI (`gh`) es obligatorio para las operaciones de GitHub: consultar repositorios, incidencias, solicitudes de cambios y estado de autenticación.
 - Usa Git para las operaciones locales del repositorio y `git push` para publicar commits.
 - No uses APIs directas ni métodos alternativos para publicar cambios en GitHub.
-- Los commits y los `git push` requieren autorización explícita dentro del alcance de la tarea activa. La autorización de una tarea se limita al repositorio, rama y archivos que esta indique.
-- Conserva el historial remoto existente. No uses `--force` ni sobrescribas ramas remotas.
+- `main` debe permanecer estable: integra bloques mediante pull request y no trabajes en ella para implementar tareas.
+- La autorización para implementar una tarea y registrarla mediante commits permite crear esos commits locales dentro de su alcance. Publicar ramas y hacer merge requieren autorización explícita; una autorización no cubre otras ramas ni archivos.
+- Conserva el historial remoto existente. No uses force push ni sobrescribas ramas remotas.
 
 ## Seguridad y privacidad
 
