@@ -11,7 +11,7 @@ La skill no sustituye la especificación funcional. Si no se encuentra una espec
 
 ## Especificación HC
 
-Valida el identificador con el formato `HC-XX-YY` (dos dígitos para bloque y tarea, con sufijo minúsculo opcional, por ejemplo `HC-01-03g`). Obtén el bloque `HC-XX` y lee `docs/tasks/HC-XX/HC-XX-YY.md` antes de implementar. Comprueba que contiene objetivo, alcance y criterios de aceptación; revisa también exclusiones, dependencias, archivos/módulos afectados y pruebas previstas, junto con `AGENTS.md` y las ADR aplicables.
+Valida el identificador con el formato `HC-XX-YY` (dos dígitos para bloque y tarea, con sufijo minúsculo opcional, por ejemplo `HC-01-03g` o `HC-01-05a`). El componente completo `YY` incluye el sufijo: obtén el bloque `HC-XX` y lee `docs/tasks/HC-XX/HC-XX-YY.md` conservándolo, por ejemplo `HC-01-05a` resuelve a `docs/tasks/HC-01/HC-01-05a.md`. Comprueba que contiene objetivo, alcance y criterios de aceptación; revisa también exclusiones, dependencias, archivos/módulos afectados y pruebas previstas, junto con `AGENTS.md` y las ADR aplicables.
 
 Si el archivo no existe, comunica la ruta esperada y solicita la especificación aprobada. No infieras requisitos desde el identificador. Si la especificación es insuficiente o contradictoria, detalla qué falta y no hagas cambios potencialmente incorrectos. No actualices unilateralmente la sección **Especificación aprobada**: solicita revisión si hay que cambiar requisitos.
 
