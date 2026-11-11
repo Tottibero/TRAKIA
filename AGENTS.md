@@ -19,3 +19,12 @@
 - Respeta las decisiones registradas en `docs/decisions/` (ADR) y los límites definidos por las tareas HC.
 - No implementes trabajo de tareas posteriores ni cambies una decisión arquitectónica sin que la tarea lo autorice.
 - Actualiza `docs/progress.md` cuando una tarea HC cambie de estado o complete trabajo relevante.
+
+## Entorno Docker de desarrollo
+
+- Opera los comandos Docker Compose únicamente sobre el proyecto TRAKIA (`compose.yaml`, nombre `trakia`).
+- Inicia el entorno solo cuando el usuario lo solicite; no configures arranque automático.
+- Antes de iniciar, reconstruir o detener, consulta `docker compose ps` y limita las acciones a los recursos de TRAKIA.
+- Para apagar, usa `docker compose down` sin `-v`; el volumen PostgreSQL debe conservarse.
+- No detengas servicios de otros proyectos ni ejecutes `docker system prune`, `docker volume prune` u otra limpieza global.
+- No elimines el volumen PostgreSQL salvo autorización expresa.

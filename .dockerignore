@@ -1,0 +1,16 @@
+.git
+.github
+.vscode
+node_modules
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/*.tsbuildinfo
+.pnpm-store
+.env
+.env.*
+!.env.docker.example
+secrets
+*.pem
+*.key
