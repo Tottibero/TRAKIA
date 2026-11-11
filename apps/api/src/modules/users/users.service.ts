@@ -18,6 +18,14 @@ export class UsersService {
       .getOne()
   }
 
+  findById(id: string): Promise<User | null> {
+    return this.users.findOne({ where: { id } })
+  }
+
+  async incrementSessionVersion(id: string): Promise<void> {
+    await this.users.increment({ id }, 'sessionVersion', 1)
+  }
+
   create(email: string, passwordHash: string): Promise<User> {
     return this.users.save(this.users.create({ email: normalizeEmail(email), passwordHash }))
   }

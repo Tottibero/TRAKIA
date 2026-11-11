@@ -30,7 +30,11 @@ before(async () => {
     [resolve(process.cwd(), process.env.TRAKIA_DB_DIST ?? 'dist', 'main.js')],
     {
       cwd: process.cwd(),
-      env: { ...integrationEnv, PORT: String(port) },
+      env: {
+        ...integrationEnv,
+        PORT: String(port),
+        JWT_SECRET: 'integration-test-secret-at-least-thirty-two-bytes',
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   )

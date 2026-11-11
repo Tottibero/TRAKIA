@@ -1,5 +1,15 @@
 const DEFAULT_PORT = 3033
 const DEFAULT_CORS_ORIGINS = ['http://localhost:5173']
+export const JWT_ISSUER = 'trakia-api'
+export const JWT_AUDIENCE = 'trakia-web'
+export const JWT_LIFETIME_SECONDS = 12 * 60 * 60
+
+export function getJwtSecret(value: string | undefined = process.env.JWT_SECRET): string {
+  if (!value || Buffer.byteLength(value, 'utf8') < 32) {
+    throw new Error('JWT_SECRET must be configured with at least 32 bytes.')
+  }
+  return value
+}
 
 export function getPort(value: string | undefined = process.env.PORT): number {
   if (value === undefined) return DEFAULT_PORT

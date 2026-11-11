@@ -10,7 +10,7 @@
 | HC-01-04 | Calidad, pruebas arquitectónicas y CI | en revisión | [HC-01-04.md](HC-01-04.md) |
 | HC-01-05a | Usuarios y persistencia | completada | [HC-01-05a.md](HC-01-05a.md) |
 | HC-01-05b | Comandos administrativos de autenticación | completada | [HC-01-05b.md](HC-01-05b.md) |
-| HC-01-05c | Autenticación JWT y API | en revisión | [HC-01-05c.md](HC-01-05c.md) |
+| HC-01-05c | Autenticación JWT y API | completada | [HC-01-05c.md](HC-01-05c.md) |
 | HC-01-05d | Seguridad HTTP | pendiente | [HC-01-05d.md](HC-01-05d.md) |
 | HC-01-05e | Autenticación frontend | pendiente | [HC-01-05e.md](HC-01-05e.md) |
 

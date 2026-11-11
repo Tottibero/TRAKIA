@@ -21,6 +21,9 @@ function run(command, args) {
 }
 
 try {
+  // Authentication modules are loaded by AppModule in integration test processes.
+  // This synthetic key keeps CLI tests independent of deployment credentials.
+  env.JWT_SECRET = 'integration-test-secret-at-least-thirty-two-bytes'
   if (process.env.TRAKIA_SKIP_INTEGRATION_BUILD !== 'true') {
     await run('pnpm', ['--filter', '@trakia/contracts', 'build'])
     await run('pnpm', ['--filter', '@trakia/api', 'build'])
@@ -38,6 +41,7 @@ try {
     'test/auth-admin.integration.test.mjs',
   ])
   await run('pnpm', ['--filter', '@trakia/api', 'exec', 'node', '--test', 'test/health.e2e.test.mjs'])
+  await run('pnpm', ['--filter', '@trakia/api', 'exec', 'node', '--test', 'test/auth.e2e.test.mjs'])
 } catch (error) {
   console.error(error.message)
   process.exitCode = 1
