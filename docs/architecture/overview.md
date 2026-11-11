@@ -13,7 +13,7 @@
 
 ## Stack acordado
 
-Frontend Vue 3, TypeScript, Vite, Tailwind, Pinia y TanStack Query; backend NestJS, TypeORM y PostgreSQL; contratos compartidos TypeScript y Zod; despliegue futuro en Railway Hobby y PWA optimizada para móvil.
+Frontend Vue 3, TypeScript, Vite, Tailwind, Pinia y TanStack Query; backend NestJS, TypeORM y PostgreSQL; contratos compartidos TypeScript y Zod; despliegue futuro en alojamiento gestionado y PWA optimizada para móvil.
 
 ## Implementación base (HC-01-02)
 
