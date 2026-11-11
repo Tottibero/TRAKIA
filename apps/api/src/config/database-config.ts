@@ -7,6 +7,7 @@ export interface DatabaseEnvironment {
   DATABASE_SSL?: string
   NODE_ENV?: string
   POSTGRES_DB?: string
+  PGDATABASE?: string
   POSTGRES_USER?: string
   POSTGRES_PASSWORD?: string
 }
@@ -25,8 +26,14 @@ export function getDatabaseConfig(
     throw new Error('DATABASE_URL must be a valid PostgreSQL URL.')
   }
 
-  if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !parsed.hostname || !parsed.pathname.slice(1)) {
-    throw new Error('DATABASE_URL must use postgres:// or postgresql:// and include a host and database name.')
+  if (
+    !['postgres:', 'postgresql:'].includes(parsed.protocol) ||
+    !parsed.hostname ||
+    !parsed.pathname.slice(1)
+  ) {
+    throw new Error(
+      'DATABASE_URL must use postgres:// or postgresql:// and include a host and database name.',
+    )
   }
 
   const sslValue = env.DATABASE_SSL?.trim().toLowerCase()
@@ -36,7 +43,11 @@ export function getDatabaseConfig(
 
   const sslEnabled = sslValue === undefined ? env.NODE_ENV === 'production' : sslValue === 'true'
   const sslMode = parsed.searchParams.get('sslmode')
-  if (sslMode && ((sslEnabled && ['disable', 'allow', 'prefer'].includes(sslMode)) || (!sslEnabled && !['disable'].includes(sslMode)))) {
+  if (
+    sslMode &&
+    ((sslEnabled && ['disable', 'allow', 'prefer'].includes(sslMode)) ||
+      (!sslEnabled && !['disable'].includes(sslMode)))
+  ) {
     throw new Error('DATABASE_SSL conflicts with the sslmode option in DATABASE_URL.')
   }
 
@@ -44,9 +55,13 @@ export function getDatabaseConfig(
     type: 'postgres',
     host: parsed.hostname,
     port: parsed.port ? Number(parsed.port) : 5432,
-    database: env.POSTGRES_DB ?? decodeURIComponent(parsed.pathname.slice(1)),
-    ...(env.POSTGRES_USER ?? parsed.username ? { username: env.POSTGRES_USER ?? decodeURIComponent(parsed.username) } : {}),
-    ...(env.POSTGRES_PASSWORD ?? parsed.password ? { password: env.POSTGRES_PASSWORD ?? decodeURIComponent(parsed.password) } : {}),
+    database: decodeURIComponent(parsed.pathname.slice(1)),
+    ...((env.POSTGRES_USER ?? parsed.username)
+      ? { username: env.POSTGRES_USER ?? decodeURIComponent(parsed.username) }
+      : {}),
+    ...((env.POSTGRES_PASSWORD ?? parsed.password)
+      ? { password: env.POSTGRES_PASSWORD ?? decodeURIComponent(parsed.password) }
+      : {}),
     ssl: sslEnabled ? { rejectUnauthorized: true } : false,
     synchronize: false,
     migrationsRun: false,

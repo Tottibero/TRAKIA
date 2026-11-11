@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 import { resolve } from 'node:path'
 import { after, before, test } from 'node:test'
+import { getIntegrationProcessEnvironment } from '../../../scripts/integration-database.mjs'
 
 let apiProcess
 let apiUrl
@@ -16,21 +17,29 @@ async function getAvailablePort() {
   })
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Could not determine a free port.')
-  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+  await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
   return address.port
 }
 
 before(async () => {
-  if (!process.env.TRAKIA_TEST_DATABASE_URL) return
+  const integrationEnv = getIntegrationProcessEnvironment()
   const port = await getAvailablePort()
   apiUrl = `http://127.0.0.1:${port}/api/health`
-  apiProcess = spawn(process.execPath, [resolve(process.cwd(), process.env.TRAKIA_DB_DIST ?? 'dist', 'main.js')], {
-    cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: process.env.TRAKIA_TEST_DATABASE_URL, PORT: String(port) },
-    stdio: ['ignore', 'pipe', 'pipe'],
+  apiProcess = spawn(
+    process.execPath,
+    [resolve(process.cwd(), process.env.TRAKIA_DB_DIST ?? 'dist', 'main.js')],
+    {
+      cwd: process.cwd(),
+      env: { ...integrationEnv, PORT: String(port) },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
+  apiProcess.stdout.on('data', (chunk) => {
+    processOutput += chunk
   })
-  apiProcess.stdout.on('data', (chunk) => { processOutput += chunk })
-  apiProcess.stderr.on('data', (chunk) => { processOutput += chunk })
+  apiProcess.stderr.on('data', (chunk) => {
+    processOutput += chunk
+  })
 
   for (let attempt = 0; attempt < 50; attempt += 1) {
     if (apiProcess.exitCode !== null) {
@@ -60,7 +69,7 @@ after(async () => {
   if (apiProcess.exitCode === null) apiProcess.kill('SIGKILL')
 })
 
-test('GET /api/health returns HTTP 200 and the shared health response shape', { skip: !process.env.TRAKIA_TEST_DATABASE_URL }, async () => {
+test('GET /api/health returns HTTP 200 and the shared health response shape', async () => {
   const response = await fetch(apiUrl)
   assert.equal(response.status, 200)
   assert.deepEqual(await response.json(), { status: 'ok' })

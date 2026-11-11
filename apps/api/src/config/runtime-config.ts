@@ -20,7 +20,10 @@ export function getPort(value: string | undefined = process.env.PORT): number {
 export function getCorsOrigins(value: string | undefined = process.env.CORS_ORIGINS): string[] {
   if (value === undefined) return DEFAULT_CORS_ORIGINS
 
-  const origins = value.split(',').map((origin) => origin.trim()).filter(Boolean)
+  const origins = value
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
   if (origins.length === 0) {
     throw new Error('CORS_ORIGINS must contain at least one allowed origin.')
   }

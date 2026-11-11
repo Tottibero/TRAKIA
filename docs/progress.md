@@ -14,6 +14,6 @@
 | HC-01-03e | Implementada localmente, pendiente de revisión | ADR-015 y guía de arquitectura modular; los controles automáticos quedan para HC-01-04. |
 | HC-01-03f | Implementada localmente, pendiente de revisión | Skills `trakia-task` y `trakia-architecture`, cheatsheet de comandos e integración en `AGENTS.md`. |
 | [HC-01-03g](tasks/HC-01/HC-01-03g.md) | En revisión | Organización y gobernanza documental; sin cambios funcionales. |
-| HC-01-04 | Pendiente | Controles automáticos mínimos de arquitectura modular, según ADR-015. |
+| [HC-01-04](tasks/HC-01/HC-01-04.md) | En revisión | HC-01-04b completa límites de Domain y Presentation; fixtures, lint y `pnpm check` pasan. Actions pendiente. |
 
 Este registro no anticipa detalles técnicos que todavía no se hayan definido.
