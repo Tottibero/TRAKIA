@@ -34,6 +34,16 @@ Formato: `type(scope): description [HC-XX-YY]`; scope opcional. Tipos permitidos
 
 Antes de cada commit, revisa el diff y los archivos afectados; comprueba que no se incluyan secretos; ejecuta las verificaciones pertinentes; prepara solo los archivos de la tarea (nunca uses `git add .` indiscriminadamente); revisa el diff staged y crea un mensaje descriptivo. No crees commits vacíos ni incluyas cambios ajenos. Si la autorización para implementar la tarea incluye registrarla mediante Git, crea los commits locales necesarios sin pedir autorización por cada commit. Esa autorización no permite publicar, hacer merge ni modificar otras ramas.
 
+El commit de una tarea también cierra su registro documental, siempre que la aceptación ya esté acreditada:
+
+1. Valida `HC-XX-YY`, conservando el sufijo minúsculo, y resuelve `docs/tasks/HC-XX/HC-XX-YY.md`, el índice `docs/tasks/HC-XX/README.md` y `docs/progress.md`.
+2. Comprueba que la tarea está `en revisión`, que **Revisión y aceptación** registra aprobación explícita con evidencia y que **Pruebas ejecutadas y resultados** documenta verificaciones acordes a sus criterios, sin fallos o bloqueos pendientes.
+3. Si falta aprobación o evidencia, detente: no cambies estados, no prepares archivos ni crees el commit. La invocación de `commit` autoriza registrar una tarea aprobada; no constituye por sí misma su aprobación.
+4. Cuando se cumplan los requisitos, cambia a `completada` el estado de la tarea, sincroniza el estado y resumen del índice del bloque y de `docs/progress.md`, y registra en la tarea que su documentación se incluye en el commit de cierre. No inventes ni anticipes el hash.
+5. Prepara juntos los cambios de implementación y los tres documentos de estado, revisa todo el diff staged y crea un único commit convencional con el identificador completo de tarea. Si hay cambios ajenos o no puedes identificar con claridad los archivos de la tarea, detente.
+
+No marques tareas como `completada` por el mero hecho de ejecutar este comando. No cambies la especificación aprobada ni crees commits adicionales para registrar el hash del commit de cierre.
+
 ## publish — publicar la rama
 
 Requiere autorización explícita para publicar. Comprueba `gh auth status`, remoto, rama actual y commits pendientes. Detente si la rama es la principal o si autenticación, destino o contenido no son claros. Publica con `git push` usando la autenticación GitHub ya configurada por `gh`; establece upstream si corresponde y verifica con `gh`/Git que la rama remota coincide con la local. No cambies la configuración global de Git para resolver autenticación; si falta, explica el bloqueo. Nunca hagas force push.

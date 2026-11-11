@@ -33,4 +33,9 @@
 
 ### Incidencias y riesgos pendientes
 
+### Revisión y aceptación
+
+- **Resultado:** pendiente de aprobación.
+- **Evidencia de revisión y aprobación:** pendiente.
+
 ### Commit
