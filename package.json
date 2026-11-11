@@ -16,6 +16,8 @@
     "architecture:check": "node scripts/architecture-check.mjs",
     "test": "pnpm --filter @trakia/api test",
     "test:integration": "node scripts/run-integration-tests.mjs",
+    "auth:bootstrap": "pnpm --filter @trakia/api build && node apps/api/scripts/auth-admin.mjs bootstrap",
+    "auth:reset-password": "pnpm --filter @trakia/api build && node apps/api/scripts/auth-admin.mjs reset-password",
     "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm architecture:check && pnpm test && pnpm build",
     "build": "pnpm --filter @trakia/contracts build && pnpm --filter @trakia/web build && pnpm --filter @trakia/api build",
     "typecheck": "pnpm --filter @trakia/contracts typecheck && pnpm --filter @trakia/web typecheck && pnpm --filter @trakia/api typecheck"

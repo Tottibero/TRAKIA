@@ -29,6 +29,14 @@ try {
   await run('pnpm', ['--filter', '@trakia/api', 'exec', 'node', 'test/verify-integration-database.mjs'])
   await run('pnpm', ['--filter', '@trakia/api', 'db:migration:run'])
   await run('pnpm', ['--filter', '@trakia/api', 'exec', 'node', '--test', 'test/users.integration.test.mjs'])
+  await run('pnpm', [
+    '--filter',
+    '@trakia/api',
+    'exec',
+    'node',
+    '--test',
+    'test/auth-admin.integration.test.mjs',
+  ])
   await run('pnpm', ['--filter', '@trakia/api', 'exec', 'node', '--test', 'test/health.e2e.test.mjs'])
 } catch (error) {
   console.error(error.message)
