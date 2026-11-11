@@ -24,6 +24,13 @@
 - No implementes trabajo de tareas posteriores ni cambies una decisión arquitectónica sin que la tarea lo autorice.
 - Actualiza `docs/progress.md` cuando una tarea HC cambie de estado o complete trabajo relevante.
 
+## Arquitectura modular
+
+- Para la organización de backend, frontend y contratos, sigue la decisión [ADR-015](docs/decisions/ADR-015-arquitectura-modular.md) y la guía obligatoria [module-conventions.md](docs/architecture/module-conventions.md).
+- Antes de implementar una funcionalidad, identifica sus módulos/features propietarios y las dependencias que necesita; las dependencias entre módulos deben usar capacidades públicas exportadas explícitamente.
+- Mantén la organización por funcionalidad y evita dependencias circulares.
+- Crea capas solo cuando haya responsabilidades que justifiquen separarlas. No añadas carpetas vacías, interfaces genéricas, servicios base ni repositorios abstractos preventivamente.
+
 ## Entorno Docker de desarrollo
 
 - Usa la skill `trakia-docker` como procedimiento preferente para gestionar Docker Compose. Docker solo se inicia cuando el usuario lo solicita; limita toda gestión al proyecto `trakia`, conserva los datos persistentes y no ejecutes limpiezas globales. La skill no realiza operaciones Git.
