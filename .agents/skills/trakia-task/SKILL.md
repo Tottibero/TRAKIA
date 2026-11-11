@@ -9,6 +9,14 @@ Usa esta skill para ejecutar una tarea HC previamente especificada. La invocaci�
 
 La skill no sustituye la especificación funcional. Si no se encuentra una especificación accesible, el identificador no basta para inferir requisitos. Si el objetivo, alcance o criterios son ambiguos, identifica qué falta antes de realizar cambios potencialmente incorrectos.
 
+## Especificación HC
+
+Valida el identificador con el formato `HC-XX-YY` (dos dígitos para bloque y tarea, con sufijo minúsculo opcional, por ejemplo `HC-01-03g`). Obtén el bloque `HC-XX` y lee `docs/tasks/HC-XX/HC-XX-YY.md` antes de implementar. Comprueba que contiene objetivo, alcance y criterios de aceptación; revisa también exclusiones, dependencias, archivos/módulos afectados y pruebas previstas, junto con `AGENTS.md` y las ADR aplicables.
+
+Si el archivo no existe, comunica la ruta esperada y solicita la especificación aprobada. No infieras requisitos desde el identificador. Si la especificación es insuficiente o contradictoria, detalla qué falta y no hagas cambios potencialmente incorrectos. No actualices unilateralmente la sección **Especificación aprobada**: solicita revisión si hay que cambiar requisitos.
+
+La plantilla única está en `docs/tasks/TEMPLATE.md`; el índice de cada bloque está en `docs/tasks/HC-XX/README.md`. Estados permitidos: `pendiente`, `en desarrollo`, `en revisión`, `completada` y `bloqueada`.
+
 ## Flujo de trabajo
 
 ### 1. Inspección inicial
@@ -17,6 +25,7 @@ La skill no sustituye la especificación funcional. Si no se encuentra una espec
 - Comprueba la rama actual y el estado de Git; conserva los cambios preexistentes y evita sobrescribirlos.
 - Localiza módulos, features y archivos afectados.
 - Identifica sus dependencias y las decisiones arquitectónicas aplicables, en particular ADR-015 y `docs/architecture/module-conventions.md` cuando corresponda.
+- Al comenzar una implementación válida, cambia el estado de la tarea a `en desarrollo`, sin editar su especificación aprobada.
 
 ### 2. Planificación
 
@@ -40,14 +49,18 @@ La skill no sustituye la especificación funcional. Si no se encuentra una espec
 
 ### 5. Documentación
 
-- Actualiza `docs/progress.md` cuando la tarea cambie de estado o complete trabajo relevante.
+- Registra en **Ejecución y resultados** un resumen, los archivos realmente modificados, verificaciones ejecutadas y sus resultados, desviaciones justificadas e incidencias/riesgos pendientes. Registra una referencia de commit cuando exista una forma limpia de hacerlo sin exigir un commit adicional; no inventes hashes.
+- Aplica documentación proporcional: registra solo los requisitos, decisiones, convenciones y resultados relevantes para trazabilidad. No describas cada función ni reproduzcas diffs de Git; evita texto redundante o documentos adicionales sin responsabilidad clara.
+- Al estar lista para valoración, cambia el estado a `en revisión`. Usa `bloqueada` solo ante un impedimento real. No marques automáticamente `completada`: requiere aceptación y las verificaciones acordadas.
+- Actualiza `docs/progress.md` con el estado y enlace a la tarea cuando cambie el estado o complete trabajo relevante. Mantén allí solo el resumen global.
 - Actualiza documentación técnica si cambian comportamientos o decisiones.
-- No uses `README.md` para registrar progreso.
+- No uses el README raíz para registrar progreso.
 - Crea una ADR solo cuando exista una decisión arquitectónica que lo justifique.
 
 ### 6. Entrega
 
 Presenta el informe estándar descrito abajo, de forma concisa y sin repetir información.
+Añade la ruta de especificación utilizada, el estado final registrado y la documentación actualizada; no repitas el contenido HC.
 
 ## Informe estándar
 

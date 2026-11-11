@@ -24,6 +24,17 @@
 - No implementes trabajo de tareas posteriores ni cambies una decisión arquitectónica sin que la tarea lo autorice.
 - Actualiza `docs/progress.md` cuando una tarea HC cambie de estado o complete trabajo relevante.
 
+## Documentación
+
+- Cada documento tiene una responsabilidad principal; consulta el [índice documental](docs/README.md) para encontrar arquitectura, ADR, desarrollo, tareas, progreso y cheatsheet.
+- Registra decisiones arquitectónicas en ADR y convenciones técnicas en guías. No modifiques decisiones aprobadas sin autorización.
+- Registra requisitos y aceptación en `docs/tasks/HC-XX/HC-XX-YY.md`, usando [la plantilla](docs/tasks/TEMPLATE.md); registra los resultados junto a la tarea.
+- Mantén `docs/progress.md` como resumen navegable, sin especificaciones ni informes extensos.
+- Mantén los comandos de skills sincronizados en `docs/skills-cheatsheet.md` y prefiere enlaces relativos a duplicar contenido.
+- No crees documentos innecesarios ni reescribas requisitos aprobados sin autorización.
+- Aplica documentación proporcional: registra solo requisitos, decisiones, convenciones y resultados relevantes. No describas cada función, reproduzcas diffs de Git ni crees Markdown sin una responsabilidad clara.
+- No uses el README raíz para registrar progreso interno. Actualiza las rutas y enlaces cuando se mueva documentación.
+
 ## Skills de TRAKIA
 
 - Las tareas HC siguen el procedimiento de [.agents/skills/trakia-task/SKILL.md](.agents/skills/trakia-task/SKILL.md).
