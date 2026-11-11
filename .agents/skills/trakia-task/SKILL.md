@@ -52,6 +52,7 @@ La plantilla única está en `docs/tasks/TEMPLATE.md`; el índice de cada bloque
 - Registra en **Ejecución y resultados** un resumen, los archivos realmente modificados, verificaciones ejecutadas y sus resultados, desviaciones justificadas e incidencias/riesgos pendientes. Registra una referencia de commit cuando exista una forma limpia de hacerlo sin exigir un commit adicional; no inventes hashes.
 - Aplica documentación proporcional: registra solo los requisitos, decisiones, convenciones y resultados relevantes para trazabilidad. No describas cada función ni reproduzcas diffs de Git; evita texto redundante o documentos adicionales sin responsabilidad clara.
 - Al estar lista para valoración, cambia el estado a `en revisión`. Usa `bloqueada` solo ante un impedimento real. No marques automáticamente `completada`: requiere aceptación y las verificaciones acordadas.
+- Todas las tareas HC, incluidas las de alcance exclusivamente documental, requieren después una auditoría independiente mediante `$trakia-architecture check HC-XX-YY`. Esta implementación termina en `en revisión`; documenta pruebas y resultados para que el siguiente paso pueda auditarse. La auditoría no aprueba el cierre ni cambia el estado a `completada`.
 - Actualiza `docs/progress.md` con el estado y enlace a la tarea cuando cambie el estado o complete trabajo relevante. Mantén allí solo el resumen global.
 - Actualiza documentación técnica si cambian comportamientos o decisiones.
 - No uses el README raíz para registrar progreso.
@@ -75,6 +76,14 @@ Añade la ruta de especificación utilizada, el estado final registrado y la doc
 
 Esta skill no ejecuta por defecto commits, push, creación de PR, merge ni cambios de rama. Esas operaciones se gestionan mediante `trakia-git` y requieren autorización expresa aplicable a la operación. No invoques otra skill para operaciones Git sin solicitud del usuario.
 
+### Flujo obligatorio posterior
+
+Al terminar esta skill, el flujo HC continúa en este orden:
+
+1. `$trakia-task HC-XX-YY`: implementar, verificar y documentar; estado final `en revisión`.
+2. `$trakia-architecture check HC-XX-YY`: auditoría independiente y registro del resultado en la tarea. En cambios exclusivamente documentales, registra «sin impacto arquitectónico».
+3. `$trakia-git commit HC-XX-YY`: solo con pruebas satisfactorias y auditoría sin bloqueos. La invocación explícita del propietario acepta el cierre; esa aceptación se registra durante el commit.
+
 ## Docker y PostgreSQL
 
 No inicies, detengas, reinicies ni reconstruyas servicios Docker por iniciativa propia como mantenimiento. Las verificaciones pueden usar un entorno ya disponible, respetando las instrucciones y permisos del proyecto. Si hace falta cambiar el estado del entorno, usa `trakia-docker` dentro del alcance autorizado. No elimines datos, bases ni volúmenes.
@@ -82,7 +91,7 @@ No inicies, detengas, reinicies ni reconstruyas servicios Docker por iniciativa 
 ## Delegación
 
 - **Tarea sencilla:** trabaja con el agente principal; no se requieren subagentes.
-- **Tarea intermedia:** considera una revisión independiente solo si aporta valor.
-- **Tarea compleja:** valora uno o dos subagentes para análisis, pruebas o revisión arquitectónica.
+- **Tarea intermedia:** considera una revisión adicional solo si aporta valor; no sustituye la auditoría arquitectónica obligatoria del flujo.
+- **Tarea compleja:** valora uno o dos subagentes para análisis o pruebas; su revisión no sustituye el comando arquitectónico independiente obligatorio.
 
 Considera delegar cuando haya cambios en varios módulos, integraciones externas complejas, persistencia o migraciones con riesgos relevantes, problemas difíciles de diagnosticar o necesidad de revisión independiente. Los subagentes revisores trabajan por defecto en solo lectura. No delegues operaciones Git, eliminación de datos ni acciones destructivas. Evita ediciones simultáneas de los mismos archivos. La indisponibilidad de subagentes no bloquea una tarea sencilla; no son obligatorios para las implementaciones.

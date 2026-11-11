@@ -18,7 +18,9 @@ Consulta siempre las versiones actuales de estos documentos. La guía contiene l
 
 Invocación: `$trakia-architecture check HC-XX-YY`.
 
-Revisa los cambios asociados a la tarea. Determina el alcance mediante el diff disponible, archivos modificados o el contexto explícito de la tarea. No supongas que una tarea equivale a un único commit. Si no puedes determinar el alcance, indícalo antes de emitir conclusiones.
+Es el paso obligatorio e independiente entre `$trakia-task` y `$trakia-git commit` para todas las tareas HC, incluidas las de alcance exclusivamente documental. Revisa los cambios asociados a la tarea. Determina el alcance mediante el diff disponible, archivos modificados o el contexto explícito de la tarea. No supongas que una tarea equivale a un único commit. Si no puedes determinar el alcance, indícalo antes de emitir conclusiones.
+
+Tras la revisión, registra el resultado en **Ejecución y resultados**, bajo `### Revisión arquitectónica`, en `docs/tasks/HC-XX/HC-XX-YY.md`. Para cambios exclusivamente documentales, registra «sin impacto arquitectónico» y la razón. Distingue hallazgos bloqueantes de recomendaciones no bloqueantes. No cambies el estado de la tarea ni registres su aceptación: la auditoría no aprueba automáticamente el cierre.
 
 ### `explain <módulo>`
 
@@ -53,4 +55,4 @@ Si no hay hallazgos, indícalo expresamente. Una revisión manual no equivale a 
 
 ## Límites
 
-`check`, `explain` y `audit` son de solo lectura: no modifican archivos ni ejecutan refactorizaciones. No realizan commits, push, PR ni merges; tampoco alteran Docker o la base de datos.
+`check` solo puede modificar el documento de la tarea para registrar el resultado de la auditoría; no cambia código, estados ni aceptación. `explain` y `audit` son de solo lectura. Ninguna operación ejecuta refactorizaciones, commits, push, PR o merges; tampoco altera Docker o bases de datos.

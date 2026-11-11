@@ -8,7 +8,7 @@ Comandos disponibles para gestionar Git, Docker, tareas HC y revisiones arquitec
 |---|---|
 | `$trakia-git start HC-02 exercise-catalog` | Inicia el bloque y prepara su rama. |
 | `$trakia-git status` | Consulta el estado Git y de la PR asociada. |
-| `$trakia-git commit HC-02-01` | Cierra una tarea verificada, registra la aceptación del propietario y crea un commit convencional local. |
+| `$trakia-git commit HC-02-01` | Verifica evidencias, registra la aceptación del propietario y crea el commit convencional local de cierre. |
 | `$trakia-git publish` | Publica la rama. |
 | `$trakia-git pr` | Crea una PR para la rama publicada. |
 | `$trakia-git finish` | Revisa y finaliza el bloque mediante su PR. |
@@ -38,11 +38,13 @@ Servicios admitidos: `web`, `api`, `contracts` y `db`.
 
 | Comando | Acción |
 |---|---|
-| `$trakia-architecture check HC-XX-YY` | Revisa arquitectónicamente los cambios de la tarea. |
+| `$trakia-architecture check HC-XX-YY` | Audita independientemente y registra el resultado en la tarea; no aprueba el cierre. |
 | `$trakia-architecture explain workouts` | Explica las convenciones de un módulo. |
 | `$trakia-architecture audit apps/api` | Audita la arquitectura de una ruta. |
 
 ## Flujo habitual
+
+Flujo obligatorio para todas las tareas HC, también las documentales: implementar y verificar con estado `en revisión`, auditar y registrar el resultado, y cerrar mediante el commit explícitamente invocado por el propietario. Si el cambio es solo documental, la auditoría puede concluir «sin impacto arquitectónico».
 
 ```sh
 $trakia-docker start
