@@ -8,7 +8,7 @@ Comandos disponibles para gestionar Git, Docker, tareas HC y revisiones arquitec
 |---|---|
 | `$trakia-git start HC-02 exercise-catalog` | Inicia el bloque y prepara su rama. |
 | `$trakia-git status` | Consulta el estado Git y de la PR asociada. |
-| `$trakia-git commit HC-02-01` | Registra la tarea en un commit convencional. |
+| `$trakia-git commit HC-02-01` | Cierra una tarea verificada, registra la aceptación del propietario y crea un commit convencional local. |
 | `$trakia-git publish` | Publica la rama. |
 | `$trakia-git pr` | Crea una PR para la rama publicada. |
 | `$trakia-git finish` | Revisa y finaliza el bloque mediante su PR. |

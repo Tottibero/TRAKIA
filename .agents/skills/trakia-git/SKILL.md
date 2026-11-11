@@ -34,15 +34,16 @@ Formato: `type(scope): description [HC-XX-YY]`; scope opcional. Tipos permitidos
 
 Antes de cada commit, revisa el diff y los archivos afectados; comprueba que no se incluyan secretos; ejecuta las verificaciones pertinentes; prepara solo los archivos de la tarea (nunca uses `git add .` indiscriminadamente); revisa el diff staged y crea un mensaje descriptivo. No crees commits vacíos ni incluyas cambios ajenos. Si la autorización para implementar la tarea incluye registrarla mediante Git, crea los commits locales necesarios sin pedir autorización por cada commit. Esa autorización no permite publicar, hacer merge ni modificar otras ramas.
 
-El commit de una tarea también cierra su registro documental, siempre que la aceptación ya esté acreditada:
+La invocación explícita de `$trakia-git commit HC-XX-YY` por el propietario autoriza y acepta el cierre de esa tarea. La aceptación se registra durante este procedimiento; no se exige una aprobación previa en el documento. La revisión arquitectónica favorable es una verificación requerida, pero por sí sola nunca equivale a aceptación.
 
 1. Valida `HC-XX-YY`, conservando el sufijo minúsculo, y resuelve `docs/tasks/HC-XX/HC-XX-YY.md`, el índice `docs/tasks/HC-XX/README.md` y `docs/progress.md`.
-2. Comprueba que la tarea está `en revisión`, que **Revisión y aceptación** registra aprobación explícita con evidencia y que **Pruebas ejecutadas y resultados** documenta verificaciones acordes a sus criterios, sin fallos o bloqueos pendientes.
-3. Si falta aprobación o evidencia, detente: no cambies estados, no prepares archivos ni crees el commit. La invocación de `commit` autoriza registrar una tarea aprobada; no constituye por sí misma su aprobación.
-4. Cuando se cumplan los requisitos, cambia a `completada` el estado de la tarea, sincroniza el estado y resumen del índice del bloque y de `docs/progress.md`, y registra en la tarea que su documentación se incluye en el commit de cierre. No inventes ni anticipes el hash.
-5. Prepara juntos los cambios de implementación y los tres documentos de estado, revisa todo el diff staged y crea un único commit convencional con el identificador completo de tarea. Si hay cambios ajenos o no puedes identificar con claridad los archivos de la tarea, detente.
+2. Comprueba que la implementación está terminada, que **Pruebas ejecutadas y resultados** documenta verificaciones satisfactorias acordes con los criterios, y que la revisión arquitectónica está registrada sin hallazgos bloqueantes. No debe haber pruebas fallidas pendientes, bloqueos ni incidencias que impidan el cierre.
+3. Si falta alguna verificación o evidencia, hay fallos pendientes o existen hallazgos bloqueantes, detente sin modificar archivos, preparar cambios ni crear commits. No interpretes una auditoría arquitectónica favorable como aceptación.
+4. Cumplidas las verificaciones, la invocación explícita del propietario constituye la aprobación del cierre. Regístrala en **Revisión y aceptación**, identificando que procede de la autorización del propietario mediante `$trakia-git commit HC-XX-YY` y resumiendo la evidencia de pruebas y revisión arquitectónica.
+5. Cambia a `completada` el estado de la tarea, sincroniza estado y resumen en el índice del bloque y `docs/progress.md`, y registra que implementación y documentación se incluyen en el commit de cierre. No inventes ni anticipes el hash.
+6. Comprueba que todos los cambios staged y unstaged pertenecen a la tarea o al procedimiento de cierre expresamente solicitado; excluye cualquier cambio ajeno. Prepara implementación, procedimiento y documentación de cierre, revisa el diff staged completo y crea un único commit convencional con el identificador completo. Si el alcance no es claro o no cabe coherentemente en este commit, detente.
 
-No marques tareas como `completada` por el mero hecho de ejecutar este comando. No cambies la especificación aprobada ni crees commits adicionales para registrar el hash del commit de cierre.
+No marques tareas como `completada` si faltan verificaciones satisfactorias o una revisión arquitectónica sin bloqueos. No cambies la especificación aprobada ni crees commits adicionales para registrar el hash del commit de cierre.
 
 ## publish — publicar la rama
 

@@ -35,7 +35,9 @@ pnpm dev:web
 
 La interfaz local está disponible en `http://localhost:5173`; la API escucha en `http://localhost:3033`. El endpoint de salud es `http://localhost:3033/api/health`.
 
-La variable `PORT` cambia el puerto de la API; por defecto es `3033`. Los valores inválidos detienen el arranque con un error. `CORS_ORIGINS` acepta una lista de orígenes separada por comas y, por defecto, permite `http://localhost:5173`.
+La variable `PORT` cambia el puerto de la API; por defecto es `3033`. Los valores inválidos detienen el arranque con un error. `CORS_ORIGINS` acepta una lista explícita de orígenes HTTP(S) separados por comas y, por defecto, permite `http://localhost:5173`; no admite rutas ni comodines. `TRUSTED_PROXIES` admite IP, rangos CIDR o nombres de interfaz separados por comas y por defecto no confía en ningún proxy. Configura únicamente los proxies que controlas y asegúrate de que sustituyen `X-Forwarded-For` al recibir tráfico externo: Express deriva `request.ip` usando esa lista y el rate limit de login cuenta por esa IP.
+
+Las operaciones que modifican estado requieren `Origin` permitido y `X-TRAKIA-CSRF: 1`, incluido login. Las llamadas sin `Origin` también se rechazan; clientes de servidor deben usar un origen permitido y el encabezado CSRF. CORS admite credenciales solo para los orígenes configurados y limita métodos y encabezados. Para producción, sirve web y API bajo un mismo origen visible con un proxy inverso (por ejemplo `/` hacia web y `/api` hacia la API); configura ese origen exacto en `CORS_ORIGINS` y el proxy de entrada en `TRUSTED_PROXIES`. TLS debe terminar en el proxy y este debe sobrescribir cabeceras reenviadas no confiables.
 
 Vite conserva el prefijo `/api` y reenvía esas peticiones a `http://localhost:3033`. Por ejemplo, `http://localhost:5173/api/health` llega al endpoint de salud de la API.
 

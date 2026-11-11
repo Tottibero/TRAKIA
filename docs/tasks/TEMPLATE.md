@@ -38,4 +38,6 @@
 - **Resultado:** pendiente de aprobación.
 - **Evidencia de revisión y aprobación:** pendiente.
 
+La invocación explícita del propietario de `$trakia-git commit HC-XX-YY` constituye la aceptación del cierre y se registra durante el commit, una vez documentadas pruebas satisfactorias y revisión arquitectónica sin bloqueos. La revisión arquitectónica favorable por sí sola no equivale a aceptación.
+
 ### Commit

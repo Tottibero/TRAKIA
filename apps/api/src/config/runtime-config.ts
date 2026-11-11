@@ -38,5 +38,34 @@ export function getCorsOrigins(value: string | undefined = process.env.CORS_ORIG
     throw new Error('CORS_ORIGINS must contain at least one allowed origin.')
   }
 
-  return origins
+  for (const origin of origins) {
+    let parsed: URL
+    try {
+      parsed = new URL(origin)
+    } catch {
+      throw new Error('CORS_ORIGINS must contain valid HTTP(S) origins.')
+    }
+    if (
+      !['http:', 'https:'].includes(parsed.protocol) ||
+      parsed.origin !== origin ||
+      parsed.username ||
+      parsed.password
+    ) {
+      throw new Error('CORS_ORIGINS must contain valid HTTP(S) origins without paths or credentials.')
+    }
+  }
+
+  return [...new Set(origins)]
+}
+
+export function getTrustedProxies(value: string | undefined = process.env.TRUSTED_PROXIES): string[] {
+  if (value === undefined || value.trim() === '') return []
+  return [
+    ...new Set(
+      value
+        .split(',')
+        .map((proxy) => proxy.trim())
+        .filter(Boolean),
+    ),
+  ]
 }

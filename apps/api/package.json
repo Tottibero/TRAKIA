@@ -13,7 +13,7 @@
     "db:migration:revert": "typeorm migration:revert -d ${TRAKIA_DB_DIST:-dist}/database/data-source.js",
     "db:migration:generate": "typeorm migration:generate src/database/migrations/$npm_config_name -d ${TRAKIA_DB_DIST:-dist}/database/data-source.js",
     "typecheck": "tsc --noEmit --incremental false -p tsconfig.build.json",
-    "test": "pnpm build && node --test test/auth-token.test.mjs test/database-config.test.mjs test/integration-database.test.mjs test/runtime-config.test.mjs test/users.test.mjs"
+    "test": "pnpm build && node --test test/auth-token.test.mjs test/database-config.test.mjs test/http-security.test.mjs test/integration-database.test.mjs test/runtime-config.test.mjs test/users.test.mjs"
   },
   "dependencies": {
     "@nestjs/common": "12.4.2",

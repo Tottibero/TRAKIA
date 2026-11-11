@@ -10,7 +10,7 @@
 - No uses APIs directas ni métodos alternativos para publicar cambios en GitHub.
 - `main` debe permanecer estable: integra bloques mediante pull request y no trabajes en ella para implementar tareas.
 - La autorización para implementar una tarea y registrarla mediante commits permite crear esos commits locales dentro de su alcance. Publicar ramas y hacer merge requieren autorización explícita; una autorización no cubre otras ramas ni archivos.
-- `$trakia-git commit HC-XX-YY` cierra también el estado documental solo si la tarea tiene aprobación y evidencias de revisión y pruebas registradas; entonces sincroniza tarea, índice HC y progreso en el mismo commit. Invocar el comando no equivale a aprobar una tarea.
+- La invocación explícita del propietario de `$trakia-git commit HC-XX-YY` constituye autorización y aceptación del cierre. Antes, comprueba implementación terminada, pruebas satisfactorias documentadas y revisión arquitectónica sin bloqueos; si falta evidencia, hay fallos pendientes o hallazgos bloqueantes, detente sin modificar archivos. Si cumple, registra la aceptación durante el cierre y sincroniza tarea, índice HC y progreso en el mismo commit local. La auditoría favorable por sí sola no aprueba la tarea.
 - Conserva el historial remoto existente. No uses force push ni sobrescribas ramas remotas.
 
 ## Seguridad y privacidad
