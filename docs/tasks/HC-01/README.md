@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | HC-01-03g | Organización y gobernanza documental | en revisión | [HC-01-03g.md](HC-01-03g.md) |
 | HC-01-04 | Calidad, pruebas arquitectónicas y CI | en revisión | [HC-01-04.md](HC-01-04.md) |
-| HC-01-05a | Usuarios y persistencia | pendiente | [HC-01-05a.md](HC-01-05a.md) |
+| HC-01-05a | Usuarios y persistencia | en revisión | [HC-01-05a.md](HC-01-05a.md) |
 | HC-01-05b | Comandos administrativos de autenticación | pendiente | [HC-01-05b.md](HC-01-05b.md) |
 | HC-01-05c | Autenticación JWT y API | pendiente | [HC-01-05c.md](HC-01-05c.md) |
 | HC-01-05d | Seguridad HTTP | pendiente | [HC-01-05d.md](HC-01-05d.md) |

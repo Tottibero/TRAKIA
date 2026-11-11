@@ -15,6 +15,7 @@
 | HC-01-03f | Implementada localmente, pendiente de revisión | Skills `trakia-task` y `trakia-architecture`, cheatsheet de comandos e integración en `AGENTS.md`. |
 | [HC-01-03g](tasks/HC-01/HC-01-03g.md) | En revisión | Organización y gobernanza documental; sin cambios funcionales. |
 | [HC-01-04](tasks/HC-01/HC-01-04.md) | En revisión | HC-01-04b completa límites de Domain y Presentation; fixtures, lint y `pnpm check` pasan. Actions pendiente. |
-| [HC-01-05a](tasks/HC-01/HC-01-05a.md), [05b](tasks/HC-01/HC-01-05b.md), [05c](tasks/HC-01/HC-01-05c.md), [05d](tasks/HC-01/HC-01-05d.md), [05e](tasks/HC-01/HC-01-05e.md) | Preparadas; pendientes de implementación | Autenticación privada secuenciada: usuarios/persistencia, comandos administrativos, JWT/API, seguridad HTTP y frontend. |
+| [HC-01-05a](tasks/HC-01/HC-01-05a.md) | En revisión | Usuarios y persistencia verificadas con `pnpm check` e integración en `trakia_test`; `trakia_dev` permanece intacta. |
+| [HC-01-05b](tasks/HC-01/HC-01-05b.md), [05c](tasks/HC-01/HC-01-05c.md), [05d](tasks/HC-01/HC-01-05d.md), [05e](tasks/HC-01/HC-01-05e.md) | Preparadas; pendientes de implementación | Comandos administrativos, JWT/API, seguridad HTTP y frontend. |
 
 Este registro no anticipa detalles técnicos que todavía no se hayan definido.
