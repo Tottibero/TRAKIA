@@ -17,4 +17,4 @@
 
 **Orden de autenticación:** HC-01-05a → HC-01-05b → HC-01-05c → HC-01-05d → HC-01-05e. El bloque solo se cierra cuando todas sus tareas están verificadas y aceptadas; la implementación por sí sola no basta. Aplican [ADR-014](../../decisions/ADR-014-integracion-postgresql-typeorm.md), [ADR-015](../../decisions/ADR-015-arquitectura-modular.md) y sus [convenciones](../../architecture/module-conventions.md).
 
-HC-01-06 consolida la verificación local de infraestructura, autenticación y calidad. La PR #1 está abierta; su primer check `quality` falló por el orden de inicialización de pnpm y `setup-node`. La corrección local requiere un commit de verificación y una nueva ejecución remota satisfactoria antes del cierre.
+HC-01-06 consolida la verificación local de infraestructura, autenticación y calidad. La PR #1 está abierta; su primer check `quality` falló por el orden de inicialización de pnpm y `setup-node`. El commit de verificación ya está creado localmente; su publicación y una nueva ejecución remota satisfactoria siguen pendientes antes del cierre.

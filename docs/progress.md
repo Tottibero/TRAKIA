@@ -20,6 +20,6 @@
 | [HC-01-05c](tasks/HC-01/HC-01-05c.md) | Completada | JWT y autenticación privada verificadas con `pnpm check` y runner HTTP en `trakia_test`; aprobación y revisión registradas. |
 | [HC-01-05d](tasks/HC-01/HC-01-05d.md) | Completada | Seguridad HTTP validada con `pnpm check`, auditoría arquitectónica sin bloqueos y runner aislado en `trakia_test`. |
 | [HC-01-05e](tasks/HC-01/HC-01-05e.md) | Completada | Ciclo `ARCH-ALL-001` corregido; `pnpm check`, auditoría limpia, Chrome/API mock y flujo manual real del propietario verificados. |
-| [HC-01-06](tasks/HC-01/HC-01-06.md) | En revisión | Verificaciones locales pasan; el primer `quality` de la PR #1 falló por el orden de setup pnpm/Node. Corrección local pendiente de commit de verificación y nuevo check remoto. |
+| [HC-01-06](tasks/HC-01/HC-01-06.md) | En revisión | Verificaciones locales pasan; el primer `quality` de la PR #1 falló por el orden de setup pnpm/Node. Commit de verificación local creado; publicación y nuevo check remoto pendientes. |
 
 Este registro no anticipa detalles técnicos que todavía no se hayan definido.
