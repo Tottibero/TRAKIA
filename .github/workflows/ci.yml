@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6-bookworm
+        env:
+          POSTGRES_USER: trakia
+          POSTGRES_PASSWORD: trakia_test
+          POSTGRES_DB: trakia_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U trakia -d trakia_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TRAKIA_TEST_DATABASE_URL: postgres://trakia:trakia_test@localhost:5432/trakia_test
+      DATABASE_SSL: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test:integration
+        env:
+          TRAKIA_SKIP_INTEGRATION_BUILD: 'true'

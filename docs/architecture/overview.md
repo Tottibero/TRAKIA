@@ -20,7 +20,7 @@ Frontend Vue 3, TypeScript, Vite, Tailwind, Pinia y TanStack Query; backend Nest
 - Workspace: `@trakia/web`, `@trakia/api` y `@trakia/contracts`.
 - Frontend: Vue 3 con Router y Pinia; TanStack Query comparte un `QueryClient` de aplicación. Vite sirve en `5173` y reenvía `/api` a `http://localhost:3033` sin quitar el prefijo.
 - Backend: NestJS organizado en módulos, con prefijo global `/api`; escucha en `PORT` o `3033` por defecto. `CORS_ORIGINS` es una lista separada por comas y su valor predeterminado es `http://localhost:5173`.
-- Contratos: Zod define `HealthResponseSchema` (`status: "ok"`). El paquete compila JavaScript CommonJS y declaraciones TypeScript a `dist`; web y API lo importan por nombre de paquete y `workspace:*`.
+- Contratos: Zod define `HealthResponseSchema` (`status: "ok"`). El paquete ESM compila JavaScript y declaraciones TypeScript a `dist`; web y API lo importan por nombre de paquete y `workspace:*`.
 - Salud técnica: `GET /api/health` valida su respuesta con el esquema compartido y no depende de almacenamiento ni servicios externos.
 
 Los scripts raíz compilan contracts antes de las aplicaciones. Los comandos de desarrollo también hacen una compilación inicial del paquete compartido; tras cambiar sus fuentes, se vuelve a ejecutar `pnpm --filter @trakia/contracts build`.

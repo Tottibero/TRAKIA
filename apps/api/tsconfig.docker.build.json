@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "outDir": "./node_modules/.cache/trakia-api-dist",
+    "tsBuildInfoFile": "./node_modules/.cache/trakia-api.tsbuildinfo"
+  }
+}

@@ -1,0 +1,12 @@
+FROM node:26.13.0-bookworm-slim
+
+WORKDIR /workspace
+RUN npm install --global corepack@0.34.5 && corepack enable && corepack prepare pnpm@12.19.0 --activate
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json apps/web/package.json
+COPY apps/api/package.json apps/api/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
+RUN corepack pnpm install --frozen-lockfile
+
+EXPOSE 3033
+CMD ["pnpm", "--filter", "@trakia/api", "dev:docker"]
