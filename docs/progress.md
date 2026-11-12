@@ -16,7 +16,7 @@
 | [HC-01-03g](tasks/HC-01/HC-01-03g.md) | En revisión | Organización y gobernanza documental; sin cambios funcionales. |
 | [HC-01-04](tasks/HC-01/HC-01-04.md) | En revisión | HC-01-04b completa límites de Domain y Presentation; fixtures, lint y `pnpm check` pasan. Actions pendiente. |
 | [HC-01-05a](tasks/HC-01/HC-01-05a.md) | Completada | Usuarios y persistencia verificadas con `pnpm check` e integración en `trakia_test`; commit local registrado. |
-| [HC-01-05b](tasks/HC-01/HC-01-05b.md) | Completada | Comandos administrativos verificados en `trakia_test`, incluido bootstrap concurrente; commit local registrado. |
+| [HC-01-05b](tasks/HC-01/HC-01-05b.md) | Completada | Correctivo CLI probado; bootstrap y primer login real confirmados manualmente por el propietario. Commit correctivo separado del original. |
 | [HC-01-05c](tasks/HC-01/HC-01-05c.md) | Completada | JWT y autenticación privada verificadas con `pnpm check` y runner HTTP en `trakia_test`; aprobación y revisión registradas. |
 | [HC-01-05d](tasks/HC-01/HC-01-05d.md) | Completada | Seguridad HTTP validada con `pnpm check`, auditoría arquitectónica sin bloqueos y runner aislado en `trakia_test`. |
 | [HC-01-05e](tasks/HC-01/HC-01-05e.md) | Pendiente | Autenticación frontend. |

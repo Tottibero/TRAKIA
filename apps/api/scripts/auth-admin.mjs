@@ -2,7 +2,7 @@ import 'reflect-metadata'
 import { createInterface } from 'node:readline/promises'
 import { stdin, stdout } from 'node:process'
 import { NestFactory } from '@nestjs/core'
-import { AppModule } from '../dist/app.module.js'
+import { AuthAdminModule } from '../dist/modules/auth/auth-admin.module.js'
 import { PasswordService, UsersService, validatePassword } from '../dist/modules/users/index.js'
 
 class InputError extends Error {}
@@ -17,7 +17,7 @@ if (!['bootstrap', 'reset-password'].includes(operation)) {
 
 async function execute(mode) {
   let app
-  let stage = 'configuración de la aplicación'
+  let stage = 'inicialización de NestJS/TypeORM'
   try {
     const values = await readCredentials()
     const email = values.email.trim()
@@ -29,7 +29,10 @@ async function execute(mode) {
       throw new InputError(error.message)
     }
 
-    app = await NestFactory.createApplicationContext(AppModule, { logger: false })
+    app = await NestFactory.createApplicationContext(AuthAdminModule, {
+      logger: false,
+      abortOnError: false,
+    })
     const passwords = app.get(PasswordService)
     const users = app.get(UsersService)
 
@@ -50,15 +53,55 @@ async function execute(mode) {
       stdout.write('Contraseña actualizada; las sesiones activas quedaron invalidadas.\n')
     }
   } catch (error) {
-    const message =
-      error instanceof InputError
-        ? error.message
-        : `Falló la ${stage}. Comprueba la configuración y el estado de la base de datos.`
+    const message = getSafeErrorMessage(error, stage)
     stdout.write(`Error: ${message}\n`)
     process.exitCode = 1
   } finally {
     if (app) await app.close().catch(() => {})
   }
+}
+
+function getSafeErrorMessage(error, stage) {
+  if (error instanceof InputError) return error.message
+
+  const safeDatabaseErrors = {
+    ECONNREFUSED:
+      'No se pudo conectar a PostgreSQL (ECONNREFUSED). Comprueba que el servicio esté iniciado y que DATABASE_URL use el host accesible desde este terminal.',
+    ETIMEDOUT: 'Se agotó el tiempo de conexión a PostgreSQL (ETIMEDOUT). Comprueba la red y DATABASE_URL.',
+    ENOTFOUND: 'No se pudo resolver el host de PostgreSQL (ENOTFOUND). Comprueba el host de DATABASE_URL.',
+    EHOSTUNREACH:
+      'No se puede alcanzar el host de PostgreSQL (EHOSTUNREACH). Comprueba la red y DATABASE_URL.',
+    '28P01': 'PostgreSQL rechazó la autenticación (28P01). Comprueba las credenciales configuradas.',
+    28000: 'PostgreSQL rechazó el acceso (28000). Comprueba las credenciales y permisos configurados.',
+    '3D000': 'La base configurada no existe (3D000). Comprueba el nombre indicado en DATABASE_URL.',
+  }
+
+  const messages = []
+  const codes = []
+  const visited = new Set()
+  for (let current = error, depth = 0; current && depth < 5 && !visited.has(current); depth += 1) {
+    visited.add(current)
+    if (typeof current.message === 'string') messages.push(current.message)
+    if (typeof current.code === 'string') codes.push(current.code)
+    current = current.cause
+  }
+
+  if (messages.some((message) => message.includes('DATABASE_URL is required'))) {
+    return 'Falta DATABASE_URL. Configura la conexión PostgreSQL antes de ejecutar el comando.'
+  }
+  if (messages.some((message) => message.includes('DATABASE_URL must'))) {
+    return 'DATABASE_URL no tiene un formato PostgreSQL válido; revisa host y nombre de base.'
+  }
+  if (messages.some((message) => message.includes('DATABASE_SSL'))) {
+    return 'DATABASE_SSL debe ser true o false y ser compatible con las opciones de DATABASE_URL.'
+  }
+  if (messages.some((message) => message.includes('JWT_SECRET must be configured'))) {
+    return 'JWT_SECRET no está configurado correctamente. El comando administrativo no necesita JWT; revisa que se esté usando su contexto aislado.'
+  }
+
+  const code = codes.find((value) => Object.hasOwn(safeDatabaseErrors, value))
+  if (code) return safeDatabaseErrors[code]
+  return `Falló la ${stage}. Comprueba la configuración y disponibilidad de PostgreSQL.`
 }
 
 async function readCredentials() {
@@ -72,6 +115,12 @@ async function readCredentials() {
       )
     }
     return { email: lines[0], password: lines[1], confirmation: lines[2] }
+  }
+
+  if (typeof stdin.setRawMode !== 'function') {
+    throw new InputError(
+      'La terminal no permite ocultar la contraseña; usa una terminal interactiva compatible o la entrada stdin segura.',
+    )
   }
 
   const rl = createInterface({ input: stdin, output: stdout })
@@ -113,6 +162,7 @@ function hiddenPrompt(label) {
     const cleanup = () => {
       stdin.off('data', onData)
       stdin.setRawMode(false)
+      stdin.pause()
     }
     stdin.on('data', onData)
   })

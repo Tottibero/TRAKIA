@@ -104,7 +104,7 @@ En Compose, la API arranca con `dev:docker` y `nest-cli.docker.json`; sus artefa
 
 ### PostgreSQL y migraciones
 
-La API requiere `DATABASE_URL`. En Compose apunta a `db:5432`; las credenciales proceden del mismo `.env.docker` que configura PostgreSQL (`POSTGRES_DB`, `POSTGRES_USER` y `POSTGRES_PASSWORD`). Desde el host PostgreSQL se publica únicamente en `127.0.0.1:5434`. Para ejecución local, proporciona la URL de la base de desarrollo por el entorno. `DATABASE_SSL` acepta `true` o `false`; por defecto TLS está desactivado en desarrollo y activado en `NODE_ENV=production`. TLS valida el certificado del servidor. `DATABASE_URL` puede incluir credenciales y no debe compartirse ni registrarse.
+La API requiere `DATABASE_URL`. En Compose apunta a `db:5432`; las credenciales proceden del mismo `.env.docker` que configura PostgreSQL (`POSTGRES_DB`, `POSTGRES_USER` y `POSTGRES_PASSWORD`). Desde el host PostgreSQL se publica únicamente en `127.0.0.1:5434`. Para ejecución local, proporciona la URL de la base de desarrollo por el entorno. `DatabaseConfig` toma `POSTGRES_USER` y `POSTGRES_PASSWORD` del entorno si están definidos, por lo que la URL host puede omitir credenciales cuando se exportan esas variables desde `.env.docker`. `DATABASE_SSL` acepta `true` o `false`; por defecto TLS está desactivado en desarrollo y activado en `NODE_ENV=production`. TLS valida el certificado del servidor. `DATABASE_URL` puede incluir credenciales y no debe compartirse ni registrarse.
 
 TypeORM no sincroniza ni modifica el esquema al iniciar la API. Las migraciones son explícitas y están versionadas en `apps/api/src/database/migrations`. Compila la API antes de usar sus comandos CLI:
 
@@ -117,5 +117,55 @@ pnpm --filter @trakia/api db:migration:generate --name=NombreMigracion
 ```
 
 En Compose los scripts usan el artefacto aislado bajo `apps/api/node_modules/.cache/trakia-api-dist`; desde el monorepo local usan `apps/api/dist`. Por ejemplo, tras iniciar el entorno de desarrollo: `docker compose exec api pnpm --filter @trakia/api db:migration:show`. Para ejecutar una migración dentro del contenedor: `docker compose exec api pnpm --filter @trakia/api db:migration:run`. La generación requiere que PostgreSQL esté disponible y compara el esquema con las entidades compiladas.
+
+#### Preparar el primer usuario en el entorno de desarrollo
+
+Desde la raíz del repositorio, se puede reutilizar la configuración local de Compose sin duplicar credenciales en `DATABASE_URL`. Estos comandos usan el endpoint de host publicado por Compose; requieren que PostgreSQL ya esté iniciado.
+
+```sh
+set -a
+. ./.env.docker
+set +a
+export DATABASE_URL="postgres://127.0.0.1:5434/${POSTGRES_DB}"
+export DATABASE_SSL=false
+pnpm --filter @trakia/api build
+
+verify_trakia_dev() {
+  pnpm --filter @trakia/api exec node --input-type=module -e '
+    import dataSource from "./dist/database/data-source.js";
+    await dataSource.initialize();
+    try {
+      const [{ database }] = await dataSource.query("SELECT current_database() AS database");
+      if (database !== "trakia_dev") {
+        console.error("La base efectiva no es trakia_dev; se cancela el paso.");
+        process.exitCode = 1;
+      } else {
+        console.log(`Base efectiva: ${database}`);
+      }
+    } finally {
+      await dataSource.destroy();
+    }
+  '
+}
+
+verify_trakia_dev
+pnpm --filter @trakia/api db:migration:show
+```
+
+Continúa solo si el preflight informa `Base efectiva: trakia_dev` y la lista de migraciones coincide con lo esperado. `migration:show` no aplica migraciones; TypeORM puede crear `typeorm_migrations` si esa tabla falta. En el estado inspeccionado está presente.
+
+Antes de aplicar cambios de esquema, vuelve a verificar el destino en el mismo shell:
+
+```sh
+verify_trakia_dev && pnpm --filter @trakia/api db:migration:run
+```
+
+El comando ejecuta únicamente migraciones no registradas y TypeORM las envuelve en una transacción. Comprueba el resultado con `verify_trakia_dev` y `db:migration:show`. Cuando la migración de `users` figure aplicada y el destino vuelva a verificarse, crea el usuario:
+
+```sh
+verify_trakia_dev && pnpm auth:bootstrap
+```
+
+`auth:bootstrap` solicita los secretos por el terminal con la contraseña oculta. No uses `db:migration:revert` para este procedimiento; la migración descendente de usuarios elimina su tabla.
 
 En un despliegue, compila previamente JavaScript con `pnpm --filter @trakia/api build`, configura `DATABASE_URL` y ejecuta el script `db:migration:run` desde `apps/api` antes de iniciar el servidor. El comando CLI no inicia Nest ni requiere Compose; con migraciones pendientes las aplica y con estado actualizado termina correctamente.

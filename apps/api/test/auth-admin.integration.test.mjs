@@ -10,10 +10,10 @@ import { getIntegrationDatabaseUrl } from '../../../scripts/integration-database
 const expectedDatabase = decodeURIComponent(getIntegrationDatabaseUrl().pathname.slice(1))
 const script = fileURLToPath(new URL('../scripts/auth-admin.mjs', import.meta.url))
 
-function runCommand(operation, email, password, confirmation = password) {
+function runCommand(operation, email, password, confirmation = password, env = process.env) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [script, operation], {
-      env: process.env,
+      env,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     let stdout = ''
@@ -25,6 +25,21 @@ function runCommand(operation, email, password, confirmation = password) {
     child.stdin.end(`${email}\n${password}\n${confirmation}\n`)
   })
 }
+
+test('admin CLI reports Nest initialization failure instead of aborting silently', async () => {
+  const env = { ...process.env }
+  delete env.DATABASE_URL
+  const password = 'synthetic initialization password'
+  const result = await runCommand('bootstrap', 'init@example.test', password, password, env)
+
+  assert.equal(result.code, 1)
+  assert.equal(result.signal, null)
+  assert.match(result.stdout, /Falta DATABASE_URL/)
+  assert.doesNotMatch(
+    `${result.stdout}\n${result.stderr}`,
+    /synthetic initialization password|postgres(?:ql)?:\/\//i,
+  )
+})
 
 test('admin CLI bootstraps, rejects repeats, resets, and serializes concurrent bootstraps', async () => {
   const suffix = randomUUID()
