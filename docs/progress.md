@@ -19,6 +19,6 @@
 | [HC-01-05b](tasks/HC-01/HC-01-05b.md) | Completada | Correctivo CLI probado; bootstrap y primer login real confirmados manualmente por el propietario. Commit correctivo separado del original. |
 | [HC-01-05c](tasks/HC-01/HC-01-05c.md) | Completada | JWT y autenticación privada verificadas con `pnpm check` y runner HTTP en `trakia_test`; aprobación y revisión registradas. |
 | [HC-01-05d](tasks/HC-01/HC-01-05d.md) | Completada | Seguridad HTTP validada con `pnpm check`, auditoría arquitectónica sin bloqueos y runner aislado en `trakia_test`. |
-| [HC-01-05e](tasks/HC-01/HC-01-05e.md) | Pendiente | Autenticación frontend. |
+| [HC-01-05e](tasks/HC-01/HC-01-05e.md) | Completada | Ciclo `ARCH-ALL-001` corregido; `pnpm check`, auditoría limpia, Chrome/API mock y flujo manual real del propietario verificados. |
 
 Este registro no anticipa detalles técnicos que todavía no se hayan definido.

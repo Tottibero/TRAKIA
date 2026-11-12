@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { ESLint } from 'eslint'
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { join, relative, resolve } from 'node:path'
 
 const root = process.cwd()
@@ -23,19 +23,26 @@ async function lintFixture(filePath, code, expectError) {
 }
 
 function cruiseFixture(fixtureRoot) {
-  return spawnSync(
-    'pnpm',
-    [
-      'exec',
-      'depcruise',
-      '--config',
-      '.dependency-cruiser.cjs',
-      '--output-type',
-      'err-long',
-      relative(root, fixtureRoot),
-    ],
-    { cwd: root, encoding: 'utf8' },
-  )
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(
+      process.execPath,
+      [
+        resolve(root, 'node_modules/dependency-cruiser/bin/dependency-cruiser.mjs'),
+        '--config',
+        '.dependency-cruiser.cjs',
+        '--output-type',
+        'err-long',
+        relative(root, fixtureRoot),
+      ],
+      { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8').on('data', (chunk) => (stdout += chunk))
+    child.stderr.setEncoding('utf8').on('data', (chunk) => (stderr += chunk))
+    child.once('error', reject)
+    child.once('close', (status, signal) => resolvePromise({ status, signal, stdout, stderr }))
+  })
 }
 
 async function verifyEslintRestrictions() {
@@ -111,7 +118,7 @@ async function verifyDependencyCruiserRestrictions() {
 
   try {
     writeFileSync(join(domainDirectory, 'http.ts'), "import 'node:http'\n")
-    let result = cruiseFixture(fixtureRoot)
+    let result = await cruiseFixture(fixtureRoot)
     assert.notEqual(result.status, 0, 'dependency-cruiser must reject HTTP imports from domain')
     assert.match(`${result.stdout}\n${result.stderr}`, /domain-no-http/)
 
@@ -130,7 +137,7 @@ async function verifyDependencyCruiserRestrictions() {
       join(fixtureRoot, 'private.controller.ts'),
       "import { ExampleRepository } from './infrastructure/example.repository.js'\nvoid ExampleRepository\n",
     )
-    result = cruiseFixture(fixtureRoot)
+    result = await cruiseFixture(fixtureRoot)
     assert.notEqual(
       result.status,
       0,
@@ -145,8 +152,27 @@ async function verifyDependencyCruiserRestrictions() {
       join(presentationDirectory, 'allowed.ts'),
       "import { execute } from '../application/use-case.js'\nimport type { HealthResponse } from '@trakia/contracts'\nvoid [execute, null as HealthResponse | null]\n",
     )
-    result = cruiseFixture(fixtureRoot)
+    result = await cruiseFixture(fixtureRoot)
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true })
+  }
+}
+
+async function verifyWebCircularDependencyRestriction() {
+  const fixtureRoot = mkdtempSync(resolve(root, 'apps/web/src/__architecture-fixture-'))
+  try {
+    writeFileSync(
+      join(fixtureRoot, 'first.ts'),
+      "import { second } from './second.js'\nexport const first = second\n",
+    )
+    writeFileSync(
+      join(fixtureRoot, 'second.ts'),
+      "import { first } from './first.js'\nexport const second = first\n",
+    )
+    const result = await cruiseFixture(fixtureRoot)
+    assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.match(`${result.stdout}\n${result.stderr}`, /no-circular/)
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true })
   }
@@ -155,5 +181,6 @@ async function verifyDependencyCruiserRestrictions() {
 export async function verifyArchitectureRuleFixtures() {
   await verifyEslintRestrictions()
   await verifyDependencyCruiserRestrictions()
-  console.log('✔ architecture restriction fixtures passed (forbidden and allowed imports).')
+  await verifyWebCircularDependencyRestriction()
+  console.log('✔ architecture restriction fixtures passed (including web circular imports).')
 }

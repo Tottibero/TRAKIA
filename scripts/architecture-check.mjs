@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process'
+import { resolve } from 'node:path'
 import { verifyArchitectureRuleFixtures } from './architecture-rule-tests.mjs'
 
 await verifyArchitectureRuleFixtures()
 
 const args = [
-  'exec',
-  'depcruise',
+  resolve('node_modules/dependency-cruiser/bin/dependency-cruiser.mjs'),
   '--config',
   '.dependency-cruiser.cjs',
   '--output-type',
@@ -16,7 +16,7 @@ const args = [
 ]
 
 const result = await new Promise((resolve, reject) => {
-  const child = spawn('pnpm', args, { stdio: ['ignore', 'pipe', 'inherit'] })
+  const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'inherit'] })
   let output = ''
   child.stdout.setEncoding('utf8').on('data', (chunk) => (output += chunk))
   child.once('error', reject)
@@ -30,6 +30,10 @@ if (result.code !== 0) {
 
 const graph = JSON.parse(result.output)
 const violations = []
+
+for (const violation of graph.summary.violations) {
+  violations.push(`${violation.rule.name}: ${violation.from}${violation.to ? ` -> ${violation.to}` : ''}`)
+}
 
 for (const module of graph.modules) {
   const apiSource = module.source.match(/^apps\/api\/src\/modules\/([^/]+)\//)
@@ -65,4 +69,5 @@ if (violations.length) {
   process.exit(1)
 }
 
+console.log(`✔ dependency-cruiser rules checked (${graph.modules.length} source modules; no violations).`)
 console.log(`✔ module encapsulation checked (${graph.modules.length} source modules).`)

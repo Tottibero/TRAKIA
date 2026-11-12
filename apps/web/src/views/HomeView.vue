@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
+import { useAuth } from '@/features/auth'
 import { getHealth } from '../services/health'
 
 const healthQuery = useQuery({
@@ -7,6 +8,7 @@ const healthQuery = useQuery({
   queryFn: getHealth,
   retry: false,
 })
+const auth = useAuth()
 </script>
 
 <template>
@@ -18,7 +20,19 @@ const healthQuery = useQuery({
         <a class="text-sm font-semibold tracking-[0.24em] text-stone-100" href="/" aria-label="TRAKIA, inicio"
           >TRAKIA</a
         >
-        <span class="text-xs tracking-[0.16em] text-stone-500">ENTRENAMIENTO PERSONAL</span>
+        <div class="flex items-center gap-4">
+          <span class="hidden text-xs tracking-[0.16em] text-stone-500 sm:inline">{{
+            auth.user.value?.email
+          }}</span>
+          <button
+            class="text-xs text-stone-400 transition hover:text-lime-300"
+            type="button"
+            :disabled="auth.isLoggingOut.value"
+            @click="auth.logout()"
+          >
+            {{ auth.isLoggingOut.value ? 'Saliendo…' : 'Cerrar sesión' }}
+          </button>
+        </div>
       </header>
 
       <section class="grid gap-12 py-20 md:grid-cols-[1.2fr_0.8fr] md:items-end md:py-28">
