@@ -21,5 +21,6 @@
 | [HC-01-05d](tasks/HC-01/HC-01-05d.md) | Completada | Seguridad HTTP validada con `pnpm check`, auditoría arquitectónica sin bloqueos y runner aislado en `trakia_test`. |
 | [HC-01-05e](tasks/HC-01/HC-01-05e.md) | Completada | Ciclo `ARCH-ALL-001` corregido; `pnpm check`, auditoría limpia, Chrome/API mock y flujo manual real del propietario verificados. |
 | [HC-01-06](tasks/HC-01/HC-01-06.md) | Completada | Verificación integral local y auditoría arquitectónica sin violaciones; 32 unitarias y 13 escenarios de integración en `trakia_test`. `quality` pasó en run `43136334983` para `c625e088d333e99131562ebba91e0bb802f7011a`. Aceptación actual autorizada. |
+| [HC-02-01](tasks/HC-02/HC-02-01.md) | Completada | Modelo conceptual e índices documentados; enlaces, alcance y seis escenarios revisados; auditoría arquitectónica sin hallazgos. Aceptación del propietario registrada en el cierre. |
 
 La aceptación actual de HC-01-02, HC-01-02c, HC-01-03a–HC-01-03g, HC-01-04 y HC-01-06 se registra por autorización explícita del propietario en la solicitud de cierre definitivo; no se atribuye a revisiones históricas. HC-01-01, HC-01-02b y HC-01-05a–HC-01-05e conservan sus cierres previamente documentados. Las pruebas automatizadas se distinguen de los recorridos manuales del propietario en las fichas correspondientes.
