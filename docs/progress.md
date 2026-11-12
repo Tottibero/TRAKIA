@@ -3,23 +3,23 @@
 | Tarea | Estado | Alcance |
 | --- | --- | --- |
 | HC-00 | Cerrado a nivel de diseño | Arquitectura y decisiones aprobadas. |
-| HC-01-01 | Cerrado | Inicialización del monorepo pnpm. |
-| HC-01-02 | Implementada, pendiente de revisión | Inicialización de aplicaciones y contratos compartidos. |
-| HC-01-02b | Cerrada | Instrucciones permanentes en `AGENTS.md` y publicación inicial del monorepo en `main` (`50d4ab30a63fb8755e5896af9c0b43cc99312ebe`). |
-| HC-01-02c | Commit local verificado; revisión y aceptación pendientes | Simplificación del README e instrucciones locales en `docs/development.md` (commit `825c06e`). |
-| HC-01-03a | Implementada y verificada localmente, pendiente de revisión | Entorno Docker Compose de desarrollo con web, API, contracts y PostgreSQL persistente. |
-| HC-01-03b | Implementada y verificada localmente, pendiente de revisión | Integración PostgreSQL/TypeORM, configuración segura y migraciones explícitas versionadas. |
-| HC-01-03c | Implementada y verificada localmente, pendiente de revisión | Skill `trakia-docker` para gestionar de forma segura el entorno TRAKIA. |
-| HC-01-03d | Implementada localmente, pendiente de revisión | Skill `trakia-git` e instrucciones de GitHub Flow por bloques HC. |
-| HC-01-03e | Implementada localmente, pendiente de revisión | ADR-015 y guía de arquitectura modular; los controles automáticos quedan para HC-01-04. |
-| HC-01-03f | Implementada localmente, pendiente de revisión | Skills `trakia-task` y `trakia-architecture`, cheatsheet de comandos e integración en `AGENTS.md`. |
-| [HC-01-03g](tasks/HC-01/HC-01-03g.md) | En revisión | Organización y gobernanza documental; sin cambios funcionales. |
-| [HC-01-04](tasks/HC-01/HC-01-04.md) | En revisión | HC-01-04b completa límites de Domain y Presentation; fixtures, lint y `pnpm check` pasan. Actions pendiente. |
+| HC-01-01 | Completada | Inicialización del monorepo pnpm; commit `50d4ab3`. Aceptación histórica conservada. |
+| HC-01-02 | Completada | Aplicaciones y contratos compartidos; incluidos en el scaffold `50d4ab3`. Regularización autorizada; `pnpm check` y CI integrados satisfactorios. |
+| HC-01-02b | Completada | Instrucciones permanentes en `AGENTS.md` y publicación inicial en `main` (`50d4ab30a63fb8755e5896af9c0b43cc99312ebe`). Cierre histórico conservado. |
+| HC-01-02c | Completada | Simplificación documental e instrucciones en `docs/development.md` (`825c06e`). Aceptación actual autorizada con esta regularización. |
+| HC-01-03a | Completada | Compose web/API/contracts/PostgreSQL (`c75f99a`); configuración y servicios revisados sin alterar datos. Aceptación actual autorizada. |
+| HC-01-03b | Completada | PostgreSQL/TypeORM y migraciones (`c590849`, correctivo `ecbc6ad`); integración aislada y salvaguardas verificadas. Aceptación actual autorizada. |
+| HC-01-03c | Completada | Skill `trakia-docker` (`cd52a46`); revisada con sus instrucciones. Aceptación actual autorizada. |
+| HC-01-03d | Completada | Skill GitHub Flow (`e5a986c`); procedimiento contrastado con los commits y la PR del bloque. Aceptación actual autorizada. |
+| HC-01-03e | Completada | ADR-015 y guía modular (`bc41f00`); reglas comprobadas en la revisión integral y controles automáticos. Aceptación actual autorizada. |
+| HC-01-03f | Completada | Skills de tarea/arquitectura y cheatsheet (`07a727a`); instrucciones y enlaces revisados. Aceptación actual autorizada. |
+| [HC-01-03g](tasks/HC-01/HC-01-03g.md) | Completada | Gobernanza documental; 15 destinos válidos, revisión estática y `git diff --check` satisfactorio. Aceptación actual autorizada. |
+| [HC-01-04](tasks/HC-01/HC-01-04.md) | Completada | Fixtures arquitectónicas, lint, formato, typecheck, unitarias e integración pasan. `quality` pasó en run `43136334983` para `c625e088d333e99131562ebba91e0bb802f7011a`; fallos anteriores corregidos. |
 | [HC-01-05a](tasks/HC-01/HC-01-05a.md) | Completada | Usuarios y persistencia verificadas con `pnpm check` e integración en `trakia_test`; commit local registrado. |
 | [HC-01-05b](tasks/HC-01/HC-01-05b.md) | Completada | Correctivo CLI probado; bootstrap y primer login real confirmados manualmente por el propietario. Commit correctivo separado del original. |
 | [HC-01-05c](tasks/HC-01/HC-01-05c.md) | Completada | JWT y autenticación privada verificadas con `pnpm check` y runner HTTP en `trakia_test`; aprobación y revisión registradas. |
 | [HC-01-05d](tasks/HC-01/HC-01-05d.md) | Completada | Seguridad HTTP validada con `pnpm check`, auditoría arquitectónica sin bloqueos y runner aislado en `trakia_test`. |
 | [HC-01-05e](tasks/HC-01/HC-01-05e.md) | Completada | Ciclo `ARCH-ALL-001` corregido; `pnpm check`, auditoría limpia, Chrome/API mock y flujo manual real del propietario verificados. |
-| [HC-01-06](tasks/HC-01/HC-01-06.md) | En revisión | PR #1 falló además en TS2307/TS7006 sin `contracts/dist`; orden de builds corregido. `pnpm check` limpio e integración aislada pasan; falta nuevo `quality` remoto. |
+| [HC-01-06](tasks/HC-01/HC-01-06.md) | Completada | Verificación integral local y auditoría arquitectónica sin violaciones; 32 unitarias y 13 escenarios de integración en `trakia_test`. `quality` pasó en run `43136334983` para `c625e088d333e99131562ebba91e0bb802f7011a`. Aceptación actual autorizada. |
 
-Este registro no anticipa detalles técnicos que todavía no se hayan definido.
+La aceptación actual de HC-01-02, HC-01-02c, HC-01-03a–HC-01-03g, HC-01-04 y HC-01-06 se registra por autorización explícita del propietario en la solicitud de cierre definitivo; no se atribuye a revisiones históricas. HC-01-01, HC-01-02b y HC-01-05a–HC-01-05e conservan sus cierres previamente documentados. Las pruebas automatizadas se distinguen de los recorridos manuales del propietario en las fichas correspondientes.
