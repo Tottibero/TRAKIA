@@ -20,7 +20,7 @@
     "auth:reset-password": "pnpm --filter @trakia/api build && node apps/api/scripts/auth-admin.mjs reset-password",
     "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm architecture:check && pnpm test && pnpm build",
     "build": "pnpm --filter @trakia/contracts build && pnpm --filter @trakia/web build && pnpm --filter @trakia/api build",
-    "typecheck": "pnpm --filter @trakia/contracts typecheck && pnpm --filter @trakia/web typecheck && pnpm --filter @trakia/api typecheck"
+    "typecheck": "pnpm --filter @trakia/contracts build && pnpm --filter @trakia/contracts typecheck && pnpm --filter @trakia/web typecheck && pnpm --filter @trakia/api typecheck"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
