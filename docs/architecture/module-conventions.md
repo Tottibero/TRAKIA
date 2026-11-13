@@ -6,7 +6,7 @@ Esta guía desarrolla [ADR-015](../decisions/ADR-015-arquitectura-modular.md). S
 
 - API: hay `config/`, `database/`, `modules/health/`, `app.module.ts` y `main.ts`. `health` contiene controller y module. `DatabaseModule` configura TypeORM; la entidad funcional que pueda añadirse en el futuro pertenecerá a su módulo.
 - Web: existen `app/createTrakiaApp.ts`, `router/index.ts`, `services/health.ts`, `views/HomeView.vue`, `App.vue`, `main.ts`, además de directorios de soporte. Se conservan sus rutas actuales; nuevas capacidades se organizan por feature y la migración gradual se hace solo cuando una tarea funcional lo requiera.
-- Contracts: `src/index.ts` exporta el esquema y tipo de salud desde `src/health.ts`. El paquete usa ESM y se consume como `@trakia/contracts`; la compilación TypeScript produce `dist`.
+- Contracts: `src/index.ts` es el punto de entrada público de `@trakia/contracts`; los contratos se organizan por dominio funcional, junto a sus pruebas. `src/health.ts` permanece como archivo independiente mientras su responsabilidad siga siendo pequeña. El paquete usa ESM y la compilación TypeScript produce `dist`.
 - Los módulos y features deportivos que aparecen más abajo son ejemplos de organización futura. No se crean en HC-01-03e.
 
 ## Backend NestJS
@@ -97,23 +97,27 @@ El cliente HTTP común está en infraestructura compartida; cada feature define 
 
 ## Contratos Zod
 
-La estructura futura puede crecer por área funcional, sin directorios vacíos:
+Los contratos se agrupan por dominio funcional. Cada dominio contiene sus esquemas, tipos inferidos y pruebas relacionadas. Se crean archivos separados cuando exista una responsabilidad que lo justifique, sin carpetas vacías:
 
 ```text
 packages/contracts/src/
+├── auth/
+│   └── auth.ts
+├── exercises/
+│   ├── exercise.ts
+│   └── exercise.spec.ts
 ├── health.ts
-├── <funcionalidad>.ts
 └── index.ts
 ```
 
-Cuando el número de contratos lo justifique, se pueden agrupar en directorios por funcionalidad y reexportar desde el punto público. No se crean todavía carpetas deportivas.
+`src/index.ts` conserva las exportaciones públicas deliberadas y estables del paquete. No se crean barrels secundarios ni abstracciones preventivamente; cada dominio exporta al punto de entrada solo lo que forma parte de la API compartida.
 
 Convenciones:
 
 - Exporta un esquema Zod y, cuando resulte útil al consumidor, el tipo inferido (`z.infer<typeof SomeSchema>`).
 - Agrupa contratos de petición, respuesta o importación JSON que pertenezcan a la misma capacidad; evita esquemas duplicados sin necesidad.
-- El paquete es ESM. Conserva imports compatibles con el NodeNext actual, incluidos sufijos `.js` en imports relativos de fuentes TypeScript, y usa el paquete compilado `@trakia/contracts` desde las aplicaciones.
-- Contracts no importa NestJS, TypeORM, código de API/web ni entidades/modelos de persistencia.
+- El paquete es ESM. Conserva imports compatibles con NodeNext, incluidos sufijos `.js` en rutas relativas de fuentes TypeScript, y usa el paquete compilado `@trakia/contracts` desde las aplicaciones, nunca imports profundos desde `apps/api` o `apps/web`.
+- Contracts no depende de NestJS, TypeORM, Vue, código de API/web ni modelos internos o de persistencia.
 - Las entidades TypeORM y modelos internos permanecen en el backend. Convierte explícitamente entre representación interna y externa cuando difieran.
 - Introduce versionado del contrato cuando exista necesidad de compatibilidad con documentos persistidos o consumidores desplegados; no crees versiones redundantes preventivamente.
 
