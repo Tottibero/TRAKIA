@@ -72,6 +72,36 @@ export {
   WorkoutCorrectionSchema,
 } from './workout-executions/workout-corrections.js'
 export type { WorkoutCorrection, WorkoutCorrectionChange } from './workout-executions/workout-corrections.js'
+export {
+  WorkoutSyncIssueCodeSchema,
+  WorkoutSyncIssueSchema,
+  WorkoutSyncOperationSchema,
+  WorkoutSyncResponseSchema,
+  WorkoutSyncStatusSchema,
+} from './workout-sync/workout-sync.js'
+export type {
+  CloseExecutionOperation,
+  CorrectResultOperation,
+  WorkoutSyncIssue,
+  WorkoutSyncIssueCode,
+  WorkoutSyncOperation,
+  WorkoutSyncResponse,
+  WorkoutSyncStatus,
+} from './workout-sync/workout-sync.js'
+export {
+  TrainingExportExecutionSchema,
+  TrainingExportExerciseSchema,
+  TrainingExportPeriodSchema,
+  TrainingExportPlanSchema,
+  TrainingExportV1Schema,
+} from './training-exports/training-export.js'
+export type {
+  TrainingExportExecution,
+  TrainingExportExercise,
+  TrainingExportPeriod,
+  TrainingExportPlan,
+  TrainingExportV1,
+} from './training-exports/training-export.js'
 export type {
   ExerciseTargets,
   PlannedAlternative,
