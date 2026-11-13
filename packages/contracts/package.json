@@ -18,7 +18,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm build && node ./dist/exercise.spec.js"
+    "test": "pnpm build && node ./dist/exercises/exercise.spec.js && node ./dist/training-plans/training-plan.spec.js",
+    "test:training-plans": "pnpm build && node ./dist/training-plans/training-plan.spec.js"
   },
   "dependencies": {
     "zod": "4.6.7"
