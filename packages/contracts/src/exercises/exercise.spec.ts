@@ -1,4 +1,4 @@
-import { ExerciseDefinitionSchema, ExerciseSchema, type Exercise } from './index.js'
+import { ExerciseDefinitionSchema, ExerciseSchema, type Exercise } from '../index.js'
 
 const validDefinition = {
   key: 'barbell-squat',
