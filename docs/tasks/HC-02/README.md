@@ -12,5 +12,6 @@
 | [HC-02-02](HC-02-02.md) | Contratos del catálogo de ejercicios | completada | [HC-02-02.md](HC-02-02.md) |
 | [HC-02-02a](HC-02-02a.md) | Organización modular de @trakia/contracts | completada | [HC-02-02a.md](HC-02-02a.md) |
 | [HC-02-03](HC-02-03.md) | Contratos de planificación de entrenamientos | completada | [HC-02-03.md](HC-02-03.md) |
+| [HC-02-04](HC-02-04.md) | Contratos de ejecución y resultados | completada | [HC-02-04.md](HC-02-04.md) |
 
 HC-02-01 no implementa módulos deportivos, contratos, esquemas ni persistencia. Los detalles técnicos y reglas aún no aprobados se asignan a tareas posteriores.
