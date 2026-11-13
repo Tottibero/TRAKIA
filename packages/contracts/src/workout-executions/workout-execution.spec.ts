@@ -273,6 +273,29 @@ describe('WorkoutExecutionSchema', () => {
     ).toBe(true)
   })
 
+  it('shares one additional round identity across its exercises and rejects inconsistent identities', () => {
+    const first = {
+      type: 'circuit',
+      id: 'e41e34c7-04d1-4e9c-8f6b-00fd73722b7d',
+      blockKey: 'fixed',
+      plannedExerciseKey: 'pushup',
+      round: { kind: 'additional', key: 'extra-round-a', roundIndex: 3 },
+      actualExerciseKey: 'push-up',
+      status: 'performed',
+    }
+    const second = {
+      ...first,
+      id: 'ca4e2374-2ec9-4c0d-bc57-9ba4a6b53291',
+      plannedExerciseKey: 'row',
+      actualExerciseKey: 'ring-row',
+    }
+    expect(resultArray([first, second]).success).toBe(true)
+    expect(resultArray([first, { ...second, round: { ...second.round, roundIndex: 4 } }]).success).toBe(false)
+    expect(
+      resultArray([first, { ...second, round: { ...second.round, key: 'extra-round-b' } }]).success,
+    ).toBe(false)
+  })
+
   it('accepts an incomplete started AMRAP round', () => {
     expect(
       resultArray([

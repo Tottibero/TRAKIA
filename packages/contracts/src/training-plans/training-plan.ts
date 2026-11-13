@@ -82,7 +82,7 @@ const IndexedTargetOverridesSchema = z
 function validateIndexedOverrides(
   overrides: Array<{ index: number; targetOverrides: TargetOverrides }> | undefined,
   maximum: number,
-  path: string,
+  path: Array<string | number>,
   context: z.RefinementCtx,
 ): void {
   const seen = new Set<number>()
@@ -90,14 +90,14 @@ function validateIndexedOverrides(
     if (index > maximum) {
       context.addIssue({
         code: 'custom',
-        path: [path, position, 'index'],
+        path: [...path, position, 'index'],
         message: `Index must refer to an existing context (maximum ${maximum})`,
       })
     }
     if (seen.has(index)) {
       context.addIssue({
         code: 'custom',
-        path: [path, position, 'index'],
+        path: [...path, position, 'index'],
         message: 'Override indices must be unique',
       })
     }
@@ -109,7 +109,7 @@ const SetPlannedExerciseSchema = PlannedExerciseSchema.extend({
   sets: PositiveIntegerSchema,
   overridesBySet: IndexedTargetOverridesSchema,
 }).superRefine(({ sets, overridesBySet }, context) => {
-  validateIndexedOverrides(overridesBySet, sets, 'overridesBySet', context)
+  validateIndexedOverrides(overridesBySet, sets, ['overridesBySet'], context)
 })
 
 const CircuitPlannedExerciseSchema = PlannedExerciseSchema.extend({
@@ -169,7 +169,7 @@ const FixedRoundsCircuitSchema = z
       validateIndexedOverrides(
         exercise.overridesByRound,
         block.rounds,
-        `exercises.${index}.overridesByRound`,
+        ['exercises', index, 'overridesByRound'],
         context,
       )
     })
@@ -228,11 +228,27 @@ const IntervalsBlockSchema = z
         })
       phaseKeys.add(phase.key)
     })
-    validateUniqueAppearanceKeys(
-      block.phases.flatMap((phase) => (phase.exercise ? [phase.exercise] : [])),
-      context,
-      ['phases'],
-    )
+    const keys = new Set<string>()
+    block.phases.forEach((phase, index) => {
+      if (!phase.exercise) return
+      const appearances = [phase.exercise, ...(phase.exercise.alternatives ?? [])]
+      appearances.forEach((appearance, appearanceIndex) => {
+        const path = [
+          'phases',
+          index,
+          'exercise',
+          ...(appearanceIndex ? ['alternatives', appearanceIndex - 1] : []),
+          'key',
+        ]
+        if (keys.has(appearance.key))
+          context.addIssue({
+            code: 'custom',
+            path,
+            message: 'Exercise appearance keys must be unique within the block',
+          })
+        keys.add(appearance.key)
+      })
+    })
   })
 
 export const PlannedBlockSchema = z.discriminatedUnion('type', [

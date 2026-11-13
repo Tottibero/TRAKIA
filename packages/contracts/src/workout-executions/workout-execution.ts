@@ -5,6 +5,7 @@ import {
   type PlannedBlock,
   type PlannedExercise,
 } from '../training-plans/training-plan.js'
+import { validateReferencesAndTargets } from '../training-plans/validate-exercise-compatibility.js'
 import { WorkoutCorrectionSchema, type WorkoutCorrectionChange } from './workout-corrections.js'
 import { WorkoutResultSchema, type ActualMetrics, type WorkoutResult } from './workout-results.js'
 
@@ -68,22 +69,7 @@ export const WorkoutExecutionSnapshotSchema = z
       }
       catalog.add(exercise.key)
     })
-    const plannedKeys = new Set<string>()
-    snapshot.session.blocks.forEach((block) => {
-      plannedExercises(block).forEach((exercise) => {
-        plannedKeys.add(exercise.exerciseKey)
-        exercise.alternatives?.forEach((alternative) => plannedKeys.add(alternative.exerciseKey))
-      })
-    })
-    for (const key of plannedKeys) {
-      if (!catalog.has(key)) {
-        context.addIssue({
-          code: 'custom',
-          path: ['exercises'],
-          message: `Missing catalog snapshot for planned exercise ${key}`,
-        })
-      }
-    }
+    validateReferencesAndTargets(snapshot.exercises, snapshot.session, ['session'], context)
   })
 export type WorkoutExecutionSnapshot = z.infer<typeof WorkoutExecutionSnapshotSchema>
 
@@ -203,11 +189,6 @@ export const WorkoutExecutionSchema = z
   })
 export type WorkoutExecution = z.infer<typeof WorkoutExecutionSchema>
 
-function plannedExercises(block: PlannedBlock): PlannedExercise[] {
-  if (block.type === 'sets' || block.type === 'circuit') return block.exercises
-  return block.phases.flatMap((phase) => (phase.exercise ? [phase.exercise] : []))
-}
-
 function allowedExerciseKeys(exercise: PlannedExercise): string[] {
   return [
     exercise.exerciseKey,
@@ -239,6 +220,8 @@ function validateResults(
   const ids = new Set<string>()
   const plannedUnits = new Set<string>()
   const unitKeys = new Set<string>()
+  const additionalRoundIndexes = new Map<string, number>()
+  const additionalRoundKeys = new Map<string, string>()
 
   execution.results.forEach((result, resultIndex) => {
     const path: (string | number)[] = ['results', resultIndex]
@@ -311,9 +294,20 @@ function validateResults(
         unitIdentity = `${result.blockKey}:${result.plannedExerciseKey}:round:${result.round.roundIndex}`
         if (kind === 'additional') {
           const extraIdentity = `${result.blockKey}:additional-round:${result.round.key}`
-          if (unitKeys.has(extraIdentity))
-            addIssue(context, [...path, 'round', 'key'], 'Additional round identities must be unique')
-          unitKeys.add(extraIdentity)
+          const indexIdentity = `${result.blockKey}:${result.round.roundIndex}`
+          const existingIndex = additionalRoundIndexes.get(extraIdentity)
+          const existingKey = additionalRoundKeys.get(indexIdentity)
+          if (
+            (existingIndex !== undefined && existingIndex !== result.round.roundIndex) ||
+            (existingKey !== undefined && existingKey !== result.round.key)
+          )
+            addIssue(
+              context,
+              [...path, 'round', 'key'],
+              'Additional round key and index must identify the same round',
+            )
+          additionalRoundIndexes.set(extraIdentity, result.round.roundIndex)
+          additionalRoundKeys.set(indexIdentity, result.round.key)
         }
       }
     } else if (result.type === 'intervals' && block.type === 'intervals') {
