@@ -17,6 +17,16 @@ export type {
   ExerciseMetric,
 } from './exercises/exercise.js'
 export {
+  ImportValidationIssueCodeSchema,
+  ImportValidationIssueSchema,
+} from './training-plan-imports/import-validation-issue.js'
+export type {
+  ImportValidationIssue,
+  ImportValidationIssueCode,
+} from './training-plan-imports/import-validation-issue.js'
+export { TrainingPlanImportV1Schema } from './training-plan-imports/training-plan-import.js'
+export type { TrainingPlanImportV1 } from './training-plan-imports/training-plan-import.js'
+export {
   ExerciseTargetsSchema,
   PlannedAlternativeSchema,
   PlannedBlockSchema,

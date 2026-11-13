@@ -6,17 +6,21 @@ export type ExerciseCategory = z.infer<typeof ExerciseCategorySchema>
 export const ExerciseMetricSchema = z.enum(['reps', 'weight', 'duration', 'distance', 'rpe', 'calories'])
 export type ExerciseMetric = z.infer<typeof ExerciseMetricSchema>
 
-const WgerReferenceSchema = z.object({
-  provider: z.literal('wger'),
-  externalId: z.number().int().positive(),
-})
+const WgerReferenceSchema = z
+  .object({
+    provider: z.literal('wger'),
+    externalId: z.number().int().positive(),
+  })
+  .strict()
 
-const YoutubeReferenceSchema = z.object({
-  provider: z.literal('youtube'),
-  videoUrl: z.url().refine((value) => youtubeVideoId(value) !== undefined, {
-    message: 'Expected a supported YouTube video URL',
-  }),
-})
+const YoutubeReferenceSchema = z
+  .object({
+    provider: z.literal('youtube'),
+    videoUrl: z.url().refine((value) => youtubeVideoId(value) !== undefined, {
+      message: 'Expected a supported YouTube video URL',
+    }),
+  })
+  .strict()
 
 export const ExerciseExternalReferenceSchema = z.discriminatedUnion('provider', [
   WgerReferenceSchema,
@@ -94,6 +98,7 @@ function validateReferences(
 
 const ExerciseFieldsSchema = z
   .object(ExerciseDefinitionFields)
+  .strict()
   .superRefine(({ supportedMetrics, externalReferences }, context) => {
     if (new Set(supportedMetrics).size !== supportedMetrics.length) {
       context.addIssue({
