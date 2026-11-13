@@ -9,5 +9,6 @@
 | Identificador | Título | Estado | Especificación |
 | --- | --- | --- | --- |
 | [HC-02-01](HC-02-01.md) | Documentación del modelo conceptual de dominio | completada | [HC-02-01.md](HC-02-01.md) |
+| [HC-02-02](HC-02-02.md) | Contratos del catálogo de ejercicios | completada | [HC-02-02.md](HC-02-02.md) |
 
 HC-02-01 no implementa módulos deportivos, contratos, esquemas ni persistencia. Los detalles técnicos y reglas aún no aprobados se asignan a tareas posteriores.
