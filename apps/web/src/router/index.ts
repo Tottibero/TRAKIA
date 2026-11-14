@@ -3,14 +3,14 @@ import { AuthUserSchema } from '@trakia/contracts'
 import { getCurrentUser, LoginView, safeLocalRedirect } from '@/features/auth'
 import { ApiError } from '../shared/api/http'
 import { queryClient } from '../app/queryClient'
-import HomeView from '../views/HomeView.vue'
 import { TrainingPlanImportView } from '@/features/training-plan-imports'
+import { WeeklyHomeView } from '@/features/training-plan-calendar'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', name: 'login', component: LoginView },
-    { path: '/', name: 'home', component: HomeView, meta: { requiresAuth: true } },
+    { path: '/', name: 'home', component: WeeklyHomeView, meta: { requiresAuth: true } },
     {
       path: '/training-plans/import',
       name: 'training-plan-import',
