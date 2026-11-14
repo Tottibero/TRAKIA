@@ -1,5 +1,18 @@
 import { z } from 'zod'
 import { ExerciseMetricSchema, type ExerciseMetric } from '../exercises/exercise.js'
+import {
+  IMPORT_VALIDATION_SEMANTIC_CODE_PARAM,
+  IMPORT_VALIDATION_SEMANTIC_CODES,
+} from '../validation-issue-metadata.js'
+
+function addPlanIssue(context: z.RefinementCtx, path: Array<string | number>, message: string): void {
+  context.addIssue({
+    code: 'custom',
+    params: { [IMPORT_VALIDATION_SEMANTIC_CODE_PARAM]: IMPORT_VALIDATION_SEMANTIC_CODES.invalidPlan },
+    path,
+    message,
+  })
+}
 
 const StableKeySchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, {
   message: 'Expected a lowercase, hyphen-separated stable key',
@@ -16,9 +29,9 @@ function isCalendarDate(value: string): boolean {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
 }
 
-export const PlanDateSchema = z
-  .string()
-  .refine(isCalendarDate, 'Expected a real calendar date in YYYY-MM-DD format')
+export const PlanDateSchema = z.string().superRefine((value, context) => {
+  if (!isCalendarDate(value)) addPlanIssue(context, [], 'Expected a real calendar date in YYYY-MM-DD format')
+})
 export type PlanDate = z.infer<typeof PlanDateSchema>
 
 export const ExerciseTargetsSchema = z.partialRecord(ExerciseMetricSchema, PositiveNumberSchema)
@@ -49,25 +62,25 @@ export const PlannedExerciseSchema = z
     const alternativeExerciseKeys = new Set<string>()
     planned.alternatives?.forEach((alternative, index) => {
       if (alternative.exerciseKey === planned.exerciseKey) {
-        context.addIssue({
-          code: 'custom',
-          path: ['alternatives', index, 'exerciseKey'],
-          message: 'Alternative must differ from the main exercise',
-        })
+        addPlanIssue(
+          context,
+          ['alternatives', index, 'exerciseKey'],
+          'Alternative must differ from the main exercise',
+        )
       }
       if (alternativeKeys.has(alternative.key)) {
-        context.addIssue({
-          code: 'custom',
-          path: ['alternatives', index, 'key'],
-          message: 'Alternative keys must be unique within the planned exercise',
-        })
+        addPlanIssue(
+          context,
+          ['alternatives', index, 'key'],
+          'Alternative keys must be unique within the planned exercise',
+        )
       }
       if (alternativeExerciseKeys.has(alternative.exerciseKey)) {
-        context.addIssue({
-          code: 'custom',
-          path: ['alternatives', index, 'exerciseKey'],
-          message: 'Alternative exercises must be distinct',
-        })
+        addPlanIssue(
+          context,
+          ['alternatives', index, 'exerciseKey'],
+          'Alternative exercises must be distinct',
+        )
       }
       alternativeKeys.add(alternative.key)
       alternativeExerciseKeys.add(alternative.exerciseKey)
@@ -88,18 +101,14 @@ function validateIndexedOverrides(
   const seen = new Set<number>()
   overrides?.forEach(({ index }, position) => {
     if (index > maximum) {
-      context.addIssue({
-        code: 'custom',
-        path: [...path, position, 'index'],
-        message: `Index must refer to an existing context (maximum ${maximum})`,
-      })
+      addPlanIssue(
+        context,
+        [...path, position, 'index'],
+        `Index must refer to an existing context (maximum ${maximum})`,
+      )
     }
     if (seen.has(index)) {
-      context.addIssue({
-        code: 'custom',
-        path: [...path, position, 'index'],
-        message: 'Override indices must be unique',
-      })
+      addPlanIssue(context, [...path, position, 'index'], 'Override indices must be unique')
     }
     seen.add(index)
   })
@@ -125,19 +134,15 @@ function validateUniqueAppearanceKeys(
   exercises.forEach((exercise, index) => {
     const path = [...prefix, index]
     if (keys.has(exercise.key))
-      context.addIssue({
-        code: 'custom',
-        path: [...path, 'key'],
-        message: 'Exercise appearance keys must be unique within the block',
-      })
+      addPlanIssue(context, [...path, 'key'], 'Exercise appearance keys must be unique within the block')
     keys.add(exercise.key)
     exercise.alternatives?.forEach((alternative, alternativeIndex) => {
       if (keys.has(alternative.key))
-        context.addIssue({
-          code: 'custom',
-          path: [...path, 'alternatives', alternativeIndex, 'key'],
-          message: 'Alternative keys must be unique within the block',
-        })
+        addPlanIssue(
+          context,
+          [...path, 'alternatives', alternativeIndex, 'key'],
+          'Alternative keys must be unique within the block',
+        )
       keys.add(alternative.key)
     })
   })
@@ -221,11 +226,7 @@ const IntervalsBlockSchema = z
     const phaseKeys = new Set<string>()
     block.phases.forEach((phase, index) => {
       if (phaseKeys.has(phase.key))
-        context.addIssue({
-          code: 'custom',
-          path: ['phases', index, 'key'],
-          message: 'Phase keys must be unique within the block',
-        })
+        addPlanIssue(context, ['phases', index, 'key'], 'Phase keys must be unique within the block')
       phaseKeys.add(phase.key)
     })
     const keys = new Set<string>()
@@ -241,11 +242,7 @@ const IntervalsBlockSchema = z
           'key',
         ]
         if (keys.has(appearance.key))
-          context.addIssue({
-            code: 'custom',
-            path,
-            message: 'Exercise appearance keys must be unique within the block',
-          })
+          addPlanIssue(context, path, 'Exercise appearance keys must be unique within the block')
         keys.add(appearance.key)
       })
     })
@@ -270,11 +267,7 @@ export const PlannedSessionSchema = z
     const blockKeys = new Set<string>()
     session.blocks.forEach((block, index) => {
       if (blockKeys.has(block.key))
-        context.addIssue({
-          code: 'custom',
-          path: ['blocks', index, 'key'],
-          message: 'Block keys must be unique within the session',
-        })
+        addPlanIssue(context, ['blocks', index, 'key'], 'Block keys must be unique within the session')
       blockKeys.add(block.key)
     })
   })
@@ -302,52 +295,28 @@ export const TrainingPlanDefinitionSchema = z
   .strict()
   .superRefine((plan, context) => {
     if (plan.startDate > plan.endDate) {
-      context.addIssue({
-        code: 'custom',
-        path: ['endDate'],
-        message: 'Plan end date must not precede its start date',
-      })
+      addPlanIssue(context, ['endDate'], 'Plan end date must not precede its start date')
     }
     const dayKeys = new Set<string>()
     const restDates = new Set<string>()
     const sessionDates = new Set<string>()
     plan.days.forEach((day, index) => {
       if (day.date < plan.startDate || day.date > plan.endDate) {
-        context.addIssue({
-          code: 'custom',
-          path: ['days', index, 'date'],
-          message: 'Day date must be within the plan period',
-        })
+        addPlanIssue(context, ['days', index, 'date'], 'Day date must be within the plan period')
       }
       if (dayKeys.has(day.key)) {
-        context.addIssue({
-          code: 'custom',
-          path: ['days', index, 'key'],
-          message: 'Day keys must be unique within the plan',
-        })
+        addPlanIssue(context, ['days', index, 'key'], 'Day keys must be unique within the plan')
       }
       dayKeys.add(day.key)
       if (day.type === 'session') {
         if (restDates.has(day.date))
-          context.addIssue({
-            code: 'custom',
-            path: ['days', index, 'date'],
-            message: 'A rest day cannot share a date with sessions',
-          })
+          addPlanIssue(context, ['days', index, 'date'], 'A rest day cannot share a date with sessions')
         sessionDates.add(day.date)
       } else {
         if (restDates.has(day.date))
-          context.addIssue({
-            code: 'custom',
-            path: ['days', index, 'date'],
-            message: 'Only one rest day is allowed per date',
-          })
+          addPlanIssue(context, ['days', index, 'date'], 'Only one rest day is allowed per date')
         if (sessionDates.has(day.date))
-          context.addIssue({
-            code: 'custom',
-            path: ['days', index, 'date'],
-            message: 'A rest day cannot share a date with sessions',
-          })
+          addPlanIssue(context, ['days', index, 'date'], 'A rest day cannot share a date with sessions')
         restDates.add(day.date)
       }
     })

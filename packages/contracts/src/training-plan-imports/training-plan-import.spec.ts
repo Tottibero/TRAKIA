@@ -3,6 +3,7 @@ import {
   ImportValidationIssueCodeSchema,
   ImportValidationIssueSchema,
   TrainingPlanImportV1Schema,
+  validateTrainingPlanImportDocument,
   WorkoutExecutionSnapshotSchema,
   WorkoutSyncOperationSchema,
   TrainingExportV1Schema,
@@ -583,6 +584,168 @@ describe('ImportValidationIssueSchema', () => {
       message: 'Exercise is not defined',
     }
     expect(ImportValidationIssueSchema.parse(issue)).toEqual(issue)
+    expect(ImportValidationIssueCodeSchema.safeParse('DATABASE_CONFLICT').success).toBe(false)
+  })
+})
+
+describe('validateTrainingPlanImportDocument', () => {
+  it('returns the validated document without changing its value', () => {
+    expect(validateTrainingPlanImportDocument(validDocument)).toEqual({
+      success: true,
+      document: validDocument,
+    })
+  })
+
+  it('maps the format and version literal errors to their approved codes', () => {
+    const wrongFormat = { ...validDocument, format: 'other.format' }
+    const wrongVersion = { ...validDocument, version: 2 }
+    const formatResult = validateTrainingPlanImportDocument(wrongFormat)
+    const versionResult = validateTrainingPlanImportDocument(wrongVersion)
+
+    expect(formatResult.success).toBe(false)
+    expect(versionResult.success).toBe(false)
+    if (formatResult.success || versionResult.success) throw new Error('Expected invalid documents')
+    expect(formatResult.issues).toContainEqual({
+      code: 'INVALID_FORMAT',
+      path: ['format'],
+      message: expect.any(String),
+    })
+    expect(versionResult.issues).toContainEqual({
+      code: 'UNSUPPORTED_VERSION',
+      path: ['version'],
+      message: expect.any(String),
+    })
+  })
+
+  it('maps missing structure to INVALID_STRUCTURE and expands unknown keys to precise paths', () => {
+    const missingFormat = { ...validDocument } as Record<string, unknown>
+    delete missingFormat.format
+    const unknownProperty = { ...validDocument, surprise: true }
+    const rootResult = validateTrainingPlanImportDocument(null)
+    const missingResult = validateTrainingPlanImportDocument(missingFormat)
+    const unknownResult = validateTrainingPlanImportDocument(unknownProperty)
+
+    expect(rootResult).toEqual({
+      success: false,
+      issues: [expect.objectContaining({ code: 'INVALID_STRUCTURE', path: [] })],
+    })
+    expect(missingResult.success).toBe(false)
+    expect(unknownResult.success).toBe(false)
+    if (missingResult.success || unknownResult.success) throw new Error('Expected invalid documents')
+    expect(missingResult.issues).toContainEqual({
+      code: 'INVALID_STRUCTURE',
+      path: ['format'],
+      message: expect.any(String),
+    })
+    expect(unknownResult.issues).toContainEqual({
+      code: 'INVALID_STRUCTURE',
+      path: ['surprise'],
+      message: expect.any(String),
+    })
+  })
+
+  it('preserves nested array indexes and expands each unknown property into its own path', () => {
+    const document = cloneDocument()
+    const day = document.plan.days[0]
+    if (day?.type === 'session') Object.assign(day.blocks[0]!, { unknownB: true, unknownA: true })
+    const result = validateTrainingPlanImportDocument(document)
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('Expected unknown properties to be invalid')
+    expect(result.issues.map(({ code, path }) => ({ code, path }))).toEqual([
+      { code: 'INVALID_STRUCTURE', path: ['plan', 'days', 0, 'blocks', 0, 'unknownA'] },
+      { code: 'INVALID_STRUCTURE', path: ['plan', 'days', 0, 'blocks', 0, 'unknownB'] },
+    ])
+  })
+
+  it('classifies duplicate exercise definitions with their exact nested location', () => {
+    const document = cloneDocument()
+    document.exercises[1]!.key = document.exercises[0]!.key
+    const result = validateTrainingPlanImportDocument(document)
+
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('Expected duplicate definition to be invalid')
+    expect(result.issues).toContainEqual({
+      code: 'DUPLICATE_EXERCISE_KEY',
+      path: ['exercises', 1, 'key'],
+      message: expect.any(String),
+    })
+  })
+
+  it('classifies missing references and incompatible metrics without reading messages', () => {
+    const missingReference = cloneDocument()
+    const missingReferenceDay = missingReference.plan.days[0]
+    if (missingReferenceDay?.type === 'session') {
+      const block = missingReferenceDay.blocks[0]
+      if (block?.type === 'sets') block.exercises[0]!.exerciseKey = 'missing-exercise'
+    }
+    const incompatibleMetric = cloneDocument()
+    const incompatibleMetricDay = incompatibleMetric.plan.days[0]
+    if (incompatibleMetricDay?.type === 'session') {
+      const block = incompatibleMetricDay.blocks[0]
+      if (block?.type === 'sets') block.exercises[0]!.targets = { duration: 10 }
+    }
+    const missingResult = validateTrainingPlanImportDocument(missingReference)
+    const metricResult = validateTrainingPlanImportDocument(incompatibleMetric)
+
+    expect(missingResult.success).toBe(false)
+    expect(metricResult.success).toBe(false)
+    if (missingResult.success || metricResult.success) throw new Error('Expected invalid references/metrics')
+    expect(missingResult.issues).toContainEqual({
+      code: 'EXERCISE_NOT_DEFINED',
+      path: ['plan', 'days', 0, 'blocks', 0, 'exercises', 0, 'exerciseKey'],
+      message: expect.any(String),
+    })
+    expect(metricResult.issues).toContainEqual({
+      code: 'INCOMPATIBLE_METRIC',
+      path: ['plan', 'days', 0, 'blocks', 0, 'exercises', 0, 'targets', 'duration'],
+      message: expect.any(String),
+    })
+  })
+
+  it('marks plan invariants and structural failures with distinct approved codes', () => {
+    const document = cloneDocument()
+    document.plan.endDate = '2026-10-31'
+    const result = validateTrainingPlanImportDocument(document)
+    const invalidShape = validateTrainingPlanImportDocument({
+      ...validDocument,
+      plan: { ...validDocument.plan, days: 'bad' },
+    })
+
+    expect(result.success).toBe(false)
+    expect(invalidShape.success).toBe(false)
+    if (result.success || invalidShape.success) throw new Error('Expected invalid plans')
+    expect(result.issues).toContainEqual({
+      code: 'INVALID_PLAN',
+      path: ['plan', 'endDate'],
+      message: expect.any(String),
+    })
+    expect(invalidShape.issues).toContainEqual({
+      code: 'INVALID_STRUCTURE',
+      path: ['plan', 'days'],
+      message: expect.any(String),
+    })
+  })
+
+  it('returns all detected issues in deterministic path and code order', () => {
+    const document = cloneDocument()
+    document.exercises.push(
+      { ...document.exercises[0]!, key: 'unused-exercise' },
+      { ...document.exercises[0]!, key: 'unused-exercise' },
+    )
+    document.plan.days[1]!.key = document.plan.days[0]!.key
+    const first = validateTrainingPlanImportDocument(document)
+    const second = validateTrainingPlanImportDocument(document)
+
+    expect(first).toEqual(second)
+    expect(first.success).toBe(false)
+    if (first.success) throw new Error('Expected invalid document')
+    expect(first.issues).toHaveLength(2)
+    expect(first.issues.map(({ path }) => path)).toEqual([
+      ['exercises', 5, 'key'],
+      ['plan', 'days', 1, 'key'],
+    ])
+    expect(first.issues.every((issue) => ImportValidationIssueSchema.safeParse(issue).success)).toBe(true)
     expect(ImportValidationIssueCodeSchema.safeParse('DATABASE_CONFLICT').success).toBe(false)
   })
 })

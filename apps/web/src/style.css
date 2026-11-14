@@ -2,6 +2,17 @@
 
 :root {
   color-scheme: dark;
+  --trakia-background: #10110f;
+  --trakia-surface: #191a17;
+  --trakia-text: #f5f5f4;
+  --trakia-muted: #a8a8a2;
+  --trakia-border: #393b35;
+  --trakia-accent: #bef264;
+  --trakia-accent-hover: #d9f99d;
+  --trakia-focus: #bef264;
+  --trakia-danger: #ff9b8e;
+  --trakia-warning: #ffd27a;
+  --trakia-success: #bef264;
   font-family:
     Inter,
     ui-sans-serif,

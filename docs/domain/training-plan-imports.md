@@ -1,6 +1,6 @@
 # Importación de planes de entrenamiento
 
-Este documento define el formato externo autocontenido y las políticas de revisión previstas para importar planificación. Las reglas generales de calendario, bloques y objetivos siguen en [training-plans.md](training-plans.md); la importación no realiza operaciones sobre el catálogo o los planes persistidos.
+Este documento define el formato externo autocontenido y las políticas de revisión para importar planificación. Las reglas generales de calendario, bloques y objetivos siguen en [training-plans.md](training-plans.md). La revisión consulta el catálogo, planes y ejecuciones persistidos; la confirmación de cambios se implementa aparte.
 
 ## Decisiones aprobadas
 
@@ -16,7 +16,7 @@ Este documento define el formato externo autocontenido y las políticas de revis
 
 El objetivo explícito del ejercicio principal debe ser compatible con sus métricas declaradas. Al seleccionar una alternativa, solo se heredan objetivos compatibles con ella; sus ajustes pueden sobrescribir un objetivo compatible o eliminarlo con `null`. Los ajustes por serie o ronda se aplican tras elegir el ejercicio y deben poder aplicarse a las opciones declaradas. Una incompatibilidad explícita produce error de validación. La selección efectiva durante una ejecución futura seguirá respetando la precedencia y filtrado definidos en [training-plans.md](training-plans.md); el contrato de importación no crea un motor de prescripción.
 
-El JSON permite comprobar ahora claves duplicadas, estructura, fechas, referencias locales y compatibilidad de métricas frente a todas las definiciones incluidas. La resolución de una clave contra el catálogo persistido, la igualdad o contradicción de las definiciones, y los conflictos con planes o sesiones existentes requieren comparar datos guardados en una tarea posterior.
+La validación documental comprueba claves duplicadas, estructura, fechas, referencias locales y compatibilidad de métricas frente a las definiciones incluidas. La revisión compara además las definiciones con el catálogo persistido, resuelve las referencias conservadas y detecta conflictos con planes o ejecuciones existentes.
 
 ## Revisión y actualización previstas
 
@@ -24,10 +24,11 @@ Toda importación tendrá una revisión previa antes de aplicar cambios. El resu
 
 - Un plan cuya clave no existe propone una creación; si existe, se comparan diferencias.
 - Una sesión con clave nueva propone incorporación. Una sesión existente sin cambios se conserva.
-- Una sesión futura aún no iniciada puede proponerse para actualización, siempre con revisión.
-- Las sesiones iniciadas o cerradas están protegidas frente a modificaciones. Una ejecución iniciada conserva su snapshot original; el cierre y sus resultados no se reabren al editar planificación, según las reglas de [workouts.md](workouts.md) y HC-02-01.
+- Una sesión no iniciada puede proponerse para actualización si su fecha original y destino son hoy o posteriores en `Europe/Madrid`.
+- Las sesiones pasadas y las que tienen ejecuciones iniciadas (`in_progress` o `paused`) o cerradas (`completed`) están protegidas frente a modificaciones. Una ejecución iniciada conserva su snapshot original; el cierre y sus resultados no se reabren al editar planificación, según las reglas de [workouts.md](workouts.md) y HC-02-01.
 - Los elementos ausentes del JSON se conservan y no se interpretan como bajas.
+- La revisión combina los cambios explícitos con lo persistido y valida el agregado resultante. La ausencia de un campo opcional conserva el valor almacenado; `null` solo elimina valores donde lo permite el contrato.
 - Una clave de ejercicio ya existente con una definición contradictoria se señala como conflicto para revisión, sin deduplicación automática por similitud de nombres.
 - Una importación repetida sin diferencias no requiere escrituras adicionales.
 
-La protección por estado, las comparaciones, la detección de claves existentes, la presentación de conflictos y la decisión de aplicar cambios requieren consultar persistencia. Esta tarea solo valida el documento y no implementa consultas, transacciones ni operaciones de actualización.
+La revisión de HC-03-05 consulta capacidades públicas de catálogo, planificación y ejecución dentro de una transacción de solo lectura con una vista consistente. Devuelve cambios, elementos conservados, incidencias y conflictos sin aplicar escrituras. La confirmación y la coordinación transaccional de cambios pertenecen a tareas posteriores.

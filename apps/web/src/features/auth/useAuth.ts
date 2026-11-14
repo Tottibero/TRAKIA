@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ApiError } from '../../shared/api/http'
+import { safeLocalRedirect } from './safe-redirect'
 import { getCurrentUser, login, logout } from './api/auth'
 
 export const authQueryKey = ['auth', 'me'] as const
@@ -22,7 +23,7 @@ export function useAuth() {
     onSuccess: async () => {
       await queryClient.invalidateQueries()
       await queryClient.refetchQueries({ queryKey: authQueryKey, exact: true })
-      await router.replace('/')
+      await router.replace(safeLocalRedirect(router.currentRoute.value.query.redirect) ?? '/')
     },
   })
 

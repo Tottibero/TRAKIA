@@ -2,6 +2,10 @@ import { z } from 'zod'
 import { ExerciseDefinitionSchema } from '../exercises/exercise.js'
 import { TrainingPlanDefinitionSchema } from '../training-plans/training-plan.js'
 import { validateReferencesAndTargets } from '../training-plans/validate-exercise-compatibility.js'
+import {
+  IMPORT_VALIDATION_SEMANTIC_CODE_PARAM,
+  IMPORT_VALIDATION_SEMANTIC_CODES,
+} from '../validation-issue-metadata.js'
 
 const ImportEnvelopeSchema = z
   .object({
@@ -18,6 +22,9 @@ export const TrainingPlanImportV1Schema = ImportEnvelopeSchema.superRefine((docu
     if (seenKeys.has(exercise.key)) {
       context.addIssue({
         code: 'custom',
+        params: {
+          [IMPORT_VALIDATION_SEMANTIC_CODE_PARAM]: IMPORT_VALIDATION_SEMANTIC_CODES.duplicateExerciseKey,
+        },
         path: ['exercises', index, 'key'],
         message: `Exercise key "${exercise.key}" is duplicated`,
       })

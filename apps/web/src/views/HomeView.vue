@@ -49,6 +49,12 @@ const auth = useAuth()
             Aplicación personal para planificar, ejecutar y registrar entrenamiento de fuerza, resistencia y
             HYROX.
           </p>
+          <RouterLink
+            class="mt-8 inline-flex min-h-12 items-center rounded-lg bg-lime-300 px-5 text-sm font-semibold text-[#20231d] transition hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lime-300"
+            to="/training-plans/import"
+          >
+            Importar plan JSON
+          </RouterLink>
         </div>
 
         <div class="rounded-2xl border border-white/10 bg-white/[0.035] p-6 sm:p-7">
