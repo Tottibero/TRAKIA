@@ -4,13 +4,19 @@ import { getCurrentUser, LoginView, safeLocalRedirect } from '@/features/auth'
 import { ApiError } from '../shared/api/http'
 import { queryClient } from '../app/queryClient'
 import { TrainingPlanImportView } from '@/features/training-plan-imports'
-import { WeeklyHomeView } from '@/features/training-plan-calendar'
+import { TrainingPlanSessionDetailView, WeeklyHomeView } from '@/features/training-plan-calendar'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', name: 'login', component: LoginView },
     { path: '/', name: 'home', component: WeeklyHomeView, meta: { requiresAuth: true } },
+    {
+      path: '/training-plans/:planId/sessions/:sessionId',
+      name: 'training-plan-session-detail',
+      component: TrainingPlanSessionDetailView,
+      meta: { requiresAuth: true },
+    },
     {
       path: '/training-plans/import',
       name: 'training-plan-import',

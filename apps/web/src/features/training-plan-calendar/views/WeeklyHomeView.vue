@@ -346,8 +346,25 @@ onBeforeUnmount(() => {
                 >
                   <article v-if="entry.type === 'session'">
                     <h3 class="break-words font-medium text-stone-100">
-                      Sesión <span class="text-stone-400">·</span> {{ entry.planName }}
-                      <span class="text-stone-400">·</span> {{ entry.sessionKey }}
+                      <RouterLink
+                        class="inline-flex min-h-11 max-w-full items-center gap-2 break-words underline decoration-white/20 underline-offset-4 transition hover:text-lime-200 hover:decoration-lime-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+                        :to="{
+                          name: 'training-plan-session-detail',
+                          params: { planId: entry.planId, sessionId: entry.sessionId },
+                          query: { week: weekStart, expanded: serializeExpandedDates(expandedDates) },
+                        }"
+                      >
+                        Sesión <span class="text-stone-400">·</span> {{ entry.planName }}
+                        <span class="text-stone-400">·</span> {{ entry.sessionKey }}
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 20 20"
+                          class="size-4 shrink-0 text-stone-400"
+                          fill="none"
+                        >
+                          <path d="m7.5 4.5 5.5 5.5-5.5 5.5" stroke="currentColor" stroke-width="1.7" />
+                        </svg>
+                      </RouterLink>
                     </h3>
                     <div class="mt-3 grid gap-3 sm:grid-cols-2">
                       <section
