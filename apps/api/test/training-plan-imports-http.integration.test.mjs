@@ -26,6 +26,33 @@ let url
 let userId
 let cookie
 
+async function startImportApi() {
+  const env = getIntegrationProcessEnvironment()
+  class ImportHttpIntegrationModule {}
+  Module({
+    imports: [
+      TypeOrmModule.forRoot({
+        ...getDatabaseConfig(env),
+        schema,
+        extra: { options: `-c search_path=${schema}` },
+        autoLoadEntities: true,
+      }),
+      AuthModule,
+      TrainingPlanImportsModule,
+    ],
+  })(ImportHttpIntegrationModule)
+  const api = await NestFactory.create(ImportHttpIntegrationModule, {
+    bodyParser: false,
+    logger: false,
+  })
+  registerJsonBodyParser(api)
+  api.useGlobalFilters(new ImportBodyParserExceptionFilter())
+  api.use(new HttpSecurityMiddleware([origin]).use)
+  api.setGlobalPrefix('api')
+  await api.listen(0, '127.0.0.1')
+  return { app: api, url: `http://127.0.0.1:${api.getHttpServer().address().port}/api` }
+}
+
 process.env.JWT_SECRET = jwtSecret
 
 function importDocument(planKey, exerciseKey) {
@@ -38,7 +65,18 @@ function importDocument(planKey, exerciseKey) {
     format: 'trakia.training-plan',
     version: 1,
     exercises: [
-      { key: exerciseKey, name: 'Integration Squat', category: 'strength', supportedMetrics: ['reps'] },
+      {
+        key: exerciseKey,
+        name: 'Integration Squat',
+        category: 'strength',
+        supportedMetrics: ['reps', 'duration'],
+      },
+      {
+        key: `${exerciseKey}-alternative`,
+        name: 'Integration Squat Alternative',
+        category: 'strength',
+        supportedMetrics: ['reps', 'duration'],
+      },
     ],
     plan: {
       key: planKey,
@@ -53,9 +91,53 @@ function importDocument(planKey, exerciseKey) {
           blocks: [
             {
               type: 'sets',
-              key: `${planKey}-block`,
+              key: `${planKey}-sets`,
               restBetweenSetsSeconds: 60,
-              exercises: [{ key: `${planKey}-appearance`, exerciseKey, sets: 3, targets: { reps: 8 } }],
+              exercises: [
+                {
+                  key: `${planKey}-appearance`,
+                  exerciseKey,
+                  sets: 3,
+                  targets: { reps: 8 },
+                  alternatives: [
+                    { key: `${planKey}-alternative`, exerciseKey: `${exerciseKey}-alternative` },
+                  ],
+                },
+              ],
+            },
+            {
+              type: 'circuit',
+              key: `${planKey}-circuit`,
+              mode: 'rounds',
+              rounds: 2,
+              restBetweenRoundsSeconds: 30,
+              exercises: [{ key: `${planKey}-circuit-appearance`, exerciseKey }],
+            },
+            {
+              type: 'intervals',
+              key: `${planKey}-intervals`,
+              cycles: 2,
+              phases: [
+                {
+                  type: 'work',
+                  key: `${planKey}-work`,
+                  windowSeconds: 30,
+                  exercise: {
+                    key: `${planKey}-work-appearance`,
+                    exerciseKey,
+                    targets: { duration: 30 },
+                  },
+                },
+                {
+                  type: 'rest',
+                  key: `${planKey}-rest`,
+                  windowSeconds: 10,
+                  exercise: {
+                    key: `${planKey}-recovery-appearance`,
+                    exerciseKey: `${exerciseKey}-alternative`,
+                  },
+                },
+              ],
             },
           ],
         },
@@ -88,26 +170,7 @@ before(async () => {
     [userId, `import-http-${userId}@example.test`, passwordHash],
   )
 
-  class ImportHttpIntegrationModule {}
-  Module({
-    imports: [
-      TypeOrmModule.forRoot({
-        ...getDatabaseConfig(env),
-        schema,
-        extra: { options: `-c search_path=${schema}` },
-        autoLoadEntities: true,
-      }),
-      AuthModule,
-      TrainingPlanImportsModule,
-    ],
-  })(ImportHttpIntegrationModule)
-  app = await NestFactory.create(ImportHttpIntegrationModule, { bodyParser: false, logger: false })
-  registerJsonBodyParser(app)
-  app.useGlobalFilters(new ImportBodyParserExceptionFilter())
-  app.use(new HttpSecurityMiddleware([origin]).use)
-  app.setGlobalPrefix('api')
-  await app.listen(0, '127.0.0.1')
-  url = `http://127.0.0.1:${app.getHttpServer().address().port}/api`
+  ;({ app, url } = await startImportApi())
 
   const login = await fetch(`${url}/auth/login`, {
     method: 'POST',
@@ -164,31 +227,60 @@ test('authenticated import HTTP reviews and confirms against isolated trakia_tes
   )
   const operationId = randomUUID()
 
-  await context.test('confirmation persists the plan and replay is idempotent', async () => {
-    const confirm = () =>
-      fetch(`${endpoint}/confirmations`, {
+  await context.test(
+    'confirmation persists and replays idempotently, then a fresh API context recovers the plan',
+    async () => {
+      const confirm = () =>
+        fetch(`${endpoint}/confirmations`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ document, reviewToken: review.reviewToken, operationId }),
+        })
+      const firstResponse = await confirm()
+      assert.equal(firstResponse.status, 200)
+      const first = await firstResponse.json()
+      assert.equal(first.status, 'confirmed')
+      assert.equal(first.operationId, operationId)
+      assert.equal('id' in first, false)
+      assert.equal('version' in first, false)
+      const replayResponse = await confirm()
+      assert.equal(replayResponse.status, 200)
+      assert.deepEqual(await replayResponse.json(), first)
+      const [{ plans, operations, exerciseKeys }] = await dataSource.query(
+        `SELECT (SELECT count(*)::integer FROM training_plans) AS plans,
+        (SELECT count(*)::integer FROM training_plan_import_operations WHERE owner_id = $1) AS operations,
+        (SELECT count(*)::integer FROM exercise_catalog_keys WHERE key = ANY($2::varchar[])) AS "exerciseKeys"`,
+        [userId, document.exercises.map(({ key }) => key)],
+      )
+      assert.equal(plans, beforePlans + 1)
+      assert.equal(operations, 1)
+      assert.equal(exerciseKeys, document.exercises.length)
+
+      await app.close()
+      ;({ app, url } = await startImportApi())
+      const recoveredResponse = await fetch(`${url}/training-plan-imports/reviews`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ document, reviewToken: review.reviewToken, operationId }),
+        body: JSON.stringify({ document }),
       })
-    const firstResponse = await confirm()
-    assert.equal(firstResponse.status, 200)
-    const first = await firstResponse.json()
-    assert.equal(first.status, 'confirmed')
-    assert.equal(first.operationId, operationId)
-    assert.equal('id' in first, false)
-    assert.equal('version' in first, false)
-    const replayResponse = await confirm()
-    assert.equal(replayResponse.status, 200)
-    assert.deepEqual(await replayResponse.json(), first)
-    const [{ plans, operations, exerciseKeys }] = await dataSource.query(
-      `SELECT (SELECT count(*)::integer FROM training_plans) AS plans,
-        (SELECT count(*)::integer FROM training_plan_import_operations WHERE owner_id = $1) AS operations,
-        (SELECT count(*)::integer FROM exercise_catalog_keys WHERE key = $2) AS "exerciseKeys"`,
-      [userId, document.exercises[0].key],
-    )
-    assert.equal(plans, beforePlans + 1)
-    assert.equal(operations, 1)
-    assert.equal(exerciseKeys, 1)
-  })
+      assert.equal(recoveredResponse.status, 200)
+      const recoveredReview = await recoveredResponse.json()
+      assert.equal(recoveredReview.valid, true)
+      assert.equal(recoveredReview.confirmable, true)
+      assert.ok(recoveredReview.changes.every(({ status }) => status === 'unchanged'))
+      assert.deepEqual(recoveredReview.conflicts, [])
+      assert.deepEqual(
+        recoveredReview.proposal.days[0].blocks.map(({ type }) => type),
+        ['sets', 'circuit', 'intervals'],
+      )
+      assert.equal(
+        recoveredReview.proposal.days[0].blocks[0].exercises[0].alternatives[0].key,
+        document.plan.days[0].blocks[0].exercises[0].alternatives[0].key,
+      )
+      assert.equal(
+        recoveredReview.proposal.days[0].blocks[2].phases[1].exercise.key,
+        document.plan.days[0].blocks[2].phases[1].exercise.key,
+      )
+    },
+  )
 })
