@@ -7,7 +7,7 @@ import {
   type ExerciseDefinition,
   type ExerciseExternalReference,
 } from '@trakia/contracts'
-import { DataSource, QueryFailedError, Repository } from 'typeorm'
+import { DataSource, EntityManager, QueryFailedError, Repository } from 'typeorm'
 import { ExerciseCatalogKey, EXERCISE_CATALOG_KEY_PATTERN } from './exercise-catalog-key.entity.js'
 import { Exercise } from './exercise.entity.js'
 
@@ -45,14 +45,20 @@ export class ExerciseCatalogService {
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
-  async findByKey(key: string): Promise<ExerciseContract | null> {
-    const catalogKey = await this.keys.findOne({ where: { key }, relations: { exercise: true } })
+  async findByKey(key: string, manager?: EntityManager): Promise<ExerciseContract | null> {
+    const catalogKey = await (manager?.getRepository(ExerciseCatalogKey) ?? this.keys).findOne({
+      where: { key },
+      relations: { exercise: true },
+    })
     return catalogKey ? this.toContract(catalogKey.exercise, catalogKey.key) : null
   }
 
-  async compareDefinition(input: ExerciseDefinition): Promise<ExerciseDefinitionComparison> {
+  async compareDefinition(
+    input: ExerciseDefinition,
+    manager?: EntityManager,
+  ): Promise<ExerciseDefinitionComparison> {
     const definition = ExerciseDefinitionSchema.parse(input)
-    const existing = await this.findByKey(definition.key)
+    const existing = await this.findByKey(definition.key, manager)
     if (!existing) return { status: 'missing' }
     return definitionsMatch(existing, definition)
       ? { status: 'same', exercise: existing }

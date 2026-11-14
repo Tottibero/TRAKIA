@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm'
 import { getDatabaseConfig } from '../dist/config/database-config.js'
 import { CreateExerciseCatalog1794528000000 } from '../dist/database/migrations/1794528000000-CreateExerciseCatalog.js'
 import { CreateTrainingPlans1794614400000 } from '../dist/database/migrations/1794614400000-CreateTrainingPlans.js'
+import { PrepareTrainingPlanImportReview1794700800000 } from '../dist/database/migrations/1794700800000-PrepareTrainingPlanImportReview.js'
 import {
   TrainingPlanKeyConflictError,
   TrainingPlanService,
@@ -90,8 +91,10 @@ test('training plans migration and optimistic aggregate writes work in an isolat
     await runner.connect()
     const exercises = new CreateExerciseCatalog1794528000000()
     const plans = new CreateTrainingPlans1794614400000()
+    const review = new PrepareTrainingPlanImportReview1794700800000()
     await exercises.up(runner)
     await plans.up(runner)
+    await review.up(runner)
 
     const [{ id: exerciseId }] = await runner.query(
       `INSERT INTO exercises (name, category, supported_metrics) VALUES ('Squat', 'strength', ARRAY['reps','duration']) RETURNING id`,
@@ -196,6 +199,7 @@ test('training plans migration and optimistic aggregate writes work in an isolat
       /violates.*constraint/i,
     )
 
+    await review.down(runner)
     await plans.down(runner)
     await exercises.down(runner)
     await runner.release()

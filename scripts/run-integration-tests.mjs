@@ -45,6 +45,14 @@ try {
     'exec',
     'node',
     '--test',
+    'test/training-plan-import-review.integration.test.mjs',
+  ])
+  await run('pnpm', [
+    '--filter',
+    '@trakia/api',
+    'exec',
+    'node',
+    '--test',
     'test/training-plans.integration.test.mjs',
   ])
   await run('pnpm', ['--filter', '@trakia/api', 'exec', 'node', '--test', 'test/users.integration.test.mjs'])

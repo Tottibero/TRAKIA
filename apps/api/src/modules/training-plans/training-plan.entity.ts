@@ -78,6 +78,7 @@ export class TrainingPlanAppearance {
   @Column({ type: 'varchar' }) role!: 'main' | 'alternative'
   @Column({ name: 'parent_appearance_id', type: 'uuid', nullable: true }) parentAppearanceId!: string | null
   @Column({ name: 'exercise_id', type: 'uuid' }) exerciseId!: string
+  @Column({ name: 'exercise_key', type: 'varchar', nullable: true }) exerciseKey!: string | null
   @Column({ type: 'jsonb', nullable: true }) targets!: Record<string, number> | null
   @Column({ name: 'target_overrides', type: 'jsonb', nullable: true }) targetOverrides!: Record<
     string,

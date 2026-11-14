@@ -31,6 +31,13 @@ export interface PersistedTrainingPlan {
   version: number
 }
 
+export interface TrainingPlanImportSnapshot {
+  id: string
+  version: number
+  definition: TrainingPlanDefinition
+  unresolvedExerciseReferences: string[]
+}
+
 @Injectable()
 export class TrainingPlanService {
   constructor(
@@ -56,6 +63,171 @@ export class TrainingPlanService {
       if (isPlanKeyConflict(error)) throw new TrainingPlanKeyConflictError(plan.key)
       throw error
     }
+  }
+
+  /** Read-only projection used by import review; returns no persistence entities. */
+  async findForImport(
+    origin: string,
+    key: string,
+    manager?: EntityManager,
+  ): Promise<TrainingPlanImportSnapshot | null> {
+    const query = (sql: string, parameters: unknown[] = []) =>
+      manager ? manager.query(sql, parameters) : this.dataSource.query(sql, parameters)
+    const plans = await query(
+      `SELECT id, version, name, description, to_char(start_date, 'YYYY-MM-DD') AS "startDate",
+              to_char(end_date, 'YYYY-MM-DD') AS "endDate"
+       FROM training_plans WHERE origin = $1 AND key = $2`,
+      [origin, key],
+    )
+    const plan = plans[0] as
+      | {
+          id: string
+          version: number
+          name: string
+          description: string | null
+          startDate: string
+          endDate: string
+        }
+      | undefined
+    if (!plan) return null
+
+    const entries = (await query(
+      `SELECT id, type, key, to_char(date, 'YYYY-MM-DD') AS date
+       FROM training_plan_entries WHERE plan_id = $1 ORDER BY date, key`,
+      [plan.id],
+    )) as Array<{ id: string; type: 'session' | 'rest'; key: string; date: string }>
+    const days = new Map<string, Record<string, unknown>>()
+    for (const entry of entries) {
+      const day: Record<string, unknown> = { type: entry.type, key: entry.key, date: entry.date }
+      if (entry.type === 'session') day.blocks = []
+      days.set(entry.id, day)
+    }
+    const blocks = (await query(
+      `SELECT b.id, b.session_id AS "sessionId", b.key, b.position, b.type, b.mode, b.count,
+              b.rest_seconds AS "restSeconds", b.settings
+       FROM training_plan_blocks b JOIN training_plan_entries e ON e.id = b.session_id
+       WHERE e.plan_id = $1 ORDER BY e.date, b.position`,
+      [plan.id],
+    )) as Array<{
+      id: string
+      sessionId: string
+      key: string
+      position: number
+      type: 'sets' | 'circuit' | 'intervals'
+      mode: 'rounds' | 'amrap' | null
+      count: number | null
+      restSeconds: number | null
+      settings: Record<string, unknown> | null
+    }>
+    const blockValues = new Map<string, Record<string, unknown>>()
+    for (const block of blocks) {
+      const value: Record<string, unknown> = { type: block.type, key: block.key }
+      if (block.type === 'sets') {
+        value.exercises = []
+        value.restBetweenSetsSeconds = block.restSeconds
+        if (block.settings?.restAfterSeconds !== undefined)
+          value.restAfterSeconds = block.settings.restAfterSeconds
+      } else if (block.type === 'circuit') {
+        value.mode = block.mode
+        value.exercises = []
+        if (block.mode === 'rounds') {
+          value.rounds = block.count
+          if (block.restSeconds !== null) value.restBetweenRoundsSeconds = block.restSeconds
+        } else value.maxDurationSeconds = block.count
+      } else {
+        value.cycles = block.count
+        value.phases = []
+      }
+      blockValues.set(block.id, value)
+      const owner = days.get(block.sessionId)
+      if (owner) (owner.blocks as unknown[]).push(value)
+    }
+    const phases = (await query(
+      `SELECT p.id, p.block_id AS "blockId", p.key, p.position, p.type, p.window_seconds AS "windowSeconds"
+       FROM training_plan_phases p JOIN training_plan_blocks b ON b.id = p.block_id
+       JOIN training_plan_entries e ON e.id = b.session_id WHERE e.plan_id = $1 ORDER BY p.position`,
+      [plan.id],
+    )) as Array<{
+      id: string
+      blockId: string
+      key: string
+      position: number
+      type: 'work' | 'rest'
+      windowSeconds: number
+    }>
+    const phaseValues = new Map<string, Record<string, unknown>>()
+    for (const phase of phases) {
+      const value: Record<string, unknown> = {
+        type: phase.type,
+        key: phase.key,
+        windowSeconds: phase.windowSeconds,
+      }
+      phaseValues.set(phase.id, value)
+      const owner = blockValues.get(phase.blockId)
+      if (owner) (owner.phases as unknown[]).push(value)
+    }
+    const appearances = (await query(
+      `SELECT a.id, a.block_id AS "blockId", a.phase_id AS "phaseId", a.key, a.position,
+              a.role, a.parent_appearance_id AS "parentAppearanceId", a.exercise_id AS "exerciseId",
+              a.exercise_key AS "exerciseKey", a.targets, a.target_overrides AS "targetOverrides", a.settings,
+              COALESCE(a.exercise_key, (SELECT min(k.key) FROM exercise_catalog_keys k WHERE k.exercise_id = a.exercise_id)) AS "resolvedExerciseKey",
+              (SELECT count(*)::integer FROM exercise_catalog_keys k WHERE k.exercise_id = a.exercise_id) AS "exerciseKeyCount"
+       FROM training_plan_appearances a JOIN training_plan_blocks b ON b.id = a.block_id
+       JOIN training_plan_entries e ON e.id = b.session_id WHERE e.plan_id = $1
+       ORDER BY a.position, a.key`,
+      [plan.id],
+    )) as Array<{
+      id: string
+      blockId: string
+      phaseId: string | null
+      key: string
+      position: number
+      role: 'main' | 'alternative'
+      parentAppearanceId: string | null
+      exerciseKey: string | null
+      targets: Record<string, number> | null
+      targetOverrides: Record<string, number | null> | null
+      settings: Record<string, unknown> | null
+      resolvedExerciseKey: string | null
+      exerciseKeyCount: number
+    }>
+    const unresolvedExerciseReferences: string[] = []
+    const appearanceValues = new Map<string, Record<string, unknown>>()
+    for (const appearance of appearances) {
+      const exerciseKey = appearance.exerciseKey ?? appearance.resolvedExerciseKey
+      if (appearance.exerciseKey === null && appearance.exerciseKeyCount > 1)
+        unresolvedExerciseReferences.push(appearance.key)
+      const value: Record<string, unknown> = {
+        key: appearance.key,
+        exerciseKey: exerciseKey ?? `unresolved-${appearance.key}`,
+      }
+      if (appearance.targets) value.targets = appearance.targets
+      if (appearance.targetOverrides) value.targetOverrides = appearance.targetOverrides
+      if (appearance.settings)
+        for (const [setting, settingValue] of Object.entries(appearance.settings))
+          if (settingValue !== null && settingValue !== undefined) value[setting] = settingValue
+      if (appearance.role === 'main') value.alternatives = []
+      appearanceValues.set(appearance.id, value)
+      if (appearance.role === 'alternative') {
+        const parent = appearanceValues.get(appearance.parentAppearanceId ?? '')
+        if (parent) (parent.alternatives as unknown[]).push(value)
+      } else if (appearance.phaseId) {
+        const phase = phaseValues.get(appearance.phaseId)
+        if (phase) phase.exercise = value
+      } else {
+        const owner = blockValues.get(appearance.blockId)
+        if (owner) (owner.exercises as unknown[]).push(value)
+      }
+    }
+    const definition = TrainingPlanDefinitionSchema.parse({
+      key,
+      name: plan.name,
+      ...(plan.description === null ? {} : { description: plan.description }),
+      startDate: plan.startDate,
+      endDate: plan.endDate,
+      days: [...days.values()],
+    })
+    return { id: plan.id, version: plan.version, definition, unresolvedExerciseReferences }
   }
 
   async update(
@@ -249,17 +421,19 @@ export class TrainingPlanService {
     const main = firstRow(
       await manager.query(
         `INSERT INTO training_plan_appearances
-       (block_id, phase_id, key, position, role, exercise_id, targets, settings)
-       VALUES ($1, $2, $3, $4, 'main', $5, $6::jsonb, $7::jsonb)
+       (block_id, phase_id, key, position, role, exercise_id, exercise_key, targets, settings)
+       VALUES ($1, $2, $3, $4, 'main', $5, $6, $7::jsonb, $8::jsonb)
        ON CONFLICT (block_id, key) DO UPDATE SET phase_id = EXCLUDED.phase_id, position = EXCLUDED.position,
          role = 'main', parent_appearance_id = NULL, exercise_id = EXCLUDED.exercise_id,
-         targets = EXCLUDED.targets, target_overrides = NULL, settings = EXCLUDED.settings RETURNING id`,
+         exercise_key = EXCLUDED.exercise_key, targets = EXCLUDED.targets, target_overrides = NULL,
+         settings = EXCLUDED.settings RETURNING id`,
         [
           blockId,
           phaseId,
           planned.key,
           options.position * 4,
           exerciseIds.get(planned.exerciseKey),
+          planned.exerciseKey,
           json(planned.targets),
           json(options.settings),
         ],
@@ -268,11 +442,12 @@ export class TrainingPlanService {
     for (const [index, alternative] of (planned.alternatives ?? []).entries()) {
       await manager.query(
         `INSERT INTO training_plan_appearances
-         (block_id, phase_id, key, position, role, parent_appearance_id, exercise_id, target_overrides)
-         VALUES ($1, $2, $3, $4, 'alternative', $5, $6, $7::jsonb)
+         (block_id, phase_id, key, position, role, parent_appearance_id, exercise_id, exercise_key, target_overrides)
+         VALUES ($1, $2, $3, $4, 'alternative', $5, $6, $7, $8::jsonb)
          ON CONFLICT (block_id, key) DO UPDATE SET phase_id = EXCLUDED.phase_id, position = EXCLUDED.position,
            role = 'alternative', parent_appearance_id = EXCLUDED.parent_appearance_id,
-           exercise_id = EXCLUDED.exercise_id, targets = NULL, target_overrides = EXCLUDED.target_overrides,
+         exercise_id = EXCLUDED.exercise_id, exercise_key = EXCLUDED.exercise_key,
+         targets = NULL, target_overrides = EXCLUDED.target_overrides,
            settings = NULL`,
         [
           blockId,
@@ -281,6 +456,7 @@ export class TrainingPlanService {
           options.position * 4 + index + 1,
           String(main.id),
           exerciseIds.get(alternative.exerciseKey),
+          alternative.exerciseKey,
           json(alternative.targetOverrides),
         ],
       )
