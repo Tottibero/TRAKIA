@@ -7,6 +7,25 @@ import { DataSource, EntityManager } from 'typeorm'
 export class WorkoutExecutionProtectionService {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
+  /**
+   * Shared cross-version protocol: writers lock each `planKey/sessionKey` pair
+   * with a PostgreSQL transaction-scoped advisory lock, in sorted order. The
+   * future online-start use case must call this inside its own transaction
+   * before inserting the execution row.
+   */
+  async acquireSessionLocks(
+    manager: EntityManager,
+    planKey: string,
+    sessionKeys: readonly string[],
+  ): Promise<void> {
+    const keys = [...new Set(sessionKeys)].sort()
+    for (const sessionKey of keys) {
+      await manager.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
+        `trakia:workouts:session:${planKey}:${sessionKey}`,
+      ])
+    }
+  }
+
   async findProtectedSessionKeys(
     planKey: string,
     sessionKeys: readonly string[],

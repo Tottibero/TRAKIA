@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { TrainingPlanImportReviewService } from '../dist/modules/training-plan-imports/training-plan-import-review.service.js'
+import { ImportReviewReceiptService } from '../dist/modules/training-plan-imports/import-review-receipt.js'
+
+const userId = '7d80cce8-2a68-411b-8918-60c40d903219'
+const receipts = new ImportReviewReceiptService('unit-test-secret-with-at-least-thirty-two-bytes')
 
 const document = (overrides = {}) => ({
   format: 'trakia.training-plan',
@@ -74,7 +78,7 @@ function setup({ existing = null, protectedKeys = new Set(), exerciseStatus = 's
     },
   }
   return {
-    service: new TrainingPlanImportReviewService(dataSource, exercises, plans, workouts),
+    service: new TrainingPlanImportReviewService(dataSource, exercises, plans, workouts, receipts),
     statements,
   }
 }
@@ -85,8 +89,9 @@ test('invalid documents return validation issues without opening a database tran
     {},
     {},
     {},
+    receipts,
   )
-  const result = await service.review('import', { format: 'wrong' })
+  const result = await service.review('import', { format: 'wrong' }, userId)
   assert.equal(result.valid, false)
   assert.equal(result.confirmable, false)
   assert.ok(result.issues.length > 0)
@@ -94,10 +99,12 @@ test('invalid documents return validation issues without opening a database tran
 
 test('review is read-only and reports a valid plan creation', async () => {
   const { service, statements } = setup({ existing: null, exerciseStatus: 'missing' })
-  const result = await service.review('import', document(), new Date('2026-11-14T11:00:00Z'))
+  const result = await service.review('import', document(), userId, new Date('2026-11-14T11:00:00Z'))
   assert.equal(result.valid, true)
   assert.equal(result.confirmable, true, JSON.stringify(result.conflicts))
   assert.equal(result.plan.id, null)
+  assert.ok(result.reviewToken)
+  assert.equal(result.reviewExpiresAt, '2026-11-14T11:15:00.000Z')
   assert.ok(result.changes.some(({ kind, status }) => kind === 'exercise' && status === 'created'))
   assert.ok(result.changes.some(({ kind, status }) => kind === 'plan' && status === 'created'))
   assert.deepEqual(statements, ['SET TRANSACTION READ ONLY'])
@@ -131,7 +138,7 @@ test('conservative merge preserves omitted days, blocks, alternatives, and optio
   const input = document()
   delete input.plan.description
   delete input.plan.days[0].blocks[0].exercises[0].alternatives
-  const result = await service.review('import', input, new Date('2026-11-14T11:00:00Z'))
+  const result = await service.review('import', input, userId, new Date('2026-11-14T11:00:00Z'))
   assert.equal(result.valid, true)
   assert.equal(result.confirmable, true, JSON.stringify(result.conflicts))
   assert.equal(result.plan.definition.description, 'Retain this description')
@@ -145,7 +152,7 @@ test('conservative merge preserves omitted days, blocks, alternatives, and optio
 
 test('catalog definition conflicts block the whole review', async () => {
   const { service } = setup({ existing: null, exerciseStatus: 'conflict' })
-  const result = await service.review('import', document(), new Date('2026-11-14T11:00:00Z'))
+  const result = await service.review('import', document(), userId, new Date('2026-11-14T11:00:00Z'))
   assert.equal(result.valid, true)
   assert.equal(result.confirmable, false)
   assert.ok(result.conflicts.some(({ code }) => code === 'EXERCISE_DEFINITION_CONFLICT'))
@@ -158,6 +165,7 @@ test('reusing a stable key with a different day type is a conflict', async () =>
   const result = await setup({ existing: old }).service.review(
     'import',
     input,
+    userId,
     new Date('2026-11-14T11:00:00Z'),
   )
   assert.equal(result.valid, true)
@@ -173,6 +181,7 @@ test('the combined aggregate rejects a rest day that conflicts with a preserved 
   const result = await setup({ existing: old }).service.review(
     'import',
     input,
+    userId,
     new Date('2026-11-14T11:00:00Z'),
   )
   assert.equal(result.valid, true)
@@ -188,13 +197,13 @@ test('sessions can change from today inclusive in Madrid, unless execution has s
   input.plan.days[0].date = '2026-11-14'
   input.plan.days[0].blocks[0].exercises[0].targets.reps = 10
   const now = new Date('2026-11-13T23:30:00Z') // 2026-11-14 in Europe/Madrid.
-  const allowed = await setup({ existing: todayPlan }).service.review('import', input, now)
+  const allowed = await setup({ existing: todayPlan }).service.review('import', input, userId, now)
   assert.equal(allowed.confirmable, true)
 
   const protectedResult = await setup({
     existing: todayPlan,
     protectedKeys: new Set(['monday-session']),
-  }).service.review('import', input, now)
+  }).service.review('import', input, userId, now)
   assert.equal(protectedResult.confirmable, false)
   assert.ok(protectedResult.conflicts.some(({ code }) => code === 'SESSION_EXECUTION_PROTECTED'))
 })
@@ -208,6 +217,7 @@ test('past sessions are protected even without an execution record', async () =>
   const result = await setup({ existing: old }).service.review(
     'import',
     input,
+    userId,
     new Date('2026-11-14T11:00:00Z'),
   )
   assert.equal(result.confirmable, false)

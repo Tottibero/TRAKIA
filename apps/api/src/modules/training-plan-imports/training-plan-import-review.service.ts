@@ -11,6 +11,7 @@ import { ExerciseCatalogService } from '../exercises/exercises.module.js'
 import { TrainingPlanService } from '../training-plans/training-plans.module.js'
 import { WorkoutExecutionProtectionService } from '../workouts/workouts.module.js'
 import { mergeTrainingPlan, type MergeChange, type MergeConflict } from './merge-training-plan.js'
+import { canonicalJson, ImportReviewReceiptService, sha256 } from './import-review-receipt.js'
 import { DataSource, EntityManager } from 'typeorm'
 
 export interface ImportReviewConflict {
@@ -35,6 +36,8 @@ export interface TrainingPlanImportReview {
   plan?: { id: string | null; version: number | null; definition: TrainingPlanDefinition }
   changes: ImportReviewChange[]
   conflicts: ImportReviewConflict[]
+  reviewToken?: string
+  reviewExpiresAt?: string
 }
 
 @Injectable()
@@ -44,9 +47,15 @@ export class TrainingPlanImportReviewService {
     private readonly exercises: ExerciseCatalogService,
     private readonly plans: TrainingPlanService,
     private readonly workouts: WorkoutExecutionProtectionService,
+    private readonly receipts: ImportReviewReceiptService,
   ) {}
 
-  async review(origin: string, input: unknown, now: Date = new Date()): Promise<TrainingPlanImportReview> {
+  async review(
+    origin: string,
+    input: unknown,
+    userId: string,
+    now: Date = new Date(),
+  ): Promise<TrainingPlanImportReview> {
     if (!origin.trim() || origin !== origin.trim())
       throw new TypeError('origin must be non-empty and trimmed.')
     const validation = validateTrainingPlanImportDocument(input)
@@ -55,8 +64,38 @@ export class TrainingPlanImportReviewService {
 
     return this.dataSource.transaction('REPEATABLE READ', async (manager) => {
       await manager.query('SET TRANSACTION READ ONLY')
-      return this.reviewValid(origin, validation.document, now, manager)
+      const result = await this.reviewValid(origin, validation.document, now, manager)
+      if (result.confirmable && result.plan) {
+        const expiresAt = new Date(now.getTime() + 15 * 60 * 1000)
+        result.reviewToken = this.receipts.issue(
+          {
+            userId,
+            origin,
+            planKey: validation.document.plan.key,
+            documentHash: sha256(canonicalJson(validation.document)),
+            proposalHash: proposalHash(result),
+            planVersion: result.plan.version,
+          },
+          now.getTime(),
+        )
+        result.reviewExpiresAt = expiresAt.toISOString()
+      }
+      return result
     })
+  }
+
+  async reviewInTransaction(
+    origin: string,
+    input: unknown,
+    manager: EntityManager,
+    now = new Date(),
+  ): Promise<TrainingPlanImportReview> {
+    if (!origin.trim() || origin !== origin.trim())
+      throw new TypeError('origin must be non-empty and trimmed.')
+    const validation = validateTrainingPlanImportDocument(input)
+    if (!validation.success)
+      return { valid: false, confirmable: false, issues: validation.issues, changes: [], conflicts: [] }
+    return this.reviewValid(origin, validation.document, now, manager)
   }
 
   private async reviewValid(
@@ -206,6 +245,10 @@ export class TrainingPlanImportReviewService {
       message: conflict.message,
     }
   }
+}
+
+export function proposalHash(review: TrainingPlanImportReview): string {
+  return sha256(canonicalJson({ plan: review.plan, changes: review.changes, conflicts: review.conflicts }))
 }
 
 function plannedExerciseKeys(plan: TrainingPlanDefinition): Set<string> {

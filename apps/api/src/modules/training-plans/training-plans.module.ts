@@ -10,7 +10,11 @@ import {
 } from './training-plan.entity.js'
 import { TrainingPlanService } from './training-plan.service.js'
 
-export { TrainingPlanService } from './training-plan.service.js'
+export {
+  TrainingPlanKeyConflictError,
+  TrainingPlanService,
+  TrainingPlanVersionConflictError,
+} from './training-plan.service.js'
 
 @Module({
   imports: [

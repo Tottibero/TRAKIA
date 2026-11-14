@@ -71,27 +71,9 @@ export class ExerciseCatalogService {
     const definition = ExerciseDefinitionSchema.parse(input)
 
     try {
-      return await this.dataSource.transaction(async (manager) => {
-        const exercises = manager.getRepository(Exercise)
-        const keys = manager.getRepository(ExerciseCatalogKey)
-        const existingKey = await keys.findOne({
-          where: { key: definition.key },
-          relations: { exercise: true },
-        })
-        if (existingKey) return this.resolveExisting(existingKey, definition)
-
-        const exercise = await exercises.save(
-          exercises.create({
-            name: definition.name,
-            description: definition.description ?? null,
-            category: definition.category,
-            supportedMetrics: definition.supportedMetrics,
-            externalReferences: definition.externalReferences ?? null,
-          }),
-        )
-        await keys.save(keys.create({ key: definition.key, exerciseId: exercise.id }))
-        return { exercise: this.toContract(exercise, definition.key), created: true }
-      })
+      return await this.dataSource.transaction((manager) =>
+        this.createFromDefinitionInTransaction(definition, manager),
+      )
     } catch (error) {
       if (!isCatalogKeyUniqueViolation(error)) throw error
       const existing = await this.findByKey(definition.key)
@@ -100,6 +82,35 @@ export class ExerciseCatalogService {
         { key: definition.key, exercise: await this.exercises.findOneByOrFail({ id: existing.id }) },
         definition,
       )
+    }
+  }
+
+  /** Create or confirm an identical catalogue definition in the caller's transaction. */
+  async createFromDefinitionInTransaction(
+    input: ExerciseDefinition,
+    manager: EntityManager,
+  ): Promise<{ exercise: ExerciseContract; created: boolean }> {
+    const definition = ExerciseDefinitionSchema.parse(input)
+    const exercises = manager.getRepository(Exercise)
+    const keys = manager.getRepository(ExerciseCatalogKey)
+    const existingKey = await keys.findOne({ where: { key: definition.key }, relations: { exercise: true } })
+    if (existingKey) return this.resolveExisting(existingKey, definition)
+
+    const exercise = await exercises.save(
+      exercises.create({
+        name: definition.name,
+        description: definition.description ?? null,
+        category: definition.category,
+        supportedMetrics: definition.supportedMetrics,
+        externalReferences: definition.externalReferences ?? null,
+      }),
+    )
+    try {
+      await keys.save(keys.create({ key: definition.key, exerciseId: exercise.id }))
+      return { exercise: this.toContract(exercise, definition.key), created: true }
+    } catch (error) {
+      if (isCatalogKeyUniqueViolation(error)) throw new ExerciseCatalogConflictError(definition.key)
+      throw error
     }
   }
 

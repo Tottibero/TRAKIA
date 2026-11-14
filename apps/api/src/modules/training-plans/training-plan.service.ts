@@ -48,17 +48,8 @@ export class TrainingPlanService {
   async create(origin: string, input: TrainingPlanDefinition): Promise<PersistedTrainingPlan> {
     const plan = TrainingPlanDefinitionSchema.parse(input)
     validateOrigin(origin)
-    const exerciseIds = await this.resolveExercises(plan)
     try {
-      return await this.dataSource.transaction(async (manager) => {
-        const [stored] = await manager.query(
-          `INSERT INTO training_plans (origin, key, name, description, start_date, end_date, version)
-           VALUES ($1, $2, $3, $4, $5::date, $6::date, 1) RETURNING id, origin, key, version`,
-          [origin, plan.key, plan.name, plan.description ?? null, plan.startDate, plan.endDate],
-        )
-        await this.writeEntries(manager, stored.id, plan, exerciseIds)
-        return stored
-      })
+      return await this.dataSource.transaction((manager) => this.createForImport(origin, plan, manager))
     } catch (error) {
       if (isPlanKeyConflict(error)) throw new TrainingPlanKeyConflictError(plan.key)
       throw error
@@ -241,25 +232,68 @@ export class TrainingPlanService {
     if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1)
       throw new RangeError('expectedVersion must be a positive integer.')
     if (plan.key !== key) throw new Error('A plan key cannot change during an update.')
-    const exerciseIds = await this.resolveExercises(plan)
-
     return this.dataSource.transaction(async (manager) => {
-      const result = await manager.query(
-        `UPDATE training_plans SET name = $1, description = $2, start_date = $3::date,
-           end_date = $4::date, version = version + 1
-         WHERE origin = $5 AND key = $6 AND version = $7
-         RETURNING id, origin, key, version`,
-        [plan.name, plan.description ?? null, plan.startDate, plan.endDate, origin, key, expectedVersion],
-      )
-      const stored = Array.isArray(result[0]) ? result[0][0] : result[0]
-      if (!stored) throw new TrainingPlanVersionConflictError()
-      await this.writeEntries(manager, stored.id, plan, exerciseIds)
-      await this.pruneObsolete(manager, stored.id, plan)
-      return stored
+      return this.updateForImport(origin, key, expectedVersion, plan, manager)
     })
   }
 
-  private async resolveExercises(plan: TrainingPlanDefinition): Promise<Map<string, string>> {
+  /** Apply a newly reviewed plan using the caller's transaction. */
+  async createForImport(
+    origin: string,
+    input: TrainingPlanDefinition,
+    manager: EntityManager,
+  ): Promise<PersistedTrainingPlan> {
+    const plan = TrainingPlanDefinitionSchema.parse(input)
+    validateOrigin(origin)
+    const exerciseIds = await this.resolveExercises(plan, manager)
+    try {
+      const stored = firstRow(
+        await manager.query(
+          `INSERT INTO training_plans (origin, key, name, description, start_date, end_date, version)
+           VALUES ($1, $2, $3, $4, $5::date, $6::date, 1) RETURNING id, origin, key, version`,
+          [origin, plan.key, plan.name, plan.description ?? null, plan.startDate, plan.endDate],
+        ),
+      )
+      await this.writeEntries(manager, String(stored.id), plan, exerciseIds)
+      return stored as unknown as PersistedTrainingPlan
+    } catch (error) {
+      if (isPlanKeyConflict(error)) throw new TrainingPlanKeyConflictError(plan.key)
+      throw error
+    }
+  }
+
+  /** Apply a reviewed plan with optimistic version checking in the caller's transaction. */
+  async updateForImport(
+    origin: string,
+    key: string,
+    expectedVersion: number,
+    input: TrainingPlanDefinition,
+    manager: EntityManager,
+  ): Promise<PersistedTrainingPlan> {
+    const plan = TrainingPlanDefinitionSchema.parse(input)
+    validateOrigin(origin)
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1)
+      throw new RangeError('expectedVersion must be a positive integer.')
+    if (plan.key !== key) throw new Error('A plan key cannot change during an update.')
+    const exerciseIds = await this.resolveExercises(plan, manager)
+    const result = await manager.query(
+      `UPDATE training_plans SET name = $1, description = $2, start_date = $3::date,
+         end_date = $4::date, version = version + 1
+       WHERE origin = $5 AND key = $6 AND version = $7
+       RETURNING id, origin, key, version`,
+      [plan.name, plan.description ?? null, plan.startDate, plan.endDate, origin, key, expectedVersion],
+    )
+    const stored = Array.isArray(result[0]) ? result[0][0] : result[0]
+    if (!stored) throw new TrainingPlanVersionConflictError()
+    await this.writeEntries(manager, String(stored.id), plan, exerciseIds)
+    await this.pruneObsolete(manager, String(stored.id), plan)
+    return stored as PersistedTrainingPlan
+  }
+
+  private async resolveExercises(
+    plan: TrainingPlanDefinition,
+    manager?: EntityManager,
+  ): Promise<Map<string, string>> {
     const keys = new Set<string>()
     for (const day of plan.days) {
       if (day.type !== 'session') continue
@@ -277,7 +311,7 @@ export class TrainingPlanService {
     const ids = new Map<string, string>()
     await Promise.all(
       [...keys].map(async (key) => {
-        const exercise = await this.exercises.findByKey(key)
+        const exercise = await this.exercises.findByKey(key, manager)
         if (!exercise) throw new Error(`Unknown exercise catalog key: ${key}`)
         ids.set(key, exercise.id)
       }),
