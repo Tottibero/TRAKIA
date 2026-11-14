@@ -30,6 +30,6 @@
 | [HC-02-06](tasks/HC-02/HC-02-06.md) | Completada | Contratos separados de sincronización y proyección JSON deportiva v1; 124 pruebas, `pnpm check` y auditoría arquitectónica satisfactorios. Aceptación del propietario registrada en el cierre. |
 | [HC-02-07](tasks/HC-02/HC-02-07.md) | Completada | Auditoría transversal y correcciones verificadas; aceptación del propietario registrada. Todas las tareas HC-02 están completadas; PR, CI e integración en `main` pendientes. |
 | [HC-03-01](tasks/HC-03/HC-03-01.md) | Completada | Diseño documental con D1–D4 aprobado; verificaciones locales y auditoría arquitectónica satisfactorias. Aceptación del propietario registrada en el cierre. |
-| [HC-03-02](tasks/HC-03/HC-03-02.md) | En revisión | Persistencia del catálogo; verificaciones locales y auditoría satisfactorias en Node 26.13.0 y `trakia_test`; CI remoto `quality` pendiente en PR. |
+| [HC-03-02](tasks/HC-03/HC-03-02.md) | Completada | Persistencia del catálogo; `pnpm check`, contracts e integración PostgreSQL satisfactorios y auditoría sin hallazgos. `quality` remoto se verifica una vez al finalizar HC-03 antes del merge. |
 
 La aceptación actual de HC-01-02, HC-01-02c, HC-01-03a–HC-01-03g, HC-01-04 y HC-01-06 se registra por autorización explícita del propietario en la solicitud de cierre definitivo; no se atribuye a revisiones históricas. HC-01-01, HC-01-02b y HC-01-05a–HC-01-05e conservan sus cierres previamente documentados. Las pruebas automatizadas se distinguen de los recorridos manuales del propietario en las fichas correspondientes.
