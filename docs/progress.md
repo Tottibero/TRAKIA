@@ -32,5 +32,6 @@
 | [HC-03-01](tasks/HC-03/HC-03-01.md) | Completada | Diseño documental con D1–D4 aprobado; verificaciones locales y auditoría arquitectónica satisfactorias. Aceptación del propietario registrada en el cierre. |
 | [HC-03-02](tasks/HC-03/HC-03-02.md) | Completada | Persistencia del catálogo; `pnpm check`, contracts e integración PostgreSQL satisfactorios y auditoría sin hallazgos. `quality` remoto se verifica una vez al finalizar HC-03 antes del merge. |
 | [HC-03-03](tasks/HC-03/HC-03-03.md) | Completada | Persistencia de planes y agregado; pruebas locales, contracts e integración PostgreSQL satisfactorias y auditoría arquitectónica sin hallazgos. `quality` se difiere al cierre de HC-03. |
+| [HC-03-04](tasks/HC-03/HC-03-04.md) | Completada | Validador e incidencias Zod; builds/tests/check pasan con UID host, auditoría sin hallazgos. `quality` se difiere al cierre de HC-03. |
 
 La aceptación actual de HC-01-02, HC-01-02c, HC-01-03a–HC-01-03g, HC-01-04 y HC-01-06 se registra por autorización explícita del propietario en la solicitud de cierre definitivo; no se atribuye a revisiones históricas. HC-01-01, HC-01-02b y HC-01-05a–HC-01-05e conservan sus cierres previamente documentados. Las pruebas automatizadas se distinguen de los recorridos manuales del propietario en las fichas correspondientes.

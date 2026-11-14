@@ -56,6 +56,7 @@
 
 - Usa la skill `trakia-docker` como procedimiento preferente para gestionar Docker Compose. Docker solo se inicia cuando el usuario lo solicita; limita toda gestión al proyecto `trakia`, conserva los datos persistentes y no ejecutes limpiezas globales. La skill no realiza operaciones Git.
 - Mantén aislados los artefactos de compilación de Docker y del host.
+- En este entorno, los comandos lanzados dentro del sandbox pueden crear artefactos de workspace con UID/GID `65534` (`nobody:nogroup`). Ejecuta `pnpm build`, tests y `pnpm check` que escriban en `dist` con la identidad del usuario del host, fuera del sandbox; no cambies propietarios/permisos de forma global ni redirijas las builds como solución permanente.
 - Opera los comandos Docker Compose únicamente sobre el proyecto TRAKIA (`compose.yaml`, nombre `trakia`).
 - Inicia el entorno solo cuando el usuario lo solicite; no configures arranque automático.
 - Antes de iniciar, reconstruir o detener, consulta `docker compose ps` y limita las acciones a los recursos de TRAKIA.

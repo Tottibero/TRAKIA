@@ -1,6 +1,10 @@
 import { type z } from 'zod'
 import { type ExerciseDefinition, type ExerciseMetric } from '../exercises/exercise.js'
 import { type PlannedExercise, type PlannedSession, type TargetOverrides } from './training-plan.js'
+import {
+  IMPORT_VALIDATION_SEMANTIC_CODE_PARAM,
+  IMPORT_VALIDATION_SEMANTIC_CODES,
+} from '../validation-issue-metadata.js'
 
 interface CollectedPlannedExercise {
   exercise: PlannedExercise
@@ -69,6 +73,9 @@ function checkMetricSupport(
     if (!supported.has(metric)) {
       context.addIssue({
         code: 'custom',
+        params: {
+          [IMPORT_VALIDATION_SEMANTIC_CODE_PARAM]: IMPORT_VALIDATION_SEMANTIC_CODES.incompatibleMetric,
+        },
         path: [...path, metric],
         message: `Metric "${metric}" is not supported by the referenced exercise`,
       })
@@ -88,6 +95,9 @@ export function validateReferencesAndTargets(
     if (!mainDefinition) {
       context.addIssue({
         code: 'custom',
+        params: {
+          [IMPORT_VALIDATION_SEMANTIC_CODE_PARAM]: IMPORT_VALIDATION_SEMANTIC_CODES.exerciseNotDefined,
+        },
         path: [...path, 'exerciseKey'],
         message: `Exercise "${exercise.exerciseKey}" is not defined in exercises`,
       })
@@ -105,6 +115,9 @@ export function validateReferencesAndTargets(
       if (!alternativeDefinition) {
         context.addIssue({
           code: 'custom',
+          params: {
+            [IMPORT_VALIDATION_SEMANTIC_CODE_PARAM]: IMPORT_VALIDATION_SEMANTIC_CODES.exerciseNotDefined,
+          },
           path: [...path, 'alternatives', alternativeIndex, 'exerciseKey'],
           message: `Exercise "${alternative.exerciseKey}" is not defined in exercises`,
         })

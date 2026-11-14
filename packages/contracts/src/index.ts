@@ -26,6 +26,8 @@ export type {
 } from './training-plan-imports/import-validation-issue.js'
 export { TrainingPlanImportV1Schema } from './training-plan-imports/training-plan-import.js'
 export type { TrainingPlanImportV1 } from './training-plan-imports/training-plan-import.js'
+export { validateTrainingPlanImportDocument } from './training-plan-imports/validate-training-plan-import.js'
+export type { TrainingPlanImportValidationResult } from './training-plan-imports/validate-training-plan-import.js'
 export {
   ExerciseTargetsSchema,
   PlannedAlternativeSchema,

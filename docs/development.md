@@ -59,6 +59,8 @@ pnpm --filter @trakia/contracts build
 
 Vite y Nest consumen los artefactos compilados del paquete compartido en `dist`.
 
+En este entorno, las herramientas dentro del sandbox pueden crear archivos del workspace como `nobody:nogroup` (UID/GID 65534), que luego impiden sobrescribirlos desde el host. Ejecuta builds, tests y `pnpm check` que escriban artefactos con el usuario del host, fuera del sandbox. Docker Compose mantiene sus artefactos separados en volúmenes nombrados; no montes los `dist` del host dentro de los contenedores.
+
 ## Desarrollo con Docker Compose
 
 El Compose de desarrollo utiliza Node.js 26.13.0 y pnpm 12.19.0 dentro de los contenedores. PostgreSQL usa la imagen oficial `postgres:17.6-bookworm`. Los puertos publicados se limitan a `127.0.0.1`.
