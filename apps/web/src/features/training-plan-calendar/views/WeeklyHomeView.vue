@@ -168,36 +168,74 @@ onBeforeUnmount(() => {
           </h1>
           <p class="mt-3 text-base text-stone-400">{{ weekLabel }}</p>
         </div>
-        <nav class="mt-5 flex items-center gap-2 sm:mt-0" aria-label="Navegación de semanas">
-          <button
-            class="grid size-11 shrink-0 place-items-center rounded-md border border-white/10 text-stone-200 transition hover:border-lime-300/50 hover:text-lime-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
-            type="button"
-            :aria-label="`Semana anterior a ${formatWeekRange(addCivilDays(weekStart, -7), addCivilDays(weekEnd, -7))}`"
-            @click="navigateWeeks(-1)"
+        <div class="mt-5 flex w-full items-center justify-between gap-2 sm:mt-0 sm:w-auto sm:justify-start">
+          <nav class="flex shrink-0 items-center gap-2" aria-label="Navegación de semanas">
+            <button
+              class="grid size-11 shrink-0 place-items-center rounded-md border border-white/10 text-stone-200 transition hover:border-lime-300/50 hover:text-lime-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+              type="button"
+              :aria-label="`Semana anterior a ${formatWeekRange(addCivilDays(weekStart, -7), addCivilDays(weekEnd, -7))}`"
+              @click="navigateWeeks(-1)"
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20" class="size-5" fill="none">
+                <path d="m12.5 4.5-5.5 5.5 5.5 5.5" stroke="currentColor" stroke-width="1.7" />
+              </svg>
+            </button>
+            <button
+              v-if="!isCurrentWeek"
+              class="grid size-11 shrink-0 place-items-center rounded-md border border-white/10 text-stone-200 transition hover:border-lime-300/50 hover:text-lime-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+              type="button"
+              aria-label="Ir a esta semana"
+              title="Esta semana"
+              @click="goToCurrentWeek"
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20" class="size-5" fill="none">
+                <rect
+                  x="3.5"
+                  y="4.5"
+                  width="13"
+                  height="12"
+                  rx="1.5"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                />
+                <path
+                  d="M6.5 3v3M13.5 3v3M4 8h12M7 11h2v2H7z"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+            <button
+              class="grid size-11 shrink-0 place-items-center rounded-md border border-white/10 text-stone-200 transition hover:border-lime-300/50 hover:text-lime-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+              type="button"
+              :aria-label="`Semana siguiente a ${formatWeekRange(addCivilDays(weekStart, 7), addCivilDays(weekEnd, 7))}`"
+              @click="navigateWeeks(1)"
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20" class="size-5" fill="none">
+                <path d="m7.5 4.5 5.5 5.5-5.5 5.5" stroke="currentColor" stroke-width="1.7" />
+              </svg>
+            </button>
+          </nav>
+          <RouterLink
+            :to="{ name: 'training-plan-import' }"
+            aria-label="Importar plan"
+            title="Importar plan"
+            class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-white/10 text-stone-200 transition hover:border-lime-300/50 hover:text-lime-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 md:h-auto md:min-h-11 md:w-auto md:gap-2 md:px-3"
           >
             <svg aria-hidden="true" viewBox="0 0 20 20" class="size-5" fill="none">
-              <path d="m12.5 4.5-5.5 5.5 5.5 5.5" stroke="currentColor" stroke-width="1.7" />
+              <path
+                d="M10 12V3m0 0L6.5 6.5M10 3l3.5 3.5M4 11v4.5A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5V11"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
-          </button>
-          <button
-            v-if="!isCurrentWeek"
-            class="min-h-11 rounded-md border border-white/10 px-4 text-sm font-medium text-stone-200 transition hover:border-lime-300/50 hover:text-lime-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
-            type="button"
-            @click="goToCurrentWeek"
-          >
-            Esta semana
-          </button>
-          <button
-            class="grid size-11 shrink-0 place-items-center rounded-md border border-white/10 text-stone-200 transition hover:border-lime-300/50 hover:text-lime-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
-            type="button"
-            :aria-label="`Semana siguiente a ${formatWeekRange(addCivilDays(weekStart, 7), addCivilDays(weekEnd, 7))}`"
-            @click="navigateWeeks(1)"
-          >
-            <svg aria-hidden="true" viewBox="0 0 20 20" class="size-5" fill="none">
-              <path d="m7.5 4.5 5.5 5.5-5.5 5.5" stroke="currentColor" stroke-width="1.7" />
-            </svg>
-          </button>
-        </nav>
+            <span class="sr-only md:not-sr-only">Importar plan</span>
+          </RouterLink>
+        </div>
       </section>
 
       <div
