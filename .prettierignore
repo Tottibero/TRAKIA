@@ -2,6 +2,8 @@ node_modules/
 **/dist/
 **/coverage/
 **/.cache/
+.agents/skills/ui-design-system/
+.agents/skills/ui-ux-pro-max/
 pnpm-lock.yaml
 docs/
 *.md

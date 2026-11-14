@@ -1,15 +1,22 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { AuthUserSchema } from '@trakia/contracts'
-import { getCurrentUser, LoginView } from '@/features/auth'
+import { getCurrentUser, LoginView, safeLocalRedirect } from '@/features/auth'
 import { ApiError } from '../shared/api/http'
 import { queryClient } from '../app/queryClient'
 import HomeView from '../views/HomeView.vue'
+import { TrainingPlanImportView } from '@/features/training-plan-imports'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', name: 'login', component: LoginView },
     { path: '/', name: 'home', component: HomeView, meta: { requiresAuth: true } },
+    {
+      path: '/training-plans/import',
+      name: 'training-plan-import',
+      component: TrainingPlanImportView,
+      meta: { requiresAuth: true },
+    },
   ],
 })
 
@@ -23,7 +30,7 @@ router.beforeEach(async (to) => {
       staleTime: 60_000,
     })
     AuthUserSchema.parse(user)
-    if (to.name === 'login') return { name: 'home' }
+    if (to.name === 'login') return safeLocalRedirect(to.query.redirect) ?? { name: 'home' }
   } catch (error) {
     queryClient.removeQueries({ queryKey: ['auth', 'me'] })
     if (error instanceof ApiError && error.status === 401 && requiresAuth) {

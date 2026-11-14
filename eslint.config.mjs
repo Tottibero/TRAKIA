@@ -119,6 +119,10 @@ export default tseslint.config(
     },
   },
   {
+    files: ['apps/**/*.vue'],
+    languageOptions: { parserOptions: { parser: tseslint.parser } },
+  },
+  {
     files: ['apps/api/src/modules/*/domain/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
@@ -195,7 +199,9 @@ export default tseslint.config(
   },
   {
     files: ['apps/web/src/**/*.ts', 'apps/web/src/**/*.vue'],
-    languageOptions: { globals: { console: 'readonly', fetch: 'readonly', window: 'readonly' } },
+    languageOptions: {
+      globals: { console: 'readonly', fetch: 'readonly', window: 'readonly', HTMLInputElement: 'readonly' },
+    },
     rules: {
       'no-restricted-imports': [
         'error',

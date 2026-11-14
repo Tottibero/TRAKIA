@@ -3,11 +3,15 @@ import { NestFactory } from '@nestjs/core'
 import { AppModule } from './app.module.js'
 import { getCorsOrigins, getPort, getTrustedProxies } from './config/runtime-config.js'
 import { HttpSecurityMiddleware } from './config/http-security.middleware.js'
+import { ImportBodyParserExceptionFilter } from './config/import-body-parser-exception.filter.js'
+import { registerJsonBodyParser } from './config/json-body-parser.js'
 
 async function bootstrap() {
   const port = getPort()
-  const app = await NestFactory.create(AppModule)
+  const app = await NestFactory.create(AppModule, { bodyParser: false })
 
+  registerJsonBodyParser(app)
+  app.useGlobalFilters(new ImportBodyParserExceptionFilter())
   app.getHttpAdapter().getInstance().set('trust proxy', getTrustedProxies())
   app.use(new HttpSecurityMiddleware(getCorsOrigins()).use)
   app.setGlobalPrefix('api')

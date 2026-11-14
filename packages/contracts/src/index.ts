@@ -29,6 +29,26 @@ export type { TrainingPlanImportV1 } from './training-plan-imports/training-plan
 export { validateTrainingPlanImportDocument } from './training-plan-imports/validate-training-plan-import.js'
 export type { TrainingPlanImportValidationResult } from './training-plan-imports/validate-training-plan-import.js'
 export {
+  TrainingPlanImportChangeKindSchema,
+  TrainingPlanImportChangeSchema,
+  TrainingPlanImportChangeStatusSchema,
+  TrainingPlanImportConflictCodeSchema,
+  TrainingPlanImportConflictSchema,
+  TrainingPlanImportReviewRequestSchema,
+  TrainingPlanImportReviewResponseSchema,
+  TrainingPlanImportConfirmationRequestSchema,
+  TrainingPlanImportConfirmationResponseSchema,
+  TrainingPlanImportHttpErrorCodeSchema,
+  TrainingPlanImportHttpErrorSchema,
+} from './training-plan-imports/training-plan-import-http.js'
+export type {
+  TrainingPlanImportReviewRequest,
+  TrainingPlanImportReviewResponse,
+  TrainingPlanImportConfirmationRequest,
+  TrainingPlanImportConfirmationResponse,
+  TrainingPlanImportHttpError,
+} from './training-plan-imports/training-plan-import-http.js'
+export {
   ExerciseTargetsSchema,
   PlannedAlternativeSchema,
   PlannedBlockSchema,

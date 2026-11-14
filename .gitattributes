@@ -1,0 +1,4 @@
+# Keep the approved upstream UI skill assets byte-for-byte.
+.agents/skills/ui-design-system/LICENSE.txt -whitespace
+.agents/skills/ui-design-system/scripts/design_token_generator.py -whitespace
+.agents/skills/ui-ux-pro-max/scripts/design_system.py -whitespace
