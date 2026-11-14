@@ -9,6 +9,8 @@ import {
   TrainingPlanPhase,
 } from './training-plan.entity.js'
 import { TrainingPlanService } from './training-plan.service.js'
+import { TrainingPlanReadService } from './training-plan-read.service.js'
+import { TrainingPlansController } from './training-plans.controller.js'
 
 export {
   TrainingPlanKeyConflictError,
@@ -17,6 +19,7 @@ export {
 } from './training-plan.service.js'
 
 @Module({
+  controllers: [TrainingPlansController],
   imports: [
     TypeOrmModule.forFeature([
       TrainingPlan,
@@ -27,7 +30,7 @@ export {
     ]),
     ExercisesModule,
   ],
-  providers: [TrainingPlanService],
+  providers: [TrainingPlanService, TrainingPlanReadService],
   exports: [TrainingPlanService],
 })
 export class TrainingPlansModule {}

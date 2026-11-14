@@ -4,7 +4,7 @@
 
 HC-04 propone una Home de consulta semanal que reúne las sesiones y descansos de todos los planes importados, más una pantalla propia para cada sesión. La semana consta de fechas civiles de lunes a domingo. La implementación futura consume la planificación existente; no edita planes ni inicia ejecuciones.
 
-El propietario aprobó expresamente D1–D29 y T1–T7. Son decisiones normativas para la implementación de HC-04. El desglose posterior sigue siendo planificación; no se crean fichas ni se inicia HC-04-02.
+El propietario aprobó expresamente D1–D29 y T1–T7. Son decisiones normativas para la implementación de HC-04. En HC-04-01, el desglose posterior quedó como planificación sin fichas; la ejecución de HC-04-02 se registra en su ficha propia.
 
 ## Decisiones aprobadas
 
@@ -152,7 +152,7 @@ La ejecución real queda fuera de este bloque; HC-05 decide su incorporación. L
 ## Compatibilidad pendiente de implementación
 
 - El índice global existente sobre `planKey` es una restricción de persistencia más estricta que la identidad de dominio `(origin, planKey)`. No se modifica en HC-04-01; cualquier cambio requiere una tarea de esquema independiente y aprobada.
-- `ExerciseCatalogService` aún no ofrece la consulta agrupada por ID. HC-04-02 debe añadirla de forma pública dentro de `exercises` y cubrir claves ambiguas y nombres no disponibles en el DTO de lectura.
+- HC-04-02 añade a `ExerciseCatalogService` una consulta agrupada pública por UUID interno, con todas las claves de catálogo y los datos descriptivos disponibles; el DTO diferencia claves almacenadas, únicas, ambiguas y no disponibles sin claves sintéticas.
 - `workouts` no ofrece una lectura pública de estado para la Home. D12 queda preparado por las identidades de recurso y navegación; los estados reales se mostrarán cuando otra tarea autorice y exponga esa capacidad. HC-04 no añade placeholders.
 
 ## Referencias
