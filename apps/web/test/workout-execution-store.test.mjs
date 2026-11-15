@@ -81,6 +81,28 @@ test('series draft and confirmed pending result persist separately and a retry d
   assert.deepEqual(await store.getPendingResults(execution.execution.id), [])
 })
 
+test('the rest anchor is committed with the completed set at the tap timestamp', async () => {
+  const store = createWorkoutExecutionStore(new IDBFactory())
+  const completedAt = '2026-11-15T10:00:42.000Z'
+  const result = setResult('118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5')
+  const temporal = {
+    status: 'in_progress',
+    pauses: [],
+    cursor: { type: 'sets', blockKey: 'main', plannedExerciseKey: 'squat', setIndex: 2 },
+    timer: {
+      kind: 'rest',
+      blockKey: 'main',
+      startedAt: completedAt,
+      durationSeconds: 60,
+      elapsedBeforeSegmentSeconds: 0,
+    },
+  }
+  await store.confirmResult(execution.execution.id, result, temporal)
+  const progress = await store.getProgress(execution.execution.id)
+  assert.deepEqual(progress.results, [{ result, status: 'pending' }])
+  assert.equal(progress.temporal.timer.startedAt, completedAt)
+})
+
 test('additional set identities remain distinct and a confirmed unit cannot be replaced', async () => {
   const store = createWorkoutExecutionStore(new IDBFactory())
   const first = {
@@ -109,7 +131,74 @@ test('persisted server results merge into local recovery as synchronized without
   assert.deepEqual(await recovered.getProgress(execution.execution.id), {
     draft: null,
     results: [{ result, status: 'synced' }],
+    temporal: { status: 'in_progress', pauses: [] },
   })
+})
+
+test('circuit and interval results share local idempotency and persist their temporal state', async () => {
+  const store = createWorkoutExecutionStore(new IDBFactory())
+  const circuit = {
+    type: 'circuit',
+    id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+    blockKey: 'rounds',
+    plannedExerciseKey: 'squat',
+    round: { kind: 'planned', roundIndex: 1 },
+    actualExerciseKey: 'back-squat',
+    status: 'performed',
+    actualMetrics: { reps: 8 },
+  }
+  const interval = {
+    type: 'intervals',
+    id: '6aec8e0a-9b96-4c97-9fc1-42a7badc67ca',
+    blockKey: 'hiit',
+    cycleIndex: 1,
+    phaseKey: 'work',
+    status: 'performed',
+    actualExerciseKey: 'back-squat',
+    activeSeconds: 20,
+    windowProgressSeconds: 20,
+  }
+  const temporal = {
+    status: 'paused',
+    pauses: [{ startedAt: '2026-11-15T10:10:00.000Z' }],
+    cursor: { type: 'intervals', blockKey: 'hiit', cycleIndex: 1, phaseKey: 'rest' },
+  }
+  await store.confirmResult(execution.execution.id, circuit, temporal)
+  await store.confirmResult(execution.execution.id, interval)
+  await store.confirmResult(execution.execution.id, interval)
+  assert.deepEqual((await store.getProgress(execution.execution.id)).results, [
+    { result: circuit, status: 'pending' },
+    { result: interval, status: 'pending' },
+  ])
+  assert.deepEqual((await store.getProgress(execution.execution.id)).temporal, temporal)
+  await assert.rejects(
+    store.confirmResult(execution.execution.id, {
+      ...interval,
+      id: 'fdb3a678-f956-487d-8a8c-4906d6a6df82',
+      activeSeconds: 25,
+    }),
+    /unidad ya está confirmada/,
+  )
+})
+
+test('temporal state survives a reload and an open pause remains paused', async () => {
+  const factory = new IDBFactory()
+  const store = createWorkoutExecutionStore(factory)
+  const temporal = {
+    status: 'paused',
+    pauses: [{ startedAt: '2026-11-15T10:10:00.000Z' }],
+    cursor: { type: 'circuit', blockKey: 'rounds', plannedExerciseKey: 'squat', roundIndex: 2 },
+    timer: {
+      kind: 'rest',
+      blockKey: 'rounds',
+      startedAt: '2026-11-15T10:09:00.000Z',
+      durationSeconds: 60,
+      elapsedBeforeSegmentSeconds: 20,
+    },
+  }
+  await store.saveTemporalState(execution.execution.id, temporal)
+  const reopened = createWorkoutExecutionStore(factory)
+  assert.deepEqual((await reopened.getProgress(execution.execution.id)).temporal, temporal)
 })
 
 test('database v2 upgrade preserves device and confirmed execution records from v1', async () => {

@@ -226,6 +226,73 @@ test('workout starts are atomic, idempotent, protected and recoverable in an iso
       /not valid/,
     )
 
+    const expandedRecord = await repository.findOneBy({ id: started.execution.id })
+    expandedRecord.snapshot.session.blocks.push(
+      {
+        type: 'circuit',
+        key: 'rounds',
+        mode: 'rounds',
+        rounds: 1,
+        restBetweenRoundsSeconds: 45,
+        exercises: [{ key: 'sled', exerciseKey: 'back-squat', alternatives: [] }],
+      },
+      {
+        type: 'intervals',
+        key: 'hiit',
+        cycles: 1,
+        phases: [
+          {
+            type: 'work',
+            key: 'work',
+            windowSeconds: 30,
+            exercise: { key: 'burpees', exerciseKey: 'back-squat', alternatives: [] },
+          },
+          { type: 'rest', key: 'recovery', windowSeconds: 15 },
+        ],
+      },
+    )
+    await repository.save(expandedRecord)
+    const circuitResult = {
+      type: 'circuit',
+      id: 'b51e6b4f-c824-42e7-8d40-39c7ad75d338',
+      blockKey: 'rounds',
+      plannedExerciseKey: 'sled',
+      round: { kind: 'planned', roundIndex: 1 },
+      actualExerciseKey: 'back-squat',
+      status: 'performed',
+      actualMetrics: { reps: 8 },
+    }
+    const intervalResult = {
+      type: 'intervals',
+      id: '6aec8e0a-9b96-4c97-9fc1-42a7badc67ca',
+      blockKey: 'hiit',
+      cycleIndex: 1,
+      phaseKey: 'work',
+      status: 'performed',
+      actualExerciseKey: 'back-squat',
+      activeSeconds: 20,
+      windowProgressSeconds: 20,
+    }
+    const skippedPhase = {
+      type: 'intervals',
+      id: 'fdb3a678-f956-487d-8a8c-4906d6a6df82',
+      blockKey: 'hiit',
+      cycleIndex: 1,
+      phaseKey: 'recovery',
+      status: 'skipped',
+    }
+    for (const result of [circuitResult, intervalResult, skippedPhase]) {
+      assert.equal(
+        (await startService.recordResult(userId, started.execution.id, { deviceId, result })).replayed,
+        false,
+      )
+    }
+    assert.deepEqual((await startService.findOpen(userId, deviceId)).execution.execution.results.slice(1), [
+      circuitResult,
+      intervalResult,
+      skippedPhase,
+    ])
+
     const competingStarts = await Promise.allSettled(
       ['tuesday', 'wednesday'].map((key) =>
         startService.start(userId, {

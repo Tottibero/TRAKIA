@@ -9,6 +9,7 @@ import {
   type WorkoutExecutionOpenResponse,
   type WorkoutExecutionResultRequest,
   type WorkoutExecutionResultResponse,
+  type WorkoutResult,
   type PlannedBlock,
   type PlannedExercise,
   type PlannedSession,
@@ -207,7 +208,7 @@ export class WorkoutExecutionStartService {
       if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
 
       const result = input.result
-      if (result.type !== 'sets' || result.status !== 'performed')
+      if (result.status === 'skipped' && result.type !== 'intervals')
         throw new WorkoutExecutionResultInvalidError()
       const results = record.results ?? []
       const existing = results.find((candidate) => candidate.id === result.id)
@@ -215,15 +216,7 @@ export class WorkoutExecutionStartService {
         if (!isDeepStrictEqual(existing, result)) throw new WorkoutExecutionResultConflictError()
         return { result: existing, replayed: true }
       }
-      if (
-        results.some(
-          (candidate) =>
-            candidate.type === 'sets' &&
-            candidate.blockKey === result.blockKey &&
-            candidate.plannedExerciseKey === result.plannedExerciseKey &&
-            sameSetUnit(candidate.unit, result.unit),
-        )
-      )
+      if (results.some((candidate) => sameWorkoutUnit(candidate, result)))
         throw new WorkoutExecutionResultConflictError()
 
       try {
@@ -314,14 +307,31 @@ function assertOwnerDevice(record: WorkoutExecutionRecord, deviceId: string): vo
   if (record.deviceId !== deviceId) throw new WorkoutExecutionDeviceMismatchError()
 }
 
-function sameSetUnit(
-  left: Extract<WorkoutExecution['results'][number], { type: 'sets' }>['unit'],
-  right: Extract<WorkoutExecution['results'][number], { type: 'sets' }>['unit'],
-): boolean {
+function sameWorkoutUnit(left: WorkoutResult, right: WorkoutResult): boolean {
+  if (left.type !== right.type || left.blockKey !== right.blockKey) return false
+  if (left.type === 'sets' && right.type === 'sets') {
+    return (
+      left.plannedExerciseKey === right.plannedExerciseKey &&
+      left.unit.kind === right.unit.kind &&
+      left.unit.setIndex === right.unit.setIndex &&
+      (left.unit.kind !== 'additional' ||
+        (right.unit.kind === 'additional' && left.unit.key === right.unit.key))
+    )
+  }
+  if (left.type === 'circuit' && right.type === 'circuit') {
+    return (
+      left.plannedExerciseKey === right.plannedExerciseKey &&
+      left.round.kind === right.round.kind &&
+      left.round.roundIndex === right.round.roundIndex &&
+      (left.round.kind !== 'additional' ||
+        (right.round.kind === 'additional' && left.round.key === right.round.key))
+    )
+  }
   return (
-    left.kind === right.kind &&
-    left.setIndex === right.setIndex &&
-    (left.kind !== 'additional' || (right.kind === 'additional' && left.key === right.key))
+    left.type === 'intervals' &&
+    right.type === 'intervals' &&
+    left.cycleIndex === right.cycleIndex &&
+    left.phaseKey === right.phaseKey
   )
 }
 

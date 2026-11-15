@@ -37,7 +37,7 @@ const session = {
   ],
 }
 
-function createHarness({ protectedSession = false, initiallyOpen = false } = {}) {
+function createHarness({ protectedSession = false, initiallyOpen = false, plannedSession = session } = {}) {
   const calls = []
   const rows = []
   const repository = {
@@ -77,7 +77,11 @@ function createHarness({ protectedSession = false, initiallyOpen = false } = {})
     findProtectedSessionKeys: async () => (protectedSession ? new Set(['monday']) : new Set()),
   }
   const plans = {
-    findExecutionSession: async () => ({ planKey: 'strength-plan', sessionKey: 'monday', session }),
+    findExecutionSession: async () => ({
+      planKey: 'strength-plan',
+      sessionKey: 'monday',
+      session: plannedSession,
+    }),
   }
   const exercises = {
     findByKey: async (key) => ({
@@ -264,4 +268,101 @@ test('recordResult accepts a planned alternative and rejects an exercise outside
     }),
     WorkoutExecutionResultInvalidError,
   )
+})
+
+test('recordResult accepts circuit and interval results and detects duplicate unit identities', async () => {
+  const plannedSession = {
+    ...session,
+    blocks: [
+      {
+        type: 'circuit',
+        key: 'rounds',
+        mode: 'rounds',
+        rounds: 1,
+        restBetweenRoundsSeconds: 45,
+        exercises: [
+          {
+            key: 'sled',
+            exerciseKey: 'back-squat',
+            alternatives: [{ key: 'alt', exerciseKey: 'goblet-squat' }],
+          },
+        ],
+      },
+      {
+        type: 'intervals',
+        key: 'hiit',
+        cycles: 1,
+        phases: [
+          {
+            type: 'work',
+            key: 'work',
+            windowSeconds: 30,
+            exercise: { key: 'burpees', exerciseKey: 'back-squat' },
+          },
+          { type: 'rest', key: 'rest', windowSeconds: 15 },
+        ],
+      },
+    ],
+  }
+  const { rows, service } = createHarness({ plannedSession })
+  const started = await service.start(userId, request)
+  const circuit = {
+    type: 'circuit',
+    id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+    blockKey: 'rounds',
+    plannedExerciseKey: 'sled',
+    round: { kind: 'planned', roundIndex: 1 },
+    actualExerciseKey: 'goblet-squat',
+    status: 'performed',
+    actualMetrics: { reps: 8 },
+  }
+  assert.equal(
+    (await service.recordResult(userId, started.execution.id, { deviceId, result: circuit })).replayed,
+    false,
+  )
+  assert.equal(
+    (await service.recordResult(userId, started.execution.id, { deviceId, result: circuit })).replayed,
+    true,
+  )
+  await assert.rejects(
+    service.recordResult(userId, started.execution.id, {
+      deviceId,
+      result: { ...circuit, id: 'c6fa5f96-8a06-4d42-a607-24e1e19e5cb1' },
+    }),
+    WorkoutExecutionResultConflictError,
+  )
+
+  const interval = {
+    type: 'intervals',
+    id: '6aec8e0a-9b96-4c97-9fc1-42a7badc67ca',
+    blockKey: 'hiit',
+    cycleIndex: 1,
+    phaseKey: 'work',
+    status: 'performed',
+    actualExerciseKey: 'back-squat',
+    activeSeconds: 20,
+    windowProgressSeconds: 20,
+  }
+  const skippedRest = {
+    type: 'intervals',
+    id: 'fdb3a678-f956-487d-8a8c-4906d6a6df82',
+    blockKey: 'hiit',
+    cycleIndex: 1,
+    phaseKey: 'rest',
+    status: 'skipped',
+  }
+  assert.equal(
+    (await service.recordResult(userId, started.execution.id, { deviceId, result: interval })).replayed,
+    false,
+  )
+  assert.equal(
+    (await service.recordResult(userId, started.execution.id, { deviceId, result: skippedRest })).replayed,
+    false,
+  )
+  assert.equal(rows[0].results.length, 3)
+  assert.deepEqual((await service.findOpen(userId, deviceId)).execution.execution.results, [
+    circuit,
+    interval,
+    skippedRest,
+  ])
 })

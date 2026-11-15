@@ -2,8 +2,11 @@ import {
   WorkoutExecutionStartRequestSchema,
   WorkoutExecutionStartResponseSchema,
   type ActualMetrics,
+  type CircuitResult,
+  type IntervalResult,
   type WorkoutResult,
   type SetResult,
+  type WorkoutPause,
   type WorkoutExecutionStartRequest,
   type WorkoutExecutionStartResponse,
 } from '@trakia/contracts'
@@ -17,11 +20,41 @@ const ACTIVE_EXECUTION = 'activeExecution'
 const PROGRESS_PREFIX = 'progress:'
 
 export type WorkoutSeriesDraft = {
+  type?: WorkoutResult['type']
   blockKey: string
   plannedExerciseKey: string
-  unit: SetResult['unit']
-  actualExerciseKey: string
+  unit?: SetResult['unit']
+  round?: CircuitResult['round']
+  cycleIndex?: IntervalResult['cycleIndex']
+  phaseKey?: IntervalResult['phaseKey']
+  actualExerciseKey?: string
   fields: Partial<Record<keyof ActualMetrics, string>>
+}
+
+export type WorkoutExecutionCursor =
+  | { type: 'sets'; blockKey: string; plannedExerciseKey: string; setIndex: number; additionalKey?: string }
+  | { type: 'circuit'; blockKey: string; plannedExerciseKey: string; roundIndex: number }
+  | { type: 'intervals'; blockKey: string; cycleIndex: number; phaseKey: string }
+
+export type WorkoutTimerState = {
+  kind: 'rest' | 'work' | 'amrap'
+  blockKey: string
+  startedAt: string
+  durationSeconds: number
+  elapsedBeforeSegmentSeconds: number
+  cycleIndex?: number
+  phaseKey?: string
+}
+
+export type WorkoutExecutionTemporalState = {
+  status: 'in_progress' | 'paused'
+  pauses: WorkoutPause[]
+  cursor?: WorkoutExecutionCursor
+  timer?: WorkoutTimerState
+  requiresWorkConfirmation?: boolean
+  workSecondsDraft?: number
+  awaitManualAdvance?: boolean
+  amrapFinished?: boolean
 }
 
 export type StoredWorkoutResult = {
@@ -33,6 +66,7 @@ export type StoredWorkoutResult = {
 export type WorkoutExecutionProgress = {
   draft: WorkoutSeriesDraft | null
   results: StoredWorkoutResult[]
+  temporal: WorkoutExecutionTemporalState
 }
 
 export interface PendingExecutionStart extends WorkoutExecutionStartRequest {
@@ -48,7 +82,12 @@ export interface WorkoutExecutionStore {
   clearPendingStart(): Promise<void>
   getProgress(executionId: string): Promise<WorkoutExecutionProgress>
   saveDraft(executionId: string, draft: WorkoutSeriesDraft): Promise<void>
-  confirmResult(executionId: string, result: SetResult): Promise<void>
+  confirmResult(
+    executionId: string,
+    result: WorkoutResult,
+    temporal?: WorkoutExecutionTemporalState,
+  ): Promise<void>
+  saveTemporalState(executionId: string, temporal: WorkoutExecutionTemporalState): Promise<void>
   getPendingResults(executionId: string): Promise<StoredWorkoutResult[]>
   setResultStatus(
     executionId: string,
@@ -170,7 +209,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       await done
     },
 
-    async confirmResult(executionId, result) {
+    async confirmResult(executionId, result, temporal) {
       const db = await database
       const transaction = db.transaction(RECORDS, 'readwrite')
       const done = transactionDone(transaction)
@@ -184,23 +223,35 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
           await done.catch(() => undefined)
           throw new Error('Este identificador ya pertenece a otro resultado.')
         }
-        records.put({ ...progress, draft: null }, key)
+        records.put({ ...progress, draft: null, temporal: temporal ?? progress.temporal }, key)
         await done
         return
       }
-      const existingUnit = progress.results.find(({ result: current }) => sameSetUnit(current, result))
+      const existingUnit = progress.results.find(({ result: current }) => sameWorkoutUnit(current, result))
       if (existingUnit) {
         transaction.abort()
         await done.catch(() => undefined)
-        throw new Error('Esta serie ya está confirmada en este dispositivo.')
+        throw new Error('Esta unidad ya está confirmada en este dispositivo.')
       }
       records.put(
         {
           draft: null,
           results: [...progress.results, { result, status: 'pending' }],
+          temporal: temporal ?? progress.temporal,
         } satisfies WorkoutExecutionProgress,
         key,
       )
+      await done
+    },
+
+    async saveTemporalState(executionId, temporal) {
+      const db = await database
+      const transaction = db.transaction(RECORDS, 'readwrite')
+      const done = transactionDone(transaction)
+      const records = transaction.objectStore(RECORDS)
+      const key = progressKey(executionId)
+      const progress = parseProgress(await requestResult(records.get(key)))
+      records.put({ ...progress, temporal }, key)
       await done
     },
 
@@ -274,12 +325,14 @@ function progressKey(executionId: string): string {
 }
 
 function parseProgress(value: unknown): WorkoutExecutionProgress {
-  if (!value || typeof value !== 'object') return { draft: null, results: [] }
+  if (!value || typeof value !== 'object')
+    return { draft: null, results: [], temporal: { status: 'in_progress', pauses: [] } }
   const candidate = value as Partial<WorkoutExecutionProgress>
   const results = Array.isArray(candidate.results) ? candidate.results.filter(isStoredResult) : []
   return {
     draft: isDraft(candidate.draft) ? candidate.draft : null,
     results,
+    temporal: isTemporal(candidate.temporal) ? candidate.temporal : { status: 'in_progress', pauses: [] },
   }
 }
 
@@ -298,21 +351,47 @@ function isDraft(value: unknown): value is WorkoutSeriesDraft {
   return (
     typeof draft.blockKey === 'string' &&
     typeof draft.plannedExerciseKey === 'string' &&
-    typeof draft.actualExerciseKey === 'string' &&
-    Boolean(draft.unit && typeof draft.unit === 'object') &&
+    (draft.actualExerciseKey === undefined || typeof draft.actualExerciseKey === 'string') &&
     Boolean(draft.fields && typeof draft.fields === 'object')
   )
 }
 
-function sameSetUnit(left: WorkoutResult, right: SetResult): boolean {
-  if (left.type !== 'sets') return false
+function isTemporal(value: unknown): value is WorkoutExecutionTemporalState {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<WorkoutExecutionTemporalState>
   return (
-    left.blockKey === right.blockKey &&
-    left.plannedExerciseKey === right.plannedExerciseKey &&
-    left.unit.kind === right.unit.kind &&
-    left.unit.setIndex === right.unit.setIndex &&
-    (left.unit.kind !== 'additional' ||
-      (right.unit.kind === 'additional' && left.unit.key === right.unit.key))
+    (candidate.status === 'in_progress' || candidate.status === 'paused') &&
+    Array.isArray(candidate.pauses) &&
+    (candidate.cursor === undefined || typeof candidate.cursor === 'object') &&
+    (candidate.timer === undefined || typeof candidate.timer === 'object')
+  )
+}
+
+function sameWorkoutUnit(left: WorkoutResult, right: WorkoutResult): boolean {
+  if (left.type !== right.type || left.blockKey !== right.blockKey) return false
+  if (left.type === 'sets' && right.type === 'sets') {
+    return (
+      left.plannedExerciseKey === right.plannedExerciseKey &&
+      left.unit.kind === right.unit.kind &&
+      left.unit.setIndex === right.unit.setIndex &&
+      (left.unit.kind !== 'additional' ||
+        (right.unit.kind === 'additional' && left.unit.key === right.unit.key))
+    )
+  }
+  if (left.type === 'circuit' && right.type === 'circuit') {
+    return (
+      left.plannedExerciseKey === right.plannedExerciseKey &&
+      left.round.kind === right.round.kind &&
+      left.round.roundIndex === right.round.roundIndex &&
+      (left.round.kind !== 'additional' ||
+        (right.round.kind === 'additional' && left.round.key === right.round.key))
+    )
+  }
+  return (
+    left.type === 'intervals' &&
+    right.type === 'intervals' &&
+    left.cycleIndex === right.cycleIndex &&
+    left.phaseKey === right.phaseKey
   )
 }
 

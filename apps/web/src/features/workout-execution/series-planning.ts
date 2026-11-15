@@ -56,13 +56,8 @@ export function suggestMetrics(
 ): ActualMetrics {
   const previous = [...results]
     .reverse()
-    .find(
-      (result) =>
-        result.type === 'sets' &&
-        result.status === 'performed' &&
-        result.actualExerciseKey === actualExerciseKey,
-    )
-  if (previous?.type === 'sets') return previous.actualMetrics ?? {}
+    .find((result) => result.status === 'performed' && result.actualExerciseKey === actualExerciseKey)
+  if (previous?.status === 'performed') return previous.actualMetrics ?? {}
 
   const exercise = snapshot.exercises.find(({ key }) => key === actualExerciseKey)
   if (!exercise) return {}
