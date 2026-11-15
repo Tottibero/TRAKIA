@@ -100,6 +100,24 @@ export type {
   WorkoutStatus,
 } from './workout-executions/workout-execution.js'
 export {
+  WorkoutExecutionOpenQuerySchema,
+  WorkoutExecutionOpenResponseSchema,
+  WorkoutExecutionRequestPathParamsSchema,
+  WorkoutExecutionStartErrorCodeSchema,
+  WorkoutExecutionStartErrorSchema,
+  WorkoutExecutionStartRequestSchema,
+  WorkoutExecutionStartResponseSchema,
+} from './workout-executions/workout-execution-start.js'
+export type {
+  WorkoutExecutionOpenQuery,
+  WorkoutExecutionOpenResponse,
+  WorkoutExecutionRequestPathParams,
+  WorkoutExecutionStartError,
+  WorkoutExecutionStartErrorCode,
+  WorkoutExecutionStartRequest,
+  WorkoutExecutionStartResponse,
+} from './workout-executions/workout-execution-start.js'
+export {
   ActualMetricsSchema,
   ResultStatusSchema,
   WorkoutResultSchema,

@@ -4,6 +4,7 @@ node_modules/
 **/.cache/
 .agents/skills/ui-design-system/
 .agents/skills/ui-ux-pro-max/
+.impeccable/hook.cache.json
 pnpm-lock.yaml
 docs/
 *.md

@@ -1,4 +1,4 @@
-import { TrainingPlanImportHttpErrorSchema } from '@trakia/contracts'
+import { TrainingPlanImportHttpErrorSchema, WorkoutExecutionStartErrorSchema } from '@trakia/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -47,20 +47,24 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
           : response.status === 413
             ? 'BODY_TOO_LARGE'
             : 'HTTP_ERROR'
-    let contractError: ReturnType<typeof TrainingPlanImportHttpErrorSchema.safeParse> | undefined
+    let payload: unknown
     try {
-      contractError = TrainingPlanImportHttpErrorSchema.safeParse(await response.json())
+      payload = await response.json()
     } catch {
       // Fall through to a safe status-specific code for non-contract errors.
     }
-    if (contractError?.success)
+    const importError = TrainingPlanImportHttpErrorSchema.safeParse(payload)
+    if (importError.success)
       throw new ApiError(
         response.status,
-        contractError.data.message,
-        contractError.data.code,
-        contractError.data.issues,
-        contractError.data.conflicts,
+        importError.data.message,
+        importError.data.code,
+        importError.data.issues,
+        importError.data.conflicts,
       )
+    const executionError = WorkoutExecutionStartErrorSchema.safeParse(payload)
+    if (executionError.success)
+      throw new ApiError(response.status, executionError.data.message, executionError.data.code)
     throw new ApiError(response.status, 'No se pudo completar la solicitud.', defaultCode)
   }
 

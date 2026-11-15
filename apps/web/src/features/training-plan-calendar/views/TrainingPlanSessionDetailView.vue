@@ -5,6 +5,7 @@ import { ApiError } from '@/shared/api/http'
 import { useAuth } from '@/features/auth'
 import { TrainingPlanSessionPathParamsSchema } from '@trakia/contracts'
 import { useTrainingPlanSession } from '../useTrainingPlanSession'
+import WorkoutStartAction from '@/features/workout-execution/components/WorkoutStartAction.vue'
 import SessionBlockDetail from '../components/SessionBlockDetail.vue'
 import { formatSessionDate } from '../session-detail-presentation.js'
 import {
@@ -162,6 +163,11 @@ const initialErrorMessage = computed(() =>
             </li>
           </ol>
         </section>
+
+        <WorkoutStartAction
+          :plan-id="sessionQuery.data.value.plan.id"
+          :session-id="sessionQuery.data.value.session.id"
+        />
       </template>
     </div>
   </main>

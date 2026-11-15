@@ -6,7 +6,7 @@ Este diseño traduce las decisiones de HC-05-01 en guía de implementación, sin
 
 ### Clasificación de decisiones
 
-- **Aprobadas en el alcance de HC-05-01:** D1–D10, D13 y D17–D22 enumeradas abajo. D11–D12 son propuestas de diseño que deben validarse, no aprobaciones independientes.
+- **Aprobadas en el alcance de HC-05-01:** D1–D10, D13, D17 y D19–D22. D18 fue aprobada originalmente en HC-05-01 y evolucionó por autorización del propietario en HC-05-02, como se registra abajo. D11–D12 son propuestas de diseño que deben validarse, no aprobaciones independientes.
 - **Derivadas de contratos/decisiones HC-02:** identidad propia de ejecución/resultado/corrección; snapshot; resultados `performed`/`skipped`; unidad adicional identificada; `not_reached` derivado al cierre; correcciones auditables; cierre local definitivo; operaciones inmutables e idempotentes por `operationId`, cierre secuencia 1, correcciones consecutivas, causalidad por ejecución y estados técnicos separados. Son invariantes previas, no nuevas aprobaciones HC-05.
 - **Propuestas técnicas por comprobar en implementación:** esquema concreto de IndexedDB, formato de borradores, reclamación de ejecución abierta, recuperación tras incertidumbre, interfaz de resolución de conflictos, política de retención/capacidad y detalles de orquestación del transporte. No se presentan como ratificados por separado.
 
@@ -26,7 +26,7 @@ Este diseño traduce las decisiones de HC-05-01 en guía de implementación, sin
 13. **D13:** al recuperar, descanso según tiempo real transcurrido; ante incertidumbre sobre trabajo activo o HIIT se pide confirmación y no se inventa trabajo.
 14–16. **Diseño técnico:** respetar el protocolo de HC-02 de cierre completo y correcciones como operaciones separadas, secuenciales, idempotentes y causales. Retención, presentación y resolución de incidencias se proponen aquí y requieren validación.
 17. **D17:** cierre accesible siempre, sugerido al acabar la última unidad; siempre exige revisar y confirmar.
-18. **D18:** máximo una sesión deportiva abierta por dispositivo.
+18. **D18 (evolución aprobada en HC-05-02):** como máximo una ejecución deportiva abierta por cuenta, vinculada al dispositivo propietario donde se inició y sin transferencia. Sustituye la decisión original de HC-05-01, que limitaba la exclusión a cada dispositivo.
 19. **D19:** inicio requiere conexión; continuación y cierre funcionan offline.
 20. **D20:** borradores persistentes en IndexedDB, diferenciados de resultados confirmados.
 21. **D21:** sincronización automática, ordenada e idempotente, sin bloquear la sesión deportiva.
@@ -62,7 +62,7 @@ Una unidad planificada se resuelve con resultado `performed` o `skipped`. Un res
 
 El cliente solicita el inicio con IDs estables y snapshot que acuerde el endpoint; la respuesta del servidor es la autoridad para iniciar y entrega identidad de ejecución. La operación de escritura de API debe compartir transacción con `WorkoutExecutionProtectionService.acquireSessionLocks(manager, planKey, sessionKeys)` antes de insertar la fila en `workout_executions`, como requiere HC-03-06. Esto serializa el inicio frente a importaciones/cambios protegidos del plan; no sustituirlo por exclusión local. Si hay timeout de respuesta, consultar estado por clave de idempotencia/identidad de solicitud antes de reintentar para evitar sesiones duplicadas (mecanismo concreto por diseñar según API). Inicio online obligatorio; sin confirmación del servidor no habilitar la sesión.
 
-D18 limita a una sesión abierta por instalación/dispositivo mediante almacén local; no ofrece exclusión global entre dispositivos. El lock local debe quedar ocupado hasta cierre y sincronización, salvo recuperación/resolución explícita. Su formato y caducidad son propuesta, pues contratos existentes no definen leasing local.
+D18 requiere exclusión global por cuenta en el servidor; el dispositivo propietario conserva la ejecución y la recuperación en otro dispositivo debe identificar el conflicto sin transferirla. La reserva usa coordinación transaccional por cuenta además del lock compartido de sesión con importación, y una restricción única parcial en PostgreSQL. IndexedDB conserva la identidad local y el snapshot autorizado; su bloqueo local no sustituye la garantía del servidor.
 
 ### Almacén local (propuesta)
 
@@ -92,7 +92,7 @@ Los nombres de rutas son previsiones sujetas a convenciones del repositorio y au
 
 | ID | Objetivo y alcance | Exclusiones | Dependencias | Módulos/archivos previstos | Criterios de aceptación | Pruebas previstas |
 | --- | --- | --- | --- | --- | --- | --- |
-| HC-05-02 | Inicio online, snapshot, lock transaccional, sesión abierta e inicio idempotente; recuperación inicial. | Captura avanzada y sincronización de cierre. | HC-03-05/06, HC-02-04; HC-05-01. | `apps/api/src/modules/workouts`, contratos solo si endpoint autorizado; feature web de ejecución. | Una sesión por dispositivo; lock compartido adquirido en transacción; fallo/red ambiguos recuperables sin duplicar. | Contratos, unidad/API PostgreSQL, concurrencia y cliente. |
+| HC-05-02 | Inicio online, snapshot, lock transaccional, sesión abierta e inicio idempotente; recuperación inicial. | Captura avanzada y sincronización de cierre. | HC-03-05/06, HC-02-04; HC-05-01. | `apps/api/src/modules/workouts`, contratos solo si endpoint autorizado; feature web de ejecución. | Una ejecución abierta por cuenta, propiedad del dispositivo de inicio; lock compartido adquirido en transacción; fallo/red ambiguos recuperables sin duplicar. | Contratos, unidad/API PostgreSQL, concurrencia entre dispositivos y cliente. |
 | HC-05-03 | Navegación guiada de fuerza/apariciones y captura de resultados con borrador/persistencia local. | Intervalos y envío final. | HC-05-02, catálogo y plan. | `apps/web/src/features/workout-execution`; API si se requiere comando. | Principal/alternativas, métricas compatibles, sugerencias nunca auto-confirmadas, persistencia atómica. | Unitarias de transiciones, compatibilidad y IndexedDB; accesibilidad/responsive. |
 | HC-05-04 | Circuitos por rondas, superseries representables, AMRAP, intervalos y pausa/temporizadores. | Tipos de bloque nuevos. | HC-05-03; contratos HC-02. | Feature de ejecución; contratos únicamente ante incompatibilidad demostrada. | Resultados por unidad; ronda derivada; pausa congela; HIIT y recuperación siguen snapshot. | Casos temporales con reloj controlado, recuperación foreground y navegador objetivo. |
 | HC-05-05 | Omisiones, unidades pendientes, revisión y cierre local terminal accesible offline. | Sincronización y correcciones posteriores. | HC-05-03/04. | Feature web y almacén local. | Revisión siempre confirmada; cierre produce payload completo una vez; `not_reached` derivado. | Pruebas de cierre parcial/completo, caída/recuperación, atomicidad local. |
