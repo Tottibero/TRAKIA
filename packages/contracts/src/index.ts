@@ -63,6 +63,29 @@ export {
   resolveExerciseTargets,
 } from './training-plans/training-plan.js'
 export {
+  TrainingPlanCalendarBlockSchema,
+  TrainingPlanCalendarDaySchema,
+  TrainingPlanCalendarQuerySchema,
+  TrainingPlanCalendarResponseSchema,
+  TrainingPlanCalendarRestSchema,
+  TrainingPlanCalendarSessionSchema,
+  TrainingPlanReadBlockSchema,
+  TrainingPlanReadExerciseSchema,
+  TrainingPlanReadHttpErrorSchema,
+  TrainingPlanSessionPathParamsSchema,
+  TrainingPlanSessionDetailSchema,
+} from './training-plans/training-plan-read-http.js'
+export type {
+  TrainingPlanCalendarBlock,
+  TrainingPlanCalendarQuery,
+  TrainingPlanCalendarResponse,
+  TrainingPlanReadBlock,
+  TrainingPlanReadExercise,
+  TrainingPlanReadHttpError,
+  TrainingPlanSessionPathParams,
+  TrainingPlanSessionDetail,
+} from './training-plans/training-plan-read-http.js'
+export {
   WorkoutExecutionSchema,
   WorkoutExecutionSnapshotSchema,
   WorkoutExerciseSnapshotSchema,

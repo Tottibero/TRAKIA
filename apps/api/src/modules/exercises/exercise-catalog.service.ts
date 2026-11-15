@@ -21,6 +21,13 @@ export interface ExerciseCatalogKeyReference {
   exerciseId: string
 }
 
+export interface ExerciseCatalogSummary {
+  id: string
+  name: string
+  supportedMetrics: ExerciseContract['supportedMetrics']
+  catalogKeys: string[]
+}
+
 export class ExerciseCatalogConflictError extends Error {
   readonly code = 'EXERCISE_CATALOG_CONFLICT'
 
@@ -51,6 +58,30 @@ export class ExerciseCatalogService {
       relations: { exercise: true },
     })
     return catalogKey ? this.toContract(catalogKey.exercise, catalogKey.key) : null
+  }
+
+  /** Read catalog descriptions and all stable keys for a set of persisted exercise IDs. */
+  async findSummariesByIds(
+    ids: readonly string[],
+    manager?: EntityManager,
+  ): Promise<ExerciseCatalogSummary[]> {
+    const uniqueIds = [...new Set(ids)]
+    if (uniqueIds.length === 0) return []
+
+    const query = manager ? manager.query.bind(manager) : this.dataSource.query.bind(this.dataSource)
+    const rows = (await query(
+      `SELECT e.id, e.name, e.supported_metrics AS "supportedMetrics",
+              COALESCE(
+                array_agg(k.key ORDER BY k.key COLLATE "C") FILTER (WHERE k.key IS NOT NULL),
+                ARRAY[]::varchar[]
+              ) AS "catalogKeys"
+       FROM exercises e LEFT JOIN exercise_catalog_keys k ON k.exercise_id = e.id
+       WHERE e.id = ANY($1::uuid[])
+       GROUP BY e.id, e.name, e.supported_metrics
+       ORDER BY e.id`,
+      [uniqueIds],
+    )) as ExerciseCatalogSummary[]
+    return rows
   }
 
   async compareDefinition(

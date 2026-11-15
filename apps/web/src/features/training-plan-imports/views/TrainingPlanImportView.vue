@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ImportValidationIssue, TrainingPlanImportReviewResponse } from '@trakia/contracts'
+import { trainingPlanHomeLocation } from '../../training-plan-calendar'
 import { useTrainingPlanImport } from '../useTrainingPlanImport'
 
 const importer = useTrainingPlanImport()
@@ -9,6 +10,7 @@ const {
   canRetryConfirmation,
   canReview,
   chooseAnotherFile,
+  confirmedPlanStartDate,
   errorKind,
   errorMessage,
   errorSummary,
@@ -20,6 +22,9 @@ const {
   review,
   state,
 } = importer
+const planningLocation = computed(() =>
+  confirmedPlanStartDate.value ? trainingPlanHomeLocation(confirmedPlanStartDate.value) : undefined,
+)
 const step = computed(() => {
   if (
     ['ready-to-confirm', 'reviewed-with-conflicts', 'confirming', 'confirmed', 'unchanged'].includes(
@@ -352,6 +357,13 @@ function planDayLabel(
             >
               Reintentar confirmación segura
             </button>
+            <RouterLink
+              v-else-if="confirmedPlanStartDate && planningLocation"
+              class="button-secondary"
+              :to="planningLocation"
+            >
+              Ver planificación
+            </RouterLink>
           </section>
         </template>
 

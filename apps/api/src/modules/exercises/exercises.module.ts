@@ -9,6 +9,7 @@ export {
   ExerciseCatalogService,
   InvalidExerciseCatalogKeyError,
   type ExerciseCatalogKeyReference,
+  type ExerciseCatalogSummary,
 } from './exercise-catalog.service.js'
 
 @Module({

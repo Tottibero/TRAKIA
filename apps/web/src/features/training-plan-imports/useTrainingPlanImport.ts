@@ -5,11 +5,15 @@ import {
   type TrainingPlanImportReviewResponse,
   type TrainingPlanImportConfirmationResponse,
 } from '@trakia/contracts'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, shallowRef, watch } from 'vue'
+import { useQueryClient } from '@tanstack/vue-query'
 import { useRoute, useRouter } from 'vue-router'
+import type { PlanDate } from '@trakia/contracts'
+import { invalidateTrainingPlanQueries } from '../training-plan-calendar'
 import { ApiError } from '../../shared/api/http'
 import { getImportErrorPresentation, type ImportErrorKind } from './import-error-policy.js'
 import { confirmTrainingPlanImport, reviewTrainingPlanImport } from './api/trainingPlanImports'
+import { prepareConfirmedImportHandoff } from './import-confirmation-handoff.js'
 
 export const MAX_IMPORT_BYTES = 1024 * 1024
 
@@ -34,6 +38,7 @@ const fileTooLargeMessage = 'El archivo supera el límite permitido de 1 MiB.'
 export function useTrainingPlanImport() {
   const router = useRouter()
   const route = useRoute()
+  const queryClient = useQueryClient()
   const fileInput = ref<HTMLInputElement>()
   const errorSummary = ref<HTMLElement>()
   const fileName = ref('')
@@ -42,6 +47,7 @@ export function useTrainingPlanImport() {
   const issues = ref<ImportValidationIssue[]>([])
   const review = ref<TrainingPlanImportReviewResponse>()
   const confirmation = ref<TrainingPlanImportConfirmationResponse>()
+  const confirmedPlanStartDate = shallowRef<PlanDate>()
   const state = ref<TrainingPlanImportUiState>('empty')
   const errorKind = ref<ImportErrorKind | null>(null)
   const errorTitle = ref('No se pudo continuar')
@@ -69,6 +75,7 @@ export function useTrainingPlanImport() {
   function resetReview() {
     review.value = undefined
     confirmation.value = undefined
+    confirmedPlanStartDate.value = undefined
     operationId.value = ''
     issues.value = []
     errorKind.value = null
@@ -171,6 +178,11 @@ export function useTrainingPlanImport() {
       confirmation.value = await confirmTrainingPlanImport(document.value, receipt, operationId.value)
       state.value = confirmation.value.status === 'confirmed' ? 'confirmed' : 'unchanged'
       operationId.value = ''
+      confirmedPlanStartDate.value = await prepareConfirmedImportHandoff(
+        review.value?.proposal,
+        confirmation.value,
+        () => invalidateTrainingPlanQueries(queryClient),
+      )
     } catch (error) {
       await handleRequestError(error, true)
     }
@@ -237,6 +249,7 @@ export function useTrainingPlanImport() {
     canConfirm,
     canRetryConfirmation,
     canReview,
+    confirmedPlanStartDate,
     clearFile,
     chooseAnotherFile,
     confirm,
