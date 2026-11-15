@@ -1,6 +1,11 @@
 import {
+  WorkoutCompletionTypeSchema,
+  WorkoutExecutionSchema,
   WorkoutExecutionStartRequestSchema,
   WorkoutExecutionStartResponseSchema,
+  WorkoutFeelingSchema,
+  WorkoutSyncStatusSchema,
+  WorkoutSyncOperationSchema,
   type ActualMetrics,
   type CircuitResult,
   type IntervalResult,
@@ -9,6 +14,11 @@ import {
   type WorkoutPause,
   type WorkoutExecutionStartRequest,
   type WorkoutExecutionStartResponse,
+  type CloseExecutionOperation,
+  type WorkoutCompletionType,
+  type WorkoutExecution,
+  type WorkoutFeeling,
+  type WorkoutSyncStatus,
 } from '@trakia/contracts'
 
 const DATABASE_NAME = 'trakia-workout-execution'
@@ -63,10 +73,24 @@ export type StoredWorkoutResult = {
   error?: string
 }
 
+export type WorkoutExecutionReviewDraft = {
+  feeling?: WorkoutFeeling
+  observations?: string
+  completionType?: WorkoutCompletionType
+  closureReason?: string
+}
+
+export type StoredWorkoutClose = {
+  operation: CloseExecutionOperation
+  status: WorkoutSyncStatus
+}
+
 export type WorkoutExecutionProgress = {
   draft: WorkoutSeriesDraft | null
   results: StoredWorkoutResult[]
   temporal: WorkoutExecutionTemporalState
+  reviewDraft: WorkoutExecutionReviewDraft | null
+  close: StoredWorkoutClose | null
 }
 
 export interface PendingExecutionStart extends WorkoutExecutionStartRequest {
@@ -96,6 +120,8 @@ export interface WorkoutExecutionStore {
     error?: string,
   ): Promise<void>
   mergeServerResults(executionId: string, results: WorkoutResult[]): Promise<void>
+  saveReviewDraft(executionId: string, draft: WorkoutExecutionReviewDraft): Promise<void>
+  closeExecution(execution: WorkoutExecution, deviceId: string): Promise<StoredWorkoutClose>
 }
 
 export class PendingExecutionStartConflictError extends Error {
@@ -177,6 +203,11 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       const db = await database
       const transaction = db.transaction(RECORDS, 'readwrite')
       const store = transaction.objectStore(RECORDS)
+      const progress = parseProgress(await requestResult(store.get(progressKey(confirmed.execution.id))))
+      if (progress.close) {
+        await transactionDone(transaction)
+        return
+      }
       const pending = await requestResult(store.get(PENDING_START))
       if (pending && (pending.requestId !== confirmed.requestId || pending.deviceId !== confirmed.deviceId)) {
         transaction.abort()
@@ -205,6 +236,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       const done = transactionDone(transaction)
       const records = transaction.objectStore(RECORDS)
       const progress = parseProgress(await requestResult(records.get(progressKey(executionId))))
+      assertExecutionOpen(progress)
       records.put({ ...progress, draft }, progressKey(executionId))
       await done
     },
@@ -216,6 +248,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       const records = transaction.objectStore(RECORDS)
       const key = progressKey(executionId)
       const progress = parseProgress(await requestResult(records.get(key)))
+      assertExecutionOpen(progress)
       const existingId = progress.results.find(({ result: current }) => current.id === result.id)
       if (existingId) {
         if (!sameJson(existingId.result, result)) {
@@ -235,6 +268,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       }
       records.put(
         {
+          ...progress,
           draft: null,
           results: [...progress.results, { result, status: 'pending' }],
           temporal: temporal ?? progress.temporal,
@@ -251,6 +285,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       const records = transaction.objectStore(RECORDS)
       const key = progressKey(executionId)
       const progress = parseProgress(await requestResult(records.get(key)))
+      assertExecutionOpen(progress)
       records.put({ ...progress, temporal }, key)
       await done
     },
@@ -282,6 +317,10 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       const records = transaction.objectStore(RECORDS)
       const key = progressKey(executionId)
       const progress = parseProgress(await requestResult(records.get(key)))
+      if (progress.close) {
+        await done
+        return
+      }
       const merged = [...progress.results]
       for (const result of serverResults) {
         const index = merged.findIndex(({ result: local }) => local.id === result.id)
@@ -296,6 +335,76 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       }
       records.put({ ...progress, results: merged }, key)
       await done
+    },
+
+    async saveReviewDraft(executionId, draft) {
+      const db = await database
+      const transaction = db.transaction(RECORDS, 'readwrite')
+      const done = transactionDone(transaction)
+      const records = transaction.objectStore(RECORDS)
+      const key = progressKey(executionId)
+      const progress = parseProgress(await requestResult(records.get(key)))
+      assertExecutionOpen(progress)
+      records.put({ ...progress, reviewDraft: parseReviewDraft(draft) }, key)
+      await done
+    },
+
+    async closeExecution(executionInput, deviceId) {
+      const db = await database
+      const transaction = db.transaction(RECORDS, 'readwrite')
+      const done = transactionDone(transaction)
+      const records = transaction.objectStore(RECORDS)
+      const start = WorkoutExecutionStartResponseSchema.parse(
+        await requestResult(records.get(ACTIVE_EXECUTION)),
+      )
+      const executionId = executionInput.id
+      if (start.execution.id !== executionId || start.deviceId !== deviceId) {
+        transaction.abort()
+        await done.catch(() => undefined)
+        throw new Error('La ejecución no coincide con el dispositivo de origen.')
+      }
+
+      const key = progressKey(executionId)
+      const progress = parseProgress(await requestResult(records.get(key)))
+      if (progress.close) {
+        await done
+        return progress.close
+      }
+      assertExecutionOpen(progress)
+
+      const resultsById = new Map(executionInput.results.map((result) => [result.id, result]))
+      for (const entry of progress.results) {
+        const existing = resultsById.get(entry.result.id)
+        if (existing && !sameJson(existing, entry.result)) {
+          transaction.abort()
+          await done.catch(() => undefined)
+          throw new Error('Un resultado local contradice el cierre que se va a guardar.')
+        }
+        resultsById.set(entry.result.id, entry.result)
+      }
+
+      const execution = WorkoutExecutionSchema.parse({
+        ...executionInput,
+        results: [...resultsById.values()],
+      })
+      const parsedOperation = WorkoutSyncOperationSchema.parse({
+        operationType: 'close_execution',
+        operationId: crypto.randomUUID(),
+        executionId,
+        deviceId,
+        sequence: 1,
+        payload: { execution },
+      })
+      if (parsedOperation.operationType !== 'close_execution') {
+        transaction.abort()
+        await done.catch(() => undefined)
+        throw new Error('No se pudo preparar la operación de cierre.')
+      }
+      const operation = parsedOperation
+      const close: StoredWorkoutClose = { operation, status: 'pending' }
+      records.put({ ...progress, draft: null, reviewDraft: null, close }, key)
+      await done
+      return close
     },
   }
 }
@@ -325,15 +434,63 @@ function progressKey(executionId: string): string {
 }
 
 function parseProgress(value: unknown): WorkoutExecutionProgress {
-  if (!value || typeof value !== 'object')
-    return { draft: null, results: [], temporal: { status: 'in_progress', pauses: [] } }
+  if (!value || typeof value !== 'object') return emptyProgress()
   const candidate = value as Partial<WorkoutExecutionProgress>
   const results = Array.isArray(candidate.results) ? candidate.results.filter(isStoredResult) : []
   return {
     draft: isDraft(candidate.draft) ? candidate.draft : null,
     results,
     temporal: isTemporal(candidate.temporal) ? candidate.temporal : { status: 'in_progress', pauses: [] },
+    reviewDraft: isReviewDraft(candidate.reviewDraft) ? candidate.reviewDraft : null,
+    close: isStoredClose(candidate.close) ? candidate.close : null,
   }
+}
+
+function emptyProgress(): WorkoutExecutionProgress {
+  return {
+    draft: null,
+    results: [],
+    temporal: { status: 'in_progress', pauses: [] },
+    reviewDraft: null,
+    close: null,
+  }
+}
+
+function assertExecutionOpen(progress: WorkoutExecutionProgress): void {
+  if (progress.close) throw new Error('El entrenamiento ya está cerrado.')
+}
+
+function parseReviewDraft(value: WorkoutExecutionReviewDraft): WorkoutExecutionReviewDraft {
+  return {
+    ...(value.feeling ? { feeling: WorkoutFeelingSchema.parse(value.feeling) } : {}),
+    ...(value.completionType
+      ? { completionType: WorkoutCompletionTypeSchema.parse(value.completionType) }
+      : {}),
+    ...(value.observations?.trim() ? { observations: value.observations.trim().slice(0, 1000) } : {}),
+    ...(value.closureReason?.trim() ? { closureReason: value.closureReason.trim().slice(0, 240) } : {}),
+  }
+}
+
+function isReviewDraft(value: unknown): value is WorkoutExecutionReviewDraft {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as WorkoutExecutionReviewDraft
+  return (
+    (candidate.feeling === undefined || WorkoutFeelingSchema.safeParse(candidate.feeling).success) &&
+    (candidate.completionType === undefined ||
+      WorkoutCompletionTypeSchema.safeParse(candidate.completionType).success) &&
+    (candidate.observations === undefined || typeof candidate.observations === 'string') &&
+    (candidate.closureReason === undefined || typeof candidate.closureReason === 'string')
+  )
+}
+
+function isStoredClose(value: unknown): value is StoredWorkoutClose {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as StoredWorkoutClose
+  return (
+    WorkoutSyncStatusSchema.safeParse(candidate.status).success &&
+    WorkoutSyncOperationSchema.safeParse(candidate.operation).success &&
+    candidate.operation.operationType === 'close_execution'
+  )
 }
 
 function isStoredResult(value: unknown): value is StoredWorkoutResult {

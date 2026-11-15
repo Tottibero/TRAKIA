@@ -32,6 +32,15 @@ export type WorkoutPause = z.infer<typeof WorkoutPauseSchema>
 export const WorkoutStatusSchema = z.enum(['in_progress', 'paused', 'completed'])
 export type WorkoutStatus = z.infer<typeof WorkoutStatusSchema>
 
+export const WorkoutFeelingSchema = z.enum(['muy_bien', 'bien', 'regular', 'mal', 'muy_mal'])
+export type WorkoutFeeling = z.infer<typeof WorkoutFeelingSchema>
+
+export const WorkoutCompletionTypeSchema = z.enum(['planned', 'early'])
+export type WorkoutCompletionType = z.infer<typeof WorkoutCompletionTypeSchema>
+
+const FinalObservationsSchema = z.string().trim().max(1000)
+const ClosureReasonSchema = z.string().trim().min(1).max(240)
+
 export const WorkoutExerciseSnapshotSchema = z
   .object({
     key: StableKeySchema,
@@ -81,6 +90,10 @@ const WorkoutExecutionFields = {
   status: WorkoutStatusSchema,
   startedAt: ResultTimestampSchema,
   finishedAt: ResultTimestampSchema.optional(),
+  feeling: WorkoutFeelingSchema.optional(),
+  observations: FinalObservationsSchema.optional(),
+  completionType: WorkoutCompletionTypeSchema.optional(),
+  closureReason: ClosureReasonSchema.optional(),
   pauses: z.array(WorkoutPauseSchema),
   results: z.array(WorkoutResultSchema),
   corrections: z.array(WorkoutCorrectionSchema),
@@ -117,6 +130,26 @@ export const WorkoutExecutionSchema = z
         code: 'custom',
         path: ['finishedAt'],
         message: 'Execution end cannot precede its start',
+      })
+    }
+    if (execution.completionType !== 'early' && execution.closureReason !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['closureReason'],
+        message: 'A closure reason is only available for early completion',
+      })
+    }
+    if (
+      execution.status !== 'completed' &&
+      (execution.feeling !== undefined ||
+        execution.observations !== undefined ||
+        execution.completionType !== undefined ||
+        execution.closureReason !== undefined)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['completionType'],
+        message: 'Final details are only available on completed executions',
       })
     }
 

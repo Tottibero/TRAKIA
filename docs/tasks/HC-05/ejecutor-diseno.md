@@ -110,3 +110,11 @@ Los nombres de rutas son previsiones sujetas a convenciones del repositorio y au
 ## Comprobación de coherencia y pendientes
 
 No se observa incompatibilidad que requiera nuevo tipo de bloque: superseries se expresan como circuitos por rondas si el contrato de planificación lo permite; intervalos, AMRAP y circuitos ya tienen resultados tipados. Antes de tareas de implementación confirmar en esquemas actuales los campos exactos del snapshot, duraciones/descansos y capacidades de endpoint; este diseño no inventa payloads HTTP. Revisar además `docs/decisions/ADR-006` (autoguardado), ADR-007 (cortes de conexión), ADR-013 (experiencia móvil), ADR-015 y `docs/architecture/module-conventions.md`. Si una decisión de HC-05-01 contradice una invariante previa, elevarlo para resolución, no reinterpretarlo silenciosamente.
+
+## Aplicación aprobada en HC-05-05
+
+- La revisión resume resultados `performed`, omisiones explícitas `skipped` y unidades del snapshot sin resultado como `not_reached` derivado. No crea resultados para lo no realizado; en AMRAP solo muestra unidades de rondas iniciadas.
+- `WorkoutExecutionSchema` admite opcionalmente `feeling`, `observations`, `completionType` y `closureReason`. Son opcionales para aceptar ejecuciones previas; al cerrar desde la PWA se registra el tipo `planned` o `early`. El motivo, opcional, solo se admite con `early`.
+- Sensaciones usan cinco niveles (`muy_bien`, `bien`, `regular`, `mal`, `muy_mal`); observaciones limitadas a 1000 caracteres y motivo a 240.
+- El dominio actual no define «escaqueo», penalización ni efecto en Constancia. No se infiere ni se crea ninguno; se conservan `skipped` y `not_reached` como conceptos diferenciados.
+- El almacén IndexedDB existente conserva la ejecución terminal y una operación `close_execution` pendiente dentro del registro de progreso por ejecución. La transacción local no libera la reserva PostgreSQL; el transporte completo pertenece a HC-05-06.

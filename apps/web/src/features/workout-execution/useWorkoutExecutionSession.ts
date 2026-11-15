@@ -2,12 +2,15 @@ import { computed, onBeforeUnmount, onMounted, reactive, readonly, ref, watch } 
 import { useRouter } from 'vue-router'
 import {
   ActualMetricsSchema,
+  WorkoutCompletionTypeSchema,
   WorkoutExecutionSchema,
   type ActualMetrics,
   type ExerciseMetric,
   type IntervalResult,
   type PlannedExercise,
   type WorkoutExecution,
+  type WorkoutCompletionType,
+  type WorkoutFeeling,
   type WorkoutResult,
 } from '@trakia/contracts'
 import { ApiError, ApiNetworkError } from '@/shared/api/http'
@@ -19,6 +22,8 @@ import {
   type WorkoutExecutionTemporalState,
   type WorkoutSeriesDraft,
   type WorkoutTimerState,
+  type WorkoutExecutionReviewDraft,
+  type StoredWorkoutClose,
 } from './execution-store'
 import { elapsedSeconds, freezeTimer, remainingSeconds, updatePauseState } from './execution-time'
 import {
@@ -28,9 +33,11 @@ import {
   findNextGuidedUnit,
   findUnitForCursor,
   nextAmrapUnit,
+  summarizeWorkoutExecution,
   type GuidedUnit,
 } from './guided-planning'
 import { suggestMetrics } from './series-planning'
+import { executionDurationSeconds, finishOpenPause, formatWorkoutDuration } from './workout-review'
 
 const METRIC_FIELDS: Array<{
   metric: ExerciseMetric
@@ -47,6 +54,13 @@ const METRIC_FIELDS: Array<{
 ]
 
 const EMPTY_TEMPORAL: WorkoutExecutionTemporalState = { status: 'in_progress', pauses: [] }
+const FEELINGS: Array<{ value: WorkoutFeeling; label: string }> = [
+  { value: 'muy_bien', label: 'Muy bien' },
+  { value: 'bien', label: 'Bien' },
+  { value: 'regular', label: 'Regular' },
+  { value: 'mal', label: 'Mal' },
+  { value: 'muy_mal', label: 'Muy mal' },
+]
 
 export function useWorkoutExecutionSession(executionId: string) {
   const router = useRouter()
@@ -55,6 +69,10 @@ export function useWorkoutExecutionSession(executionId: string) {
   const savedResults = ref<StoredWorkoutResult[]>([])
   const draft = ref<WorkoutSeriesDraft | null>(null)
   const temporal = ref<WorkoutExecutionTemporalState>(EMPTY_TEMPORAL)
+  const reviewDraft = reactive<WorkoutExecutionReviewDraft>({})
+  const isReviewing = ref(false)
+  const isClosed = ref(false)
+  const closedOperation = ref<StoredWorkoutClose | null>(null)
   const currentUnit = ref<GuidedUnit | null>(null)
   const actualExerciseKey = ref('')
   const fields = reactive<Partial<Record<keyof ActualMetrics, string>>>({})
@@ -67,6 +85,7 @@ export function useWorkoutExecutionSession(executionId: string) {
   const syncMessage = ref('')
   let tickId: ReturnType<typeof setInterval> | undefined
   let draftSaveId: ReturnType<typeof setTimeout> | undefined
+  let reviewSaveId: ReturnType<typeof setTimeout> | undefined
 
   const units = computed(() => (execution.value ? collectGuidedUnits(execution.value) : []))
   const results = computed(() => savedResults.value.map(({ result }) => result))
@@ -128,6 +147,21 @@ export function useWorkoutExecutionSession(executionId: string) {
   const conflictCount = computed(
     () => savedResults.value.filter(({ status }) => status === 'conflict').length,
   )
+  const reviewSummary = computed(() =>
+    execution.value ? summarizeWorkoutExecution(execution.value, results.value) : null,
+  )
+  const canMarkPlannedCompletion = computed(
+    () =>
+      currentUnit.value === null &&
+      (reviewSummary.value?.skipped.length ?? 0) === 0 &&
+      (reviewSummary.value?.notReached.length ?? 0) === 0,
+  )
+  const reviewDurationSeconds = computed(() => {
+    if (!execution.value) return null
+    const end = execution.value.finishedAt ?? new Date(tick.value).toISOString()
+    return executionDurationSeconds(execution.value.startedAt, end, temporal.value.pauses)
+  })
+  const reviewDurationLabel = computed(() => formatWorkoutDuration(reviewDurationSeconds.value))
   const hasSetBlocks = computed(() =>
     Boolean(execution.value?.snapshot.session.blocks.some((block) => block.type === 'sets')),
   )
@@ -218,6 +252,17 @@ export function useWorkoutExecutionSession(executionId: string) {
     try {
       const localStart = await store.getActiveExecution()
       const localExecution = localStart?.execution.id === executionId ? localStart.execution : null
+      const progress = await store.getProgress(executionId)
+      if (progress.close) {
+        closedOperation.value = progress.close
+        isClosed.value = true
+        execution.value = progress.close.operation.payload.execution
+        savedResults.value = progress.results
+        temporal.value = progress.temporal
+        draft.value = progress.draft
+        Object.assign(reviewDraft, progress.reviewDraft ?? {})
+        return
+      }
       if (isOnline.value) {
         try {
           const deviceId = await store.getOrCreateDeviceId()
@@ -238,10 +283,10 @@ export function useWorkoutExecutionSession(executionId: string) {
       }
       if (!execution.value && localExecution) execution.value = localExecution
       if (!execution.value) throw new Error('No se encontró una copia local de esta ejecución.')
-      const progress = await store.getProgress(executionId)
       savedResults.value = progress.results
       temporal.value = progress.temporal
       draft.value = progress.draft
+      Object.assign(reviewDraft, progress.reviewDraft ?? {})
       if (temporal.value.status !== 'paused' && temporal.value.timer?.kind === 'work') {
         temporal.value = {
           ...temporal.value,
@@ -297,7 +342,7 @@ export function useWorkoutExecutionSession(executionId: string) {
   }
 
   async function persistDraft() {
-    if (!store || !currentUnit.value || !currentAppearance.value) return
+    if (!store || isClosed.value || !currentUnit.value || !currentAppearance.value) return
     const next: WorkoutSeriesDraft = {
       type: currentUnit.value.type,
       blockKey: currentUnit.value.blockKey,
@@ -320,18 +365,24 @@ export function useWorkoutExecutionSession(executionId: string) {
   }
 
   async function chooseExercise(key: string) {
-    if (!exerciseChoices.value.some((choice) => choice.key === key) || !currentAppearance.value) return
+    if (
+      isClosed.value ||
+      !exerciseChoices.value.some((choice) => choice.key === key) ||
+      !currentAppearance.value
+    )
+      return
     actualExerciseKey.value = key
     replaceFields(suggested(key, currentAppearance.value))
     await persistDraft()
   }
 
   function setField(field: keyof ActualMetrics, value: string) {
+    if (isClosed.value) return
     fields[field] = value
   }
 
   async function setWorkSecondsDraft(value: string) {
-    if (!store) return
+    if (!store || isClosed.value) return
     const seconds = value.trim() ? Number(value) : undefined
     temporal.value = {
       ...temporal.value,
@@ -490,7 +541,14 @@ export function useWorkoutExecutionSession(executionId: string) {
   }
 
   async function confirmCurrent(status: 'performed' | 'skipped' = 'performed', recovery = false) {
-    if (!store || !execution.value || !currentUnit.value || isSaving.value || (isPaused.value && !recovery))
+    if (
+      !store ||
+      isClosed.value ||
+      !execution.value ||
+      !currentUnit.value ||
+      isSaving.value ||
+      (isPaused.value && !recovery)
+    )
       return
     errorMessage.value = null
     isSaving.value = true
@@ -549,13 +607,13 @@ export function useWorkoutExecutionSession(executionId: string) {
   }
 
   async function continueManually() {
-    if (!store || !currentUnit.value) return
+    if (!store || isClosed.value || !currentUnit.value) return
     temporal.value = { ...temporal.value, awaitManualAdvance: false, timer: undefined }
     await store.saveTemporalState(executionId, temporal.value)
   }
 
   async function togglePause() {
-    if (!store) return
+    if (!store || isClosed.value) return
     const now = new Date()
     temporal.value = updatePauseState(temporal.value, now)
     await store.saveTemporalState(executionId, temporal.value)
@@ -617,7 +675,7 @@ export function useWorkoutExecutionSession(executionId: string) {
   }
 
   async function synchronize() {
-    if (!store || !execution.value || !isOnline.value || isSyncing.value) return
+    if (!store || isClosed.value || !execution.value || !isOnline.value || isSyncing.value) return
     isSyncing.value = true
     try {
       const deviceId = await store.getOrCreateDeviceId()
@@ -662,6 +720,7 @@ export function useWorkoutExecutionSession(executionId: string) {
   }
 
   async function addExtraSet() {
+    if (isClosed.value) return
     const unit = units.value.filter((item) => item.type === 'sets').at(-1)
     if (!unit || unit.type !== 'sets') return
     const block = execution.value?.snapshot.session.blocks.find(({ key }) => key === unit.blockKey)
@@ -685,12 +744,92 @@ export function useWorkoutExecutionSession(executionId: string) {
     await store?.saveTemporalState(executionId, temporal.value)
   }
 
+  function openReview() {
+    if (isClosed.value || !execution.value) return
+    errorMessage.value = null
+    isReviewing.value = true
+  }
+
+  function returnToExecution() {
+    if (isClosed.value) return
+    errorMessage.value = null
+    isReviewing.value = false
+  }
+
+  function setFeeling(value: WorkoutFeeling) {
+    if (!isClosed.value) reviewDraft.feeling = value
+  }
+
+  function setCompletionType(value: WorkoutCompletionType) {
+    if (!isClosed.value) reviewDraft.completionType = value
+  }
+
+  async function confirmClose() {
+    if (!store || !execution.value || isClosed.value || isSaving.value) return
+    const completionType = WorkoutCompletionTypeSchema.safeParse(reviewDraft.completionType)
+    if (!completionType.success) {
+      errorMessage.value = 'Selecciona si has completado el entrenamiento previsto o lo finalizas antes.'
+      return
+    }
+
+    isSaving.value = true
+    errorMessage.value = null
+    if (reviewSaveId) clearTimeout(reviewSaveId)
+    const finishedAt = new Date().toISOString()
+    try {
+      const pauses = finishOpenPause(temporal.value.pauses, finishedAt)
+      const allResults = [
+        ...new Map(
+          [...execution.value.results, ...results.value].map((result) => [result.id, result]),
+        ).values(),
+      ]
+      const finalExecution = WorkoutExecutionSchema.parse({
+        ...execution.value,
+        status: 'completed',
+        finishedAt,
+        pauses,
+        results: allResults,
+        ...(reviewDraft.feeling ? { feeling: reviewDraft.feeling as WorkoutFeeling } : {}),
+        ...(reviewDraft.observations?.trim() ? { observations: reviewDraft.observations.trim() } : {}),
+        completionType: completionType.data satisfies WorkoutCompletionType,
+        ...(completionType.data === 'early' && reviewDraft.closureReason?.trim()
+          ? { closureReason: reviewDraft.closureReason.trim() }
+          : {}),
+      })
+      const deviceId = await store.getOrCreateDeviceId()
+      const close = await store.closeExecution(finalExecution, deviceId)
+      closedOperation.value = close
+      execution.value = close.operation.payload.execution
+      isClosed.value = true
+      isReviewing.value = false
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : 'No se pudo cerrar el entrenamiento.'
+    } finally {
+      isSaving.value = false
+    }
+  }
+
   watch(
     [actualExerciseKey, () => ({ ...fields })],
     () => {
       if (isLoading.value || !currentUnit.value || !currentAppearance.value) return
       if (draftSaveId) clearTimeout(draftSaveId)
       draftSaveId = setTimeout(() => void persistDraft(), 250)
+    },
+    { deep: true },
+  )
+
+  watch(
+    reviewDraft,
+    () => {
+      if (isLoading.value || isClosed.value || !execution.value || !store) return
+      if (reviewDraft.completionType !== 'early') delete reviewDraft.closureReason
+      if (reviewSaveId) clearTimeout(reviewSaveId)
+      reviewSaveId = setTimeout(() => {
+        void store.saveReviewDraft(executionId, { ...reviewDraft }).catch(() => {
+          errorMessage.value = 'No se pudieron guardar los datos finales en este dispositivo.'
+        })
+      }, 250)
     },
     { deep: true },
   )
@@ -711,6 +850,7 @@ export function useWorkoutExecutionSession(executionId: string) {
     document.removeEventListener('visibilitychange', onVisibilityChange)
     if (tickId) clearInterval(tickId)
     if (draftSaveId) clearTimeout(draftSaveId)
+    if (reviewSaveId) clearTimeout(reviewSaveId)
   })
 
   const position = computed(() => {
@@ -738,6 +878,8 @@ export function useWorkoutExecutionSession(executionId: string) {
     fields,
     isAmrapFinished,
     isLoading: readonly(isLoading),
+    isClosed: readonly(isClosed),
+    isReviewing: readonly(isReviewing),
     isOnline: readonly(isOnline),
     isPaused,
     isSaving: readonly(isSaving),
@@ -750,6 +892,18 @@ export function useWorkoutExecutionSession(executionId: string) {
     positionLabel,
     registeredCount,
     registeredSummary,
+    reviewDraft,
+    reviewSummary,
+    canMarkPlannedCompletion,
+    reviewDurationSeconds,
+    reviewDurationLabel,
+    closedOperation: readonly(closedOperation),
+    openReview,
+    returnToExecution,
+    confirmClose,
+    feelings: FEELINGS,
+    setFeeling,
+    setCompletionType,
     actualExerciseKey: readonly(actualExerciseKey),
     returnToSession: () => {
       void router.replace({ name: 'home' })
