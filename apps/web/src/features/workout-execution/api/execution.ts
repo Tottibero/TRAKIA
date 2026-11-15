@@ -5,11 +5,15 @@ import {
   WorkoutExecutionStartResponseSchema,
   WorkoutExecutionResultRequestSchema,
   WorkoutExecutionResultResponseSchema,
+  WorkoutSyncOperationSchema,
+  WorkoutSyncResponseSchema,
   type WorkoutExecutionOpenResponse,
   type WorkoutExecutionStartRequest,
   type WorkoutExecutionStartResponse,
   type WorkoutExecutionResultRequest,
   type WorkoutExecutionResultResponse,
+  type CloseExecutionOperation,
+  type WorkoutSyncResponse,
 } from '@trakia/contracts'
 import { apiRequest } from '@/shared/api/http'
 
@@ -58,4 +62,18 @@ export async function recordWorkoutExecutionResult(
     },
   )
   return WorkoutExecutionResultResponseSchema.parse(response)
+}
+
+export async function closeWorkoutExecution(
+  executionId: string,
+  operation: CloseExecutionOperation,
+): Promise<WorkoutSyncResponse> {
+  const request = WorkoutSyncOperationSchema.parse(operation)
+  if (request.operationType !== 'close_execution' || request.executionId !== executionId)
+    throw new Error('La operación de cierre no coincide con la ejecución.')
+  const response = await apiRequest<unknown>(
+    `/workouts/executions/${encodeURIComponent(executionId)}/close`,
+    { method: 'POST', body: JSON.stringify(request) },
+  )
+  return WorkoutSyncResponseSchema.parse(response)
 }

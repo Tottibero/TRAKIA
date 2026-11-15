@@ -181,3 +181,58 @@ test('the existing result endpoint accepts circuit and skipped interval contract
   }
   assert.equal(calls.length, 2)
 })
+
+test('workouts controller authenticates, validates and binds a close to the route execution', async () => {
+  const calls = []
+  const operation = {
+    operationType: 'close_execution',
+    operationId: '65c6ff1d-cbbb-4f8a-b07d-22c22a4a77b4',
+    executionId: execution.id,
+    deviceId: request.deviceId,
+    sequence: 1,
+    payload: {
+      execution: {
+        ...execution,
+        status: 'completed',
+        finishedAt: '2026-11-15T11:00:00.000Z',
+        completionType: 'planned',
+      },
+    },
+  }
+  const controller = new WorkoutsController({
+    closeExecution: async (...args) => {
+      calls.push(args)
+      return {
+        operationId: operation.operationId,
+        executionId: execution.id,
+        sequence: 1,
+        result: 'applied',
+      }
+    },
+  })
+  assert.deepEqual(
+    await controller.closeExecution(
+      { authUserId: 'authenticated-user' },
+      { executionId: execution.id },
+      operation,
+    ),
+    {
+      operationId: operation.operationId,
+      executionId: execution.id,
+      sequence: 1,
+      result: 'applied',
+    },
+  )
+  assert.deepEqual(calls, [['authenticated-user', execution.id, operation]])
+  await assert.rejects(
+    controller.closeExecution(
+      { authUserId: 'authenticated-user' },
+      { executionId: '6aec8e0a-9b96-4c97-9fc1-42a7badc67ca' },
+      operation,
+    ),
+    { status: 400 },
+  )
+  await assert.rejects(controller.closeExecution({}, { executionId: execution.id }, operation), {
+    status: 401,
+  })
+})

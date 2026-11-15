@@ -7,6 +7,7 @@ import { CreateTrainingPlans1794614400000 } from '../dist/database/migrations/17
 import { PrepareTrainingPlanImportReview1794700800000 } from '../dist/database/migrations/1794700800000-PrepareTrainingPlanImportReview.js'
 import { AddWorkoutExecutionStart1795046400000 } from '../dist/database/migrations/1795046400000-AddWorkoutExecutionStart.js'
 import { AddWorkoutExecutionResults1795132800000 } from '../dist/database/migrations/1795132800000-AddWorkoutExecutionResults.js'
+import { AddWorkoutExecutionCloseOperation1795219200000 } from '../dist/database/migrations/1795219200000-AddWorkoutExecutionCloseOperation.js'
 import { CreateUsers1794441600000 } from '../dist/database/migrations/1794441600000-CreateUsers.js'
 import { ExerciseCatalogService } from '../dist/modules/exercises/exercise-catalog.service.js'
 import { Exercise } from '../dist/modules/exercises/exercise.entity.js'
@@ -45,6 +46,7 @@ test('workout starts are atomic, idempotent, protected and recoverable in an iso
     await new PrepareTrainingPlanImportReview1794700800000().up(runner)
     await new AddWorkoutExecutionStart1795046400000().up(runner)
     await new AddWorkoutExecutionResults1795132800000().up(runner)
+    await new AddWorkoutExecutionCloseOperation1795219200000().up(runner)
 
     const [{ id: userId }] = await runner.query(
       `INSERT INTO users (email, password_hash) VALUES ('workout-start@example.test', 'test-hash') RETURNING id`,
@@ -385,6 +387,147 @@ test('workout starts are atomic, idempotent, protected and recoverable in an iso
         error.driverError?.constraint === 'uq_workout_executions_open_user',
     )
     assert.equal(await repository.count(), countBeforeConstraintCheck)
+
+    const confirmedResult = {
+      type: 'sets',
+      id: '118a8a3f-2f58-49e4-9ccd-f6c46ea621d5',
+      blockKey: 'main',
+      plannedExerciseKey: 'squat',
+      unit: { kind: 'planned', setIndex: 1 },
+      actualExerciseKey: 'back-squat',
+      status: 'performed',
+      actualMetrics: { reps: 5, weightKg: 80 },
+    }
+    const pendingResult = {
+      ...confirmedResult,
+      id: 'c6fa5f96-8a06-4d42-a607-24e1e19e5cb1',
+      unit: { kind: 'planned', setIndex: 2 },
+      actualMetrics: { reps: 5, weightKg: 82 },
+    }
+    await startService.recordResult(userId, winningExecution.id, {
+      deviceId: winningStart.deviceId,
+      result: confirmedResult,
+    })
+    const closeExecution = {
+      ...winningExecution,
+      status: 'completed',
+      finishedAt: new Date(Date.parse(winningExecution.startedAt) + 60_000).toISOString(),
+      pauses: [],
+      completionType: 'early',
+      closureReason: 'Tiempo limitado.',
+      results: [confirmedResult, pendingResult],
+    }
+    const closeOperation = {
+      operationType: 'close_execution',
+      operationId: '65c6ff1d-cbbb-4f8a-b07d-22c22a4a77b4',
+      executionId: winningExecution.id,
+      deviceId: winningStart.deviceId,
+      sequence: 1,
+      payload: { execution: closeExecution },
+    }
+    assert.equal(
+      (await startService.closeExecution(userId, winningExecution.id, closeOperation)).result,
+      'applied',
+    )
+    assert.equal(
+      (await startService.closeExecution(userId, winningExecution.id, closeOperation)).result,
+      'already_applied',
+    )
+    const closedRecord = await repository.findOneBy({ id: winningExecution.id })
+    assert.equal(closedRecord.status, 'completed')
+    assert.equal(closedRecord.finishedAt.toISOString(), closeExecution.finishedAt)
+    assert.deepEqual(closedRecord.results, [confirmedResult, pendingResult])
+    assert.deepEqual(closedRecord.closeOperation, closeOperation)
+    const contradictoryClose = {
+      ...closeOperation,
+      payload: { execution: { ...closeExecution, feeling: 'mal' } },
+    }
+    assert.equal(
+      (await startService.closeExecution(userId, winningExecution.id, contradictoryClose)).result,
+      'conflict',
+    )
+    assert.deepEqual((await repository.findOneBy({ id: winningExecution.id })).results, [
+      confirmedResult,
+      pendingResult,
+    ])
+
+    const unusedSessionKey = winningExecution.sessionKey === 'tuesday' ? 'wednesday' : 'tuesday'
+    const afterCloseStart = await startService.start(userId, {
+      requestId: crypto.randomUUID(),
+      deviceId: winningStart.deviceId,
+      planId: savedPlan.id,
+      sessionId: sessionIds[unusedSessionKey],
+    })
+    assert.equal(afterCloseStart.execution.status, 'in_progress')
+
+    const racedResult = {
+      ...confirmedResult,
+      id: 'a8ea9519-06e5-4d31-b2ac-5a47a0220a0b',
+      unit: { kind: 'planned', setIndex: 1 },
+    }
+    const racedExecution = {
+      ...afterCloseStart.execution,
+      status: 'completed',
+      finishedAt: new Date(Date.parse(afterCloseStart.execution.startedAt) + 60_000).toISOString(),
+      pauses: [],
+      completionType: 'planned',
+      results: [racedResult],
+    }
+    const racedOperation = {
+      operationType: 'close_execution',
+      operationId: 'ada7d1f8-d6e6-4f6e-b6c8-e5de0603b8d1',
+      executionId: afterCloseStart.execution.id,
+      deviceId: afterCloseStart.deviceId,
+      sequence: 1,
+      payload: { execution: racedExecution },
+    }
+    await runner.query(`
+      CREATE FUNCTION reject_workout_close_update() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.close_operation IS NOT NULL THEN
+          RAISE EXCEPTION 'forced close persistence failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `)
+    await runner.query(`
+      CREATE TRIGGER reject_workout_close_update
+      BEFORE UPDATE ON workout_executions
+      FOR EACH ROW EXECUTE FUNCTION reject_workout_close_update()
+    `)
+    await assert.rejects(
+      startService.closeExecution(userId, afterCloseStart.execution.id, racedOperation),
+      /forced close persistence failure/,
+    )
+    const rolledBackClose = await repository.findOneBy({ id: afterCloseStart.execution.id })
+    assert.equal(rolledBackClose.status, 'in_progress')
+    assert.deepEqual(rolledBackClose.results, [])
+    assert.equal(rolledBackClose.closeOperation, null)
+    await runner.query('DROP TRIGGER reject_workout_close_update ON workout_executions')
+    await runner.query('DROP FUNCTION reject_workout_close_update()')
+
+    const race = await Promise.allSettled([
+      startService.recordResult(userId, afterCloseStart.execution.id, {
+        deviceId: afterCloseStart.deviceId,
+        result: racedResult,
+      }),
+      startService.closeExecution(userId, afterCloseStart.execution.id, racedOperation),
+    ])
+    assert.equal(race[1].status, 'fulfilled')
+    assert.equal(race[1].value.result, 'applied')
+    assert.ok(race[0].status === 'fulfilled' || race[0].reason?.name === 'WorkoutExecutionClosedError')
+    const racedRecord = await repository.findOneBy({ id: afterCloseStart.execution.id })
+    assert.equal(racedRecord.status, 'completed')
+    assert.deepEqual(racedRecord.results, [racedResult])
+    assert.deepEqual(racedRecord.closeOperation, racedOperation)
+    await assert.rejects(
+      startService.recordResult(userId, afterCloseStart.execution.id, {
+        deviceId: afterCloseStart.deviceId,
+        result: { ...racedResult, id: '1d102a29-c220-4dfa-8a49-e885228d2502' },
+      }),
+      /open workout execution/,
+    )
 
     await runner.release()
   } finally {

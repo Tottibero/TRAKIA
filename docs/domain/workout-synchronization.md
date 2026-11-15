@@ -27,4 +27,8 @@ El catálogo inicial contempla `OPERATION_CONTENT_MISMATCH`, `DEPENDENCY_PENDING
 
 ## Pendiente de implementación
 
-Quedan fuera de este contrato las transiciones y el almacenamiento local, la cola ordenada, reintentos, recuperación de `syncing`, comparación de contenido/hash, idempotencia persistida, aplicación de operaciones, detección remota de dependencias y resolución de conflictos. El backend determinará si el `resultId` corregido pertenece a la ejecución indicada y si las secuencias anteriores están confirmadas.
+HC-05-06 implementa el cierre de secuencia 1 mediante `POST /workouts/executions/:executionId/close`. El sobre aceptado se conserva en `workout_executions.close_operation`; no hay tabla ni motor remoto genérico. El backend bloquea la fila, verifica cuenta/dispositivo/snapshot, une resultados por ID con comparación exacta, rechaza colisiones de identidad o unidad, valida el conjunto completo y guarda cierre/resultados/estado en una transacción. Un cierre idéntico devuelve `already_applied`; uno contradictorio devuelve conflicto. La transición a `completed` libera la reserva parcial por cuenta.
+
+La web reutiliza el registro de cierre existente en IndexedDB y reintenta al cargar la PWA, al abrir la vista cerrada y al recuperar conexión. Solo una respuesta `applied` o `already_applied` marca el cierre y sus resultados como sincronizados y elimina `activeExecution`; el cierre local permanece disponible. Los fallos recuperables conservan la operación y los conflictos no reescriben resultados.
+
+Siguen pendientes la secuenciación y persistencia remota de correcciones posteriores, la detección de sus dependencias y su resolución. HC-05-06 no implementa esos mecanismos ni colas remotas.

@@ -83,6 +83,7 @@ export type WorkoutExecutionReviewDraft = {
 export type StoredWorkoutClose = {
   operation: CloseExecutionOperation
   status: WorkoutSyncStatus
+  error?: string
 }
 
 export type WorkoutExecutionProgress = {
@@ -120,6 +121,8 @@ export interface WorkoutExecutionStore {
     error?: string,
   ): Promise<void>
   mergeServerResults(executionId: string, results: WorkoutResult[]): Promise<void>
+  setCloseStatus(executionId: string, status: WorkoutSyncStatus, error?: string): Promise<void>
+  confirmCloseSynced(executionId: string): Promise<void>
   saveReviewDraft(executionId: string, draft: WorkoutExecutionReviewDraft): Promise<void>
   closeExecution(execution: WorkoutExecution, deviceId: string): Promise<StoredWorkoutClose>
 }
@@ -304,9 +307,62 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       const key = progressKey(executionId)
       const progress = parseProgress(await requestResult(records.get(key)))
       const results = progress.results.map((entry) =>
-        entry.result.id === resultId ? { result: entry.result, status, ...(error ? { error } : {}) } : entry,
+        entry.result.id === resultId && entry.status !== 'synced'
+          ? { result: entry.result, status, ...(error ? { error } : {}) }
+          : entry,
       )
       records.put({ ...progress, results }, key)
+      await done
+    },
+
+    async setCloseStatus(executionId, status, error) {
+      const db = await database
+      const transaction = db.transaction(RECORDS, 'readwrite')
+      const done = transactionDone(transaction)
+      const records = transaction.objectStore(RECORDS)
+      const key = progressKey(executionId)
+      const progress = parseProgress(await requestResult(records.get(key)))
+      if (!progress.close) {
+        transaction.abort()
+        await done.catch(() => undefined)
+        throw new Error('No hay un cierre local para sincronizar.')
+      }
+      if (progress.close.status === 'synced' && status !== 'synced') {
+        await done
+        return
+      }
+      const close = { ...progress.close, status, ...(error ? { error } : {}) }
+      if (!error) delete close.error
+      records.put({ ...progress, close }, key)
+      await done
+    },
+
+    async confirmCloseSynced(executionId) {
+      const db = await database
+      const transaction = db.transaction(RECORDS, 'readwrite')
+      const done = transactionDone(transaction)
+      const records = transaction.objectStore(RECORDS)
+      const key = progressKey(executionId)
+      const progress = parseProgress(await requestResult(records.get(key)))
+      if (!progress.close) {
+        transaction.abort()
+        await done.catch(() => undefined)
+        throw new Error('No hay un cierre local para confirmar.')
+      }
+      const resultIds = new Set(progress.close.operation.payload.execution.results.map(({ id }) => id))
+      const results = progress.results.map((entry) =>
+        resultIds.has(entry.result.id) ? { result: entry.result, status: 'synced' as const } : entry,
+      )
+      records.put(
+        {
+          ...progress,
+          results,
+          close: { operation: progress.close.operation, status: 'synced' },
+        },
+        key,
+      )
+      const active = await requestResult(records.get(ACTIVE_EXECUTION))
+      if (active?.execution?.id === executionId) records.delete(ACTIVE_EXECUTION)
       await done
     },
 
@@ -489,7 +545,8 @@ function isStoredClose(value: unknown): value is StoredWorkoutClose {
   return (
     WorkoutSyncStatusSchema.safeParse(candidate.status).success &&
     WorkoutSyncOperationSchema.safeParse(candidate.operation).success &&
-    candidate.operation.operationType === 'close_execution'
+    candidate.operation.operationType === 'close_execution' &&
+    (candidate.error === undefined || typeof candidate.error === 'string')
   )
 }
 

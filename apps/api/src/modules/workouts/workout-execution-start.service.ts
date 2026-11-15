@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import {
   WorkoutExecutionSnapshotSchema,
   WorkoutExecutionSchema,
+  type CloseExecutionOperation,
   type WorkoutExecution,
   type WorkoutExecutionSnapshot,
   type WorkoutExecutionStartRequest,
@@ -9,6 +10,7 @@ import {
   type WorkoutExecutionOpenResponse,
   type WorkoutExecutionResultRequest,
   type WorkoutExecutionResultResponse,
+  type WorkoutSyncResponse,
   type WorkoutResult,
   type PlannedBlock,
   type PlannedExercise,
@@ -231,6 +233,97 @@ export class WorkoutExecutionStartService {
     })
   }
 
+  async closeExecution(
+    userId: string,
+    executionId: string,
+    operation: CloseExecutionOperation,
+  ): Promise<WorkoutSyncResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkoutExecutionRecord)
+      const record = await repository.findOne({
+        where: { id: executionId, userId },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!record) throw new WorkoutExecutionSessionNotFoundError()
+
+      const responseIdentity = {
+        operationId: operation.operationId,
+        executionId: operation.executionId,
+        sequence: operation.sequence,
+      }
+      if (record.deviceId !== operation.deviceId) {
+        return syncConflict(
+          responseIdentity,
+          'EXECUTION_CONFLICT',
+          'The execution is not owned by this device.',
+        )
+      }
+
+      if (record.closeOperation) {
+        return isDeepStrictEqual(record.closeOperation, operation)
+          ? { ...responseIdentity, result: 'already_applied' }
+          : syncConflict(
+              responseIdentity,
+              'OPERATION_CONTENT_MISMATCH',
+              'A different close operation has already been applied.',
+            )
+      }
+
+      const submitted = operation.payload.execution
+      if (
+        record.status !== 'in_progress' ||
+        !record.snapshot ||
+        submitted.id !== record.id ||
+        submitted.planKey !== record.planKey ||
+        submitted.sessionKey !== record.sessionKey ||
+        submitted.startedAt !== record.startedAt.toISOString() ||
+        !isDeepStrictEqual(submitted.snapshot, record.snapshot)
+      ) {
+        return syncConflict(
+          responseIdentity,
+          'EXECUTION_CONFLICT',
+          'The close operation does not match the reserved execution.',
+        )
+      }
+
+      const results = [...(record.results ?? [])]
+      for (const incoming of submitted.results) {
+        const existingById = results.find((result) => result.id === incoming.id)
+        if (existingById) {
+          if (!isDeepStrictEqual(existingById, incoming)) {
+            return syncConflict(
+              responseIdentity,
+              'EXECUTION_CONFLICT',
+              'A result identity has different content on the server.',
+            )
+          }
+          continue
+        }
+        if (results.some((result) => sameWorkoutUnit(result, incoming))) {
+          return syncConflict(
+            responseIdentity,
+            'EXECUTION_CONFLICT',
+            'A workout unit has a different result on the server.',
+          )
+        }
+        results.push(incoming)
+      }
+
+      try {
+        WorkoutExecutionSchema.parse({ ...submitted, results })
+      } catch {
+        return syncRejected(responseIdentity, 'INVALID_OPERATION', 'The consolidated execution is invalid.')
+      }
+
+      record.results = results
+      record.status = 'completed'
+      record.finishedAt = new Date(submitted.finishedAt!)
+      record.closeOperation = operation
+      await repository.save(record)
+      return { ...responseIdentity, result: 'applied' }
+    })
+  }
+
   private resolveReplay(
     record: WorkoutExecutionRecord,
     input: WorkoutExecutionStartRequest,
@@ -339,6 +432,22 @@ function isUniqueViolation(error: unknown, constraint: string): boolean {
   if (!(error instanceof QueryFailedError)) return false
   const driverError = error.driverError as { code?: string; constraint?: string }
   return driverError.code === '23505' && driverError.constraint === constraint
+}
+
+function syncConflict(
+  identity: Pick<WorkoutSyncResponse, 'operationId' | 'executionId' | 'sequence'>,
+  code: 'OPERATION_CONTENT_MISMATCH' | 'EXECUTION_CONFLICT',
+  message: string,
+): WorkoutSyncResponse {
+  return { ...identity, result: 'conflict', issue: { code, message } }
+}
+
+function syncRejected(
+  identity: Pick<WorkoutSyncResponse, 'operationId' | 'executionId' | 'sequence'>,
+  code: 'INVALID_OPERATION',
+  message: string,
+): WorkoutSyncResponse {
+  return { ...identity, result: 'rejected', issue: { code, message } }
 }
 
 function findOpenRecord(repository: Repository<WorkoutExecutionRecord>, userId: string) {

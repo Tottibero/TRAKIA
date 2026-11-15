@@ -29,7 +29,7 @@ Este diseño traduce las decisiones de HC-05-01 en guía de implementación, sin
 18. **D18 (evolución aprobada en HC-05-02):** como máximo una ejecución deportiva abierta por cuenta, vinculada al dispositivo propietario donde se inició y sin transferencia. Sustituye la decisión original de HC-05-01, que limitaba la exclusión a cada dispositivo.
 19. **D19:** inicio requiere conexión; continuación y cierre funcionan offline.
 20. **D20:** borradores persistentes en IndexedDB, diferenciados de resultados confirmados.
-21. **D21 (evolución autorizada en HC-05-03):** cada resultado confirmado se persiste primero de forma atómica en IndexedDB y se envía de inmediato al backend, sin bloquear la sesión; los pendientes se reintentan con la misma identidad. La sincronización completa al cierre y sus reconciliaciones siguen reservadas a HC-05-05/06.
+21. **D21 (evolución autorizada en HC-05-03 y concretada en HC-05-06):** cada resultado confirmado se persiste primero de forma atómica en IndexedDB y se envía de inmediato al backend, sin bloquear la sesión; los pendientes se reintentan con la misma identidad. El cierre completo consolida en PostgreSQL los resultados locales que aún falten, detecta contradicciones y confirma el estado terminal en una transacción. El cliente reintenta la misma operación de cierre y conserva su copia local tras sincronizar.
 22. **D22:** recuperación contextual de temporizadores sin fabricar resultados.
 
 ## Modelo de ejecución y navegación
