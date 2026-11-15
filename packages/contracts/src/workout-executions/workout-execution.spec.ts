@@ -144,6 +144,47 @@ describe('WorkoutExecutionSchema', () => {
     ).toBe(true)
   })
 
+  it('accepts completed execution details and preserves legacy executions without them', () => {
+    expect(
+      WorkoutExecutionSchema.safeParse(execution({ status: 'completed', finishedAt: '2026-11-13T10:00:00Z' }))
+        .success,
+    ).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          status: 'completed',
+          finishedAt: '2026-11-13T10:00:00Z',
+          feeling: 'muy_bien',
+          observations: 'Buen ritmo.',
+          completionType: 'early',
+          closureReason: 'Me encuentro cansado.',
+        }),
+      ).success,
+    ).toBe(true)
+  })
+
+  it('limits final observation and reason lengths and only accepts a reason for an early close', () => {
+    const completed = { status: 'completed', finishedAt: '2026-11-13T10:00:00Z' }
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({ ...completed, completionType: 'planned', closureReason: 'reason' }),
+      ).success,
+    ).toBe(false)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({ ...completed, completionType: 'early', observations: 'x'.repeat(1001) }),
+      ).success,
+    ).toBe(false)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({ ...completed, completionType: 'early', closureReason: 'x'.repeat(241) }),
+      ).success,
+    ).toBe(false)
+    expect(
+      WorkoutExecutionSchema.safeParse(execution({ status: 'in_progress', feeling: 'bien' })).success,
+    ).toBe(false)
+  })
+
   it('requires a snapshot', () => {
     const { snapshot: _snapshot, ...withoutSnapshot } = base()
     expect(WorkoutExecutionSchema.safeParse(withoutSnapshot).success).toBe(false)

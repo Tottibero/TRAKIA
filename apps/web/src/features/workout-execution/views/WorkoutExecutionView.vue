@@ -45,6 +45,20 @@ function title() {
           >TRAKIA</RouterLink
         >
         <div class="flex items-center gap-3">
+          <button
+            v-if="
+              !session.isLoading.value &&
+              !session.errorMessage.value &&
+              !session.isClosed.value &&
+              !session.isReviewing.value
+            "
+            class="min-h-11 rounded-md bg-lime-300 px-3 text-sm font-semibold text-stone-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+            type="button"
+            @click="session.openReview"
+          >
+            <span class="sm:hidden">Finalizar</span>
+            <span class="hidden sm:inline">Finalizar entrenamiento</span>
+          </button>
           <span v-if="!session.isOnline.value" class="text-xs text-amber-200" role="status"
             >Sin conexión</span
           >
@@ -67,6 +81,211 @@ function title() {
         >
           Volver a la planificación
         </button>
+      </section>
+
+      <section v-else-if="session.isClosed.value" class="pt-8" aria-labelledby="closed-title">
+        <h1 id="closed-title" class="text-3xl font-semibold tracking-[-0.035em]">Entrenamiento cerrado</h1>
+        <p class="mt-2 text-sm leading-6 text-stone-300">El cierre quedó guardado en este dispositivo.</p>
+        <div v-if="session.reviewSummary.value" class="mt-6 space-y-5">
+          <p class="text-sm text-stone-200">
+            {{ session.reviewSummary.value.performed.length }} realizadas ·
+            {{ session.reviewSummary.value.skipped.length }} omitidas ·
+            {{ session.reviewSummary.value.notReached.length }} pendientes/no alcanzadas
+          </p>
+          <p
+            v-if="session.closedOperation.value?.operation.payload.execution.feeling"
+            class="text-sm text-stone-300"
+          >
+            Sensaciones:
+            {{ session.closedOperation.value.operation.payload.execution.feeling.replaceAll('_', ' ') }}
+          </p>
+          <p
+            v-if="session.closedOperation.value?.operation.payload.execution.observations"
+            class="whitespace-pre-wrap text-sm leading-6 text-stone-300"
+          >
+            {{ session.closedOperation.value.operation.payload.execution.observations }}
+          </p>
+        </div>
+        <button
+          class="mt-8 min-h-12 w-full rounded-md border border-white/20 px-4 font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+          type="button"
+          @click="session.returnToSession"
+        >
+          Volver a la planificación
+        </button>
+      </section>
+
+      <section v-else-if="session.isReviewing.value" class="pt-7" aria-labelledby="review-title">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h1 id="review-title" class="text-3xl font-semibold tracking-[-0.035em]">
+              Revisar entrenamiento
+            </h1>
+            <p class="mt-2 text-sm leading-6 text-stone-300">
+              Comprueba lo registrado antes del cierre definitivo.
+            </p>
+          </div>
+          <button
+            class="min-h-11 shrink-0 rounded-md border border-white/20 px-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+            type="button"
+            @click="session.returnToExecution"
+          >
+            Volver
+          </button>
+        </div>
+
+        <section v-if="session.reviewSummary.value" class="mt-6 space-y-6">
+          <p class="border-y border-white/10 py-3 text-sm text-stone-200">
+            {{ session.reviewSummary.value.performed.length }} realizadas ·
+            {{ session.reviewSummary.value.skipped.length }} omitidas ·
+            {{ session.reviewSummary.value.notReached.length }} pendientes/no alcanzadas
+          </p>
+          <p v-if="session.reviewDurationLabel.value" class="text-sm text-stone-300">
+            Duración de ejecución:
+            <strong class="font-semibold text-stone-100">{{ session.reviewDurationLabel.value }}</strong>
+          </p>
+          <p v-else class="text-sm text-amber-200" role="status">
+            No se puede calcular una duración fiable con las marcas temporales guardadas.
+          </p>
+
+          <div
+            v-for="group in [
+              { title: 'Realizadas', items: session.reviewSummary.value.performed, status: 'Realizada' },
+              { title: 'Omitidas', items: session.reviewSummary.value.skipped, status: 'Omitida' },
+              {
+                title: 'Pendientes / no alcanzadas',
+                items: session.reviewSummary.value.notReached,
+                status: 'No alcanzada',
+              },
+            ]"
+            :key="group.title"
+          >
+            <h2 class="text-base font-semibold text-stone-100">
+              {{ group.title }} <span class="font-normal text-stone-400">· {{ group.items.length }}</span>
+            </h2>
+            <ul v-if="group.items.length" class="mt-2 divide-y divide-white/10">
+              <li
+                v-for="item in group.items"
+                :key="item.id"
+                class="flex items-start justify-between gap-4 py-3"
+              >
+                <span class="min-w-0">
+                  <span class="block break-words text-sm text-stone-100">{{ item.title }}</span>
+                  <span class="mt-1 block text-xs text-stone-400">{{ item.detail }}</span>
+                </span>
+                <span class="shrink-0 text-xs text-stone-300">{{ group.status }}</span>
+              </li>
+            </ul>
+            <p v-else class="mt-2 text-sm text-stone-400">Ninguna</p>
+          </div>
+        </section>
+
+        <form class="mt-8 space-y-6 border-t border-white/10 pt-6" @submit.prevent="session.confirmClose">
+          <fieldset>
+            <legend class="text-base font-semibold text-stone-100">Sensaciones al terminar · opcional</legend>
+            <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <label
+                v-for="feeling in session.feelings"
+                :key="feeling.value"
+                class="flex min-h-12 cursor-pointer items-center justify-center rounded-md border px-2 text-center text-sm focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-lime-300"
+                :class="
+                  session.reviewDraft.feeling === feeling.value
+                    ? 'border-lime-300 bg-lime-300/10 text-lime-100'
+                    : 'border-white/15 text-stone-200'
+                "
+              >
+                <input
+                  class="sr-only"
+                  type="radio"
+                  name="workout-feeling"
+                  :value="feeling.value"
+                  :checked="session.reviewDraft.feeling === feeling.value"
+                  @change="session.setFeeling(feeling.value)"
+                />
+                {{ feeling.label }}
+              </label>
+            </div>
+          </fieldset>
+
+          <div>
+            <label class="block text-sm font-medium text-stone-200" for="final-observations">
+              Observaciones · opcional
+            </label>
+            <textarea
+              id="final-observations"
+              v-model="session.reviewDraft.observations"
+              class="mt-2 min-h-24 w-full rounded-md border border-white/15 bg-[#191a17] px-3 py-3 text-base leading-6 text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+              maxlength="1000"
+              rows="3"
+            />
+            <p class="mt-1 text-xs text-stone-400">Máximo 1000 caracteres.</p>
+          </div>
+
+          <fieldset>
+            <legend class="text-base font-semibold text-stone-100">Cierre</legend>
+            <div class="mt-3 space-y-2">
+              <label
+                class="flex min-h-12 cursor-pointer items-center gap-3 rounded-md border border-white/15 px-3 text-sm text-stone-100 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-lime-300 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
+              >
+                <input
+                  class="size-4 accent-lime-300"
+                  type="radio"
+                  name="completion-type"
+                  value="planned"
+                  :checked="session.reviewDraft.completionType === 'planned'"
+                  :disabled="!session.canMarkPlannedCompletion.value"
+                  @change="session.setCompletionType('planned')"
+                />
+                He completado el entrenamiento previsto
+              </label>
+              <label
+                class="flex min-h-12 cursor-pointer items-center gap-3 rounded-md border border-white/15 px-3 text-sm text-stone-100 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-lime-300"
+              >
+                <input
+                  class="size-4 accent-lime-300"
+                  type="radio"
+                  name="completion-type"
+                  value="early"
+                  :checked="session.reviewDraft.completionType === 'early'"
+                  @change="session.setCompletionType('early')"
+                />
+                Finalizar antes
+              </label>
+            </div>
+          </fieldset>
+          <p v-if="!session.canMarkPlannedCompletion.value" class="text-xs leading-5 text-stone-400">
+            El entrenamiento previsto solo puede marcarse como completado cuando todas sus unidades se han
+            realizado y no quedan omisiones.
+          </p>
+
+          <div v-if="session.reviewDraft.completionType === 'early'">
+            <label class="block text-sm font-medium text-stone-200" for="closure-reason">
+              Motivo · opcional
+            </label>
+            <input
+              id="closure-reason"
+              v-model="session.reviewDraft.closureReason"
+              class="mt-2 min-h-12 w-full rounded-md border border-white/15 bg-[#191a17] px-3 text-base text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+              maxlength="240"
+              type="text"
+            />
+          </div>
+
+          <p class="text-sm leading-6 text-stone-400">
+            Las omisiones y unidades no alcanzadas conservan su estado deportivo. Finalizar antes no se
+            clasifica como escaqueo ni aplica penalizaciones.
+          </p>
+          <p v-if="session.errorMessage.value" class="text-sm text-amber-200" role="alert">
+            {{ session.errorMessage.value }}
+          </p>
+          <button
+            class="min-h-12 w-full rounded-md bg-lime-300 px-4 font-semibold text-stone-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:cursor-not-allowed disabled:opacity-50"
+            type="submit"
+            :disabled="session.isSaving.value || !session.reviewDraft.completionType"
+          >
+            {{ session.isSaving.value ? 'Guardando cierre…' : 'Confirmar cierre' }}
+          </button>
+        </form>
       </section>
 
       <template v-else-if="session.currentUnit.value && !session.isAmrapFinished.value">

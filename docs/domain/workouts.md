@@ -7,6 +7,7 @@ Este documento es la fuente de verdad del dominio de ejecución. La planificaci�
 - **WorkoutExecution** es una ocurrencia de una sesión planificada. En esta versión referencia un plan y una sesión mediante claves estables y conserva el snapshot de la sesión planificada y los datos de catálogo necesarios para interpretar sus ejercicios y métricas a lo largo del tiempo.
 - **WorkoutPause** representa un intervalo temporal dentro de una ejecución. Puede estar abierto mientras la sesión está pausada; al cerrar la ejecución todos los intervalos deben tener fin.
 - **WorkoutResult** representa el resultado deportivo de una unidad prevista: una serie, un ejercicio en una ronda o una ocurrencia de fase de intervalo. Tiene identidad propia, una referencia inequívoca al bloque y unidad, un estado y, si corresponde, métricas reales.
+- **Datos finales de ejecución** son una valoración opcional de sensaciones, observaciones libres, la clasificación entre entrenamiento previsto y cierre anticipado, y un motivo descriptivo opcional para el cierre anticipado. No alteran resultados ni se interpretan como penalización.
 - **WorkoutCorrection** es una anotación auditable que apunta a un resultado existente y conserva los valores anterior y nuevo. No reemplaza el resultado ni vuelve a abrir la sesión.
 - El snapshot enlaza apariciones planificadas a claves de ejercicio del catálogo. La ejecución conserva el ejercicio realmente utilizado y el conjunto permitido de principales y alternativas. `exercises` sigue siendo dueño del catálogo; `training-plans`, de la estructura prevista; `workouts`, de ejecuciones y resultados.
 
@@ -34,6 +35,8 @@ La identidad de una ejecución es su ID interno. La identidad de un resultado es
 - El inicio es obligatorio. Solo una ejecución `completed` tiene `finishedAt`, y no puede preceder al inicio. Una ejecución no cerrada no lleva fecha de cierre.
 - Las pausas están ordenadas, no se solapan y no empiezan antes que la ejecución ni terminan después de ella. `paused` requiere exactamente una pausa abierta; `in_progress` y `completed` no admiten pausas abiertas.
 - El tiempo pausado se obtiene sumando los intervalos de pausa; el tiempo activo excluye esas pausas. Estos valores no se almacenan ni calculan mediante los contratos. Al cerrar no queda pausa abierta.
+- Los datos finales solo acompañan una ejecución `completed`. Las sensaciones usan `muy_bien`, `bien`, `regular`, `mal` o `muy_mal`; observaciones tienen hasta 1000 caracteres y el motivo opcional de cierre anticipado hasta 240. Estos campos son opcionales para conservar compatibilidad con ejecuciones anteriores.
+- `planned` identifica que el usuario declara completado el entrenamiento previsto; `early` identifica que decide cerrar antes. El motivo solo se permite para `early` y es opcional.
 - Las transiciones deportivas son: inicio en `in_progress`, pausa a `paused`, reanudación a `in_progress` y cierre a `completed`. `completed` es terminal; una corrección posterior no reabre la ejecución. Los contratos comprueban la forma de un estado, no ejecutan ni autorizan transiciones.
 - Un resultado solo referencia bloques y unidades del snapshot. Las claves de resultado y de unidad deben ser únicas; una unidad prevista no tiene resultados vigentes duplicados.
 - `performed` puede registrar métricas reales parciales o ninguna medición. `skipped` no lleva métricas ni afirma un ejercicio realizado. No se usa cero para representar una medición ausente.
@@ -52,6 +55,7 @@ En la implementación funcional, las correcciones serán inmutables; el valor an
 
 - Planificación, ejecución, cumplimiento y rendimiento son conceptos separados. El resultado real se conserva aunque no cumpla el objetivo; una omisión no borra lo planificado.
 - El cierre local es definitivo y no depende de la conectividad. Una sesión en curso permanece vinculada al dispositivo que la inició hasta su cierre y sincronización.
+- El dominio no clasifica el cierre anticipado como «escaqueo», no aplica penalizaciones ni modifica Constancia por esta decisión. Las omisiones y unidades no alcanzadas conservan sus estados deportivos.
 - El estado de sincronización pertenece al transporte, no al estado deportivo. Los datos sin sincronizar se conservan localmente; los fallos recuperables admiten reintentos idempotentes, sin duplicar ejecuciones, resultados o correcciones.
 - La edición revisada de planificación solo afecta sesiones futuras no iniciadas y preserva ejecuciones y resultados históricos. Una ejecución iniciada interpreta su snapshot original.
 - Las actividades retrospectivas voluntarias, su ventana local de siete fechas en `Europe/Madrid` y su relación con Constancia no forman parte de este contrato.

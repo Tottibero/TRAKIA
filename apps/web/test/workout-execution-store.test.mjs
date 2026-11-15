@@ -132,7 +132,73 @@ test('persisted server results merge into local recovery as synchronized without
     draft: null,
     results: [{ result, status: 'synced' }],
     temporal: { status: 'in_progress', pauses: [] },
+    reviewDraft: null,
+    close: null,
   })
+})
+
+test('a local close stores a complete stable operation atomically and locks sports changes', async () => {
+  const factory = new IDBFactory()
+  const store = createWorkoutExecutionStore(factory)
+  await store.confirmStart(execution)
+  const result = setResult('118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5')
+  await store.confirmResult(execution.execution.id, result)
+  await store.saveReviewDraft(execution.execution.id, {
+    feeling: 'bien',
+    observations: 'Buen entrenamiento.',
+    completionType: 'early',
+    closureReason: 'Tiempo limitado.',
+  })
+  const finishedAt = '2026-11-15T11:00:00.000Z'
+  const closedExecution = {
+    ...execution.execution,
+    status: 'completed',
+    finishedAt,
+    feeling: 'bien',
+    observations: 'Buen entrenamiento.',
+    completionType: 'early',
+    closureReason: 'Tiempo limitado.',
+    results: [result],
+  }
+  const close = await store.closeExecution(closedExecution, execution.deviceId)
+  const repeated = await store.closeExecution(closedExecution, execution.deviceId)
+  const progress = await store.getProgress(execution.execution.id)
+
+  assert.deepEqual(repeated, close)
+  assert.equal(close.status, 'pending')
+  assert.equal(close.operation.sequence, 1)
+  assert.deepEqual(close.operation.payload.execution, closedExecution)
+  assert.equal(progress.results[0].status, 'pending')
+  assert.equal(progress.reviewDraft, null)
+  assert.deepEqual(progress.close, close)
+  assert.equal(progress.close.operation.payload.execution.status, 'completed')
+  await assert.rejects(store.saveDraft(execution.execution.id, {}), /ya está cerrado/)
+  await assert.rejects(store.confirmResult(execution.execution.id, result), /ya está cerrado/)
+  await assert.rejects(
+    store.saveTemporalState(execution.execution.id, { status: 'in_progress', pauses: [] }),
+    /ya está cerrado/,
+  )
+
+  const reopened = createWorkoutExecutionStore(factory)
+  assert.deepEqual((await reopened.getProgress(execution.execution.id)).close, close)
+  assert.equal(
+    (await reopened.getProgress(execution.execution.id)).close.operation.payload.execution.status,
+    'completed',
+  )
+})
+
+test('a failed local close leaves the open execution and progress unchanged', async () => {
+  const store = createWorkoutExecutionStore(new IDBFactory())
+  await store.confirmStart(execution)
+  const invalidClose = {
+    ...execution.execution,
+    status: 'completed',
+    finishedAt: '2026-11-15T09:59:00.000Z',
+    completionType: 'early',
+  }
+  await assert.rejects(store.closeExecution(invalidClose, execution.deviceId))
+  assert.equal((await store.getProgress(execution.execution.id)).close, null)
+  assert.equal((await store.getActiveExecution()).execution.status, 'in_progress')
 })
 
 test('circuit and interval results share local idempotency and persist their temporal state', async () => {

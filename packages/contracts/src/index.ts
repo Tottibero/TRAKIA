@@ -86,14 +86,18 @@ export type {
   TrainingPlanSessionDetail,
 } from './training-plans/training-plan-read-http.js'
 export {
+  WorkoutCompletionTypeSchema,
   WorkoutExecutionSchema,
+  WorkoutFeelingSchema,
   WorkoutExecutionSnapshotSchema,
   WorkoutExerciseSnapshotSchema,
   WorkoutPauseSchema,
   WorkoutStatusSchema,
 } from './workout-executions/workout-execution.js'
 export type {
+  WorkoutCompletionType,
   WorkoutExecution,
+  WorkoutFeeling,
   WorkoutExecutionSnapshot,
   WorkoutExerciseSnapshot,
   WorkoutPause,
