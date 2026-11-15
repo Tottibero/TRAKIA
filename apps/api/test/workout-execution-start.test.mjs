@@ -4,6 +4,8 @@ import {
   WorkoutExecutionOpenExistsError,
   WorkoutExecutionDeviceMismatchError,
   WorkoutExecutionRequestConflictError,
+  WorkoutExecutionResultConflictError,
+  WorkoutExecutionResultInvalidError,
   WorkoutExecutionSessionProtectedError,
   WorkoutExecutionStartService,
 } from '../dist/modules/workouts/workout-execution-start.service.js'
@@ -22,7 +24,14 @@ const session = {
     {
       type: 'sets',
       key: 'main',
-      exercises: [{ key: 'squat', exerciseKey: 'back-squat', sets: 3 }],
+      exercises: [
+        {
+          key: 'squat',
+          exerciseKey: 'back-squat',
+          sets: 3,
+          alternatives: [{ key: 'goblet', exerciseKey: 'goblet-squat' }],
+        },
+      ],
       restBetweenSetsSeconds: 90,
     },
   ],
@@ -34,15 +43,21 @@ function createHarness({ protectedSession = false, initiallyOpen = false } = {})
   const repository = {
     findOneBy: async (where) =>
       rows.find((row) => Object.entries(where).every(([key, value]) => row[key] === value)) ?? null,
-    findOne: async ({ where }) =>
-      rows.find(
-        (row) =>
-          Array.isArray(where) &&
-          where.some((candidate) => Object.entries(candidate).every(([key, value]) => row[key] === value)),
-      ) ?? null,
+    findOne: async ({ where }) => {
+      const candidates = Array.isArray(where) ? where : [where]
+      return (
+        rows.find((row) =>
+          candidates.some((candidate) =>
+            Object.entries(candidate).every(([key, value]) => row[key] === value),
+          ),
+        ) ?? null
+      )
+    },
     create: (value) => ({ ...value }),
     save: async (row) => {
-      rows.push(row)
+      const index = rows.findIndex((candidate) => candidate.id === row.id)
+      if (index < 0) rows.push(row)
+      else rows[index] = row
       calls.push('save')
       return row
     },
@@ -88,6 +103,7 @@ test('start reserves a backend snapshot after device and shared session locks', 
   assert.deepEqual(result.execution.snapshot.session, session)
   assert.deepEqual(result.execution.snapshot.exercises, [
     { key: 'back-squat', name: 'Back squat', category: 'strength', supportedMetrics: ['reps', 'weight'] },
+    { key: 'goblet-squat', name: 'Back squat', category: 'strength', supportedMetrics: ['reps', 'weight'] },
   ])
   assert.equal(rows.length, 1)
   assert.ok(calls.findIndex((call) => Array.isArray(call) && call[0] === 'query') < calls.indexOf('save'))
@@ -141,4 +157,111 @@ test('open execution recovery is scoped to its owning device', async () => {
     state: 'other_device',
     execution: null,
   })
+})
+
+test('recordResult persists once and returns the stored result for an identical retry', async () => {
+  const { rows, service } = createHarness()
+  const started = await service.start(userId, request)
+  const input = {
+    deviceId,
+    result: {
+      type: 'sets',
+      id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+      blockKey: 'main',
+      plannedExerciseKey: 'squat',
+      unit: { kind: 'planned', setIndex: 1 },
+      actualExerciseKey: 'back-squat',
+      status: 'performed',
+      actualMetrics: { reps: 5, weightKg: 80 },
+    },
+  }
+  assert.deepEqual(await service.recordResult(userId, started.execution.id, input), {
+    result: input.result,
+    replayed: false,
+  })
+  assert.deepEqual(await service.recordResult(userId, started.execution.id, input), {
+    result: input.result,
+    replayed: true,
+  })
+  assert.equal(rows[0].results.length, 1)
+  assert.deepEqual((await service.findOpen(userId, deviceId)).execution.execution.results, [input.result])
+})
+
+test('recordResult rejects a changed identity payload and a second result for the same set', async () => {
+  const { service } = createHarness()
+  const started = await service.start(userId, request)
+  const input = {
+    deviceId,
+    result: {
+      type: 'sets',
+      id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+      blockKey: 'main',
+      plannedExerciseKey: 'squat',
+      unit: { kind: 'planned', setIndex: 1 },
+      actualExerciseKey: 'back-squat',
+      status: 'performed',
+      actualMetrics: { reps: 5, weightKg: 80 },
+    },
+  }
+  await service.recordResult(userId, started.execution.id, input)
+  await assert.rejects(
+    service.recordResult(userId, started.execution.id, {
+      ...input,
+      result: { ...input.result, actualMetrics: { reps: 5, weightKg: 82 } },
+    }),
+    WorkoutExecutionResultConflictError,
+  )
+  await assert.rejects(
+    service.recordResult(userId, started.execution.id, {
+      ...input,
+      result: { ...input.result, id: 'c6fa5f96-8a06-4d42-a607-24e1e19e5cb1' },
+    }),
+    WorkoutExecutionResultConflictError,
+  )
+})
+
+test('recordResult accepts a planned alternative and rejects an exercise outside the snapshot', async () => {
+  const { service } = createHarness()
+  const started = await service.start(userId, request)
+  const validAlternative = {
+    type: 'sets',
+    id: '6aec8e0a-9b96-4c97-9fc1-42a7badc67ca',
+    blockKey: 'main',
+    plannedExerciseKey: 'squat',
+    unit: { kind: 'planned', setIndex: 1 },
+    actualExerciseKey: 'goblet-squat',
+    status: 'performed',
+    actualMetrics: { reps: 10, weightKg: 20 },
+  }
+  assert.equal(
+    (await service.recordResult(userId, started.execution.id, { deviceId, result: validAlternative }))
+      .replayed,
+    false,
+  )
+  await assert.rejects(
+    service.recordResult(userId, started.execution.id, {
+      deviceId,
+      result: {
+        ...validAlternative,
+        id: 'a994285e-6720-43b5-9819-99d37b719dc6',
+        unit: { kind: 'planned', setIndex: 2 },
+        actualExerciseKey: 'unknown-exercise',
+      },
+    }),
+    WorkoutExecutionResultInvalidError,
+  )
+  await assert.rejects(
+    service.recordResult(userId, started.execution.id, {
+      deviceId,
+      result: {
+        ...validAlternative,
+        id: 'fdb3a678-f956-487d-8a8c-4906d6a6df82',
+        unit: { kind: 'planned', setIndex: 2 },
+        status: 'skipped',
+        actualExerciseKey: undefined,
+        actualMetrics: undefined,
+      },
+    }),
+    WorkoutExecutionResultInvalidError,
+  )
 })

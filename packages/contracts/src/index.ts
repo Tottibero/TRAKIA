@@ -108,6 +108,16 @@ export {
   WorkoutExecutionStartRequestSchema,
   WorkoutExecutionStartResponseSchema,
 } from './workout-executions/workout-execution-start.js'
+export {
+  WorkoutExecutionResultPathParamsSchema,
+  WorkoutExecutionResultRequestSchema,
+  WorkoutExecutionResultResponseSchema,
+} from './workout-executions/workout-execution-results.js'
+export type {
+  WorkoutExecutionResultPathParams,
+  WorkoutExecutionResultRequest,
+  WorkoutExecutionResultResponse,
+} from './workout-executions/workout-execution-results.js'
 export type {
   WorkoutExecutionOpenQuery,
   WorkoutExecutionOpenResponse,
