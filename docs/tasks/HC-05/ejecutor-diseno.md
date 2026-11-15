@@ -86,6 +86,14 @@ Los navegadores móviles pueden suspender o terminar JavaScript al ocultar la pe
 
 Riesgos proporcionados: desajuste temporal por suspensión/cambio de reloj, pérdida de IndexedDB, respuesta HTTP ambigua, conflicto remoto, pestañas/dispositivos concurrentes y snapshot incompatible con catálogo futuro. Mitigar con timestamps/confirmación contextual, IDs estables e idempotencia, cierre inmutable local, copia remota al sincronizar y validación del snapshot sin modificar historia.
 
+## Aplicación aprobada en HC-05-04
+
+- Las pausas y el cursor/temporizador contextual se guardan dentro del registro de progreso existente en `trakia-workout-execution`; las pausas permanecen locales hasta el cierre de HC-05-05. No se incorpora otro store, endpoint ni sincronizador.
+- El reloj visible se deriva de marcas temporales y se refresca al volver a primer plano. Pausar acumula el segmento transcurrido y reanudar inicia otro segmento. Si se recupera trabajo interrumpido, se pide confirmación y una duración real antes de confirmar; no se genera resultado por el vencimiento del reloj.
+- En fuerza, el temporizador de descanso se ancla al toque de «Completar serie» y se confirma junto con el resultado en IndexedDB. La edición de borrador no modifica ese ancla. La continuación entre series y rondas sigue siendo manual.
+- Circuitos fijos recorren ejercicio y ronda; AMRAP mantiene cursor de ronda dinámica y conserva solo resultados individuales confirmados. Al vencer, no se crea unidad: se detiene el bloque y continúa el siguiente bloque previsto, si existe.
+- Se reutiliza `WorkoutExecutionResultRequestSchema` y `POST /workouts/executions/:id/results` para los tres tipos de resultado. El backend valida la unidad específica y conserva la fila JSONB; el cambio no altera el esquema de almacenamiento y no añade migración ni ampliación contractual. La integración en PostgreSQL confirmó `current_database() = trakia_test`, no encontró migraciones pendientes y pasó el escenario de persistencia/recuperación de resultados de circuito e intervalos.
+
 ## Desglose propuesto de HC-05
 
 Los nombres de rutas son previsiones sujetas a convenciones del repositorio y auditoría de cada ficha; no autorizan crear módulos paralelos.

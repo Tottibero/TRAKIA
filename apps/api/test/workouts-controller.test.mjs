@@ -142,3 +142,42 @@ test('workouts controller authenticates and validates result recording inputs', 
     { status: 401 },
   )
 })
+
+test('the existing result endpoint accepts circuit and skipped interval contracts', async () => {
+  const calls = []
+  const controller = new WorkoutsController({
+    recordResult: async (...args) => {
+      calls.push(args)
+      return { result: args[2].result, replayed: false }
+    },
+  })
+  const results = [
+    {
+      type: 'circuit',
+      id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+      blockKey: 'rounds',
+      plannedExerciseKey: 'sled',
+      round: { kind: 'planned', roundIndex: 1 },
+      actualExerciseKey: 'back-squat',
+      status: 'performed',
+      actualMetrics: { reps: 8 },
+    },
+    {
+      type: 'intervals',
+      id: '6aec8e0a-9b96-4c97-9fc1-42a7badc67ca',
+      blockKey: 'hiit',
+      cycleIndex: 1,
+      phaseKey: 'recovery',
+      status: 'skipped',
+    },
+  ]
+  for (const result of results) {
+    const response = await controller.recordResult(
+      { authUserId: 'authenticated-user' },
+      { executionId: execution.id },
+      { deviceId: request.deviceId, result },
+    )
+    assert.deepEqual(response.result, result)
+  }
+  assert.equal(calls.length, 2)
+})

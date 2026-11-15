@@ -1,29 +1,38 @@
 import { computed, onBeforeUnmount, onMounted, reactive, readonly, ref, watch } from 'vue'
-import { ApiError, ApiNetworkError } from '@/shared/api/http'
+import { useRouter } from 'vue-router'
 import {
   ActualMetricsSchema,
   WorkoutExecutionSchema,
   type ActualMetrics,
   type ExerciseMetric,
-  type SetResult,
+  type IntervalResult,
+  type PlannedExercise,
   type WorkoutExecution,
-  type WorkoutExecutionStartResponse,
+  type WorkoutResult,
 } from '@trakia/contracts'
-import { useRouter } from 'vue-router'
+import { ApiError, ApiNetworkError } from '@/shared/api/http'
 import { getOpenWorkoutExecution, recordWorkoutExecutionResult } from './api/execution'
 import {
   createWorkoutExecutionStore,
   type StoredWorkoutResult,
+  type WorkoutExecutionCursor,
+  type WorkoutExecutionTemporalState,
   type WorkoutSeriesDraft,
+  type WorkoutTimerState,
 } from './execution-store'
-import { collectPlannedUnits, findNextPlannedUnit, sameSetIdentity, suggestMetrics } from './series-planning'
+import { elapsedSeconds, freezeTimer, remainingSeconds, updatePauseState } from './execution-time'
+import {
+  collectGuidedUnits,
+  cursorForUnit,
+  findNextGuidedUnitAfterBlock,
+  findNextGuidedUnit,
+  findUnitForCursor,
+  nextAmrapUnit,
+  type GuidedUnit,
+} from './guided-planning'
+import { suggestMetrics } from './series-planning'
 
-type SetsAppearance = Extract<
-  WorkoutExecution['snapshot']['session']['blocks'][number],
-  { type: 'sets' }
->['exercises'][number]
-
-const metricFields: Array<{
+const METRIC_FIELDS: Array<{
   metric: ExerciseMetric
   field: keyof ActualMetrics
   label: string
@@ -37,84 +46,163 @@ const metricFields: Array<{
   { metric: 'calories', field: 'calories', label: 'Calorías', step: '1' },
 ]
 
+const EMPTY_TEMPORAL: WorkoutExecutionTemporalState = { status: 'in_progress', pauses: [] }
+
 export function useWorkoutExecutionSession(executionId: string) {
   const router = useRouter()
   const store = typeof indexedDB === 'undefined' ? undefined : createWorkoutExecutionStore()
-  const execution = ref<WorkoutExecutionStartResponse | null>(null)
+  const execution = ref<WorkoutExecution | null>(null)
   const savedResults = ref<StoredWorkoutResult[]>([])
   const draft = ref<WorkoutSeriesDraft | null>(null)
-  const currentUnit = ref<SetResult['unit'] | null>(null)
-  const activeBlockKey = ref('')
-  const activeAppearanceKey = ref('')
-  const isAdditional = ref(false)
+  const temporal = ref<WorkoutExecutionTemporalState>(EMPTY_TEMPORAL)
+  const currentUnit = ref<GuidedUnit | null>(null)
   const actualExerciseKey = ref('')
   const fields = reactive<Partial<Record<keyof ActualMetrics, string>>>({})
+  const tick = ref(Date.now())
   const isLoading = ref(true)
   const isSaving = ref(false)
   const isSyncing = ref(false)
+  const isOnline = ref(typeof navigator === 'undefined' ? false : navigator.onLine)
   const errorMessage = ref<string | null>(null)
   const syncMessage = ref('')
-  const isOnline = ref(typeof navigator === 'undefined' ? false : navigator.onLine)
-  let saveTimer: ReturnType<typeof setTimeout> | undefined
+  let tickId: ReturnType<typeof setInterval> | undefined
+  let draftSaveId: ReturnType<typeof setTimeout> | undefined
 
-  const plannedUnits = computed(() => (execution.value ? collectPlannedUnits(execution.value.execution) : []))
-  const hasSetBlocks = computed(() =>
-    Boolean(execution.value?.execution.snapshot.session.blocks.some((block) => block.type === 'sets')),
-  )
-  const currentBlock = computed(() => {
-    if (!execution.value || !currentUnit.value) return null
-    const block = execution.value.execution.snapshot.session.blocks.find(
-      ({ key }) => key === activeBlockKey.value,
-    )
-    return block?.type === 'sets' ? block : null
-  })
-  const currentAppearance = computed(() => {
-    if (!currentBlock.value || !activeAppearanceKey.value) return null
-    return currentBlock.value.exercises.find(({ key }) => key === activeAppearanceKey.value) ?? null
-  })
-  const actualExercise = computed(
+  const units = computed(() => (execution.value ? collectGuidedUnits(execution.value) : []))
+  const results = computed(() => savedResults.value.map(({ result }) => result))
+  const currentBlock = computed(
     () =>
-      execution.value?.execution.snapshot.exercises.find(({ key }) => key === actualExerciseKey.value) ??
-      null,
+      execution.value?.snapshot.session.blocks.find(({ key }) => key === currentUnit.value?.blockKey) ?? null,
+  )
+  const currentAppearance = computed<PlannedExercise | null>(() => {
+    const unit = currentUnit.value
+    if (!unit || !('appearance' in unit)) return null
+    return unit.appearance
+  })
+  const currentPhase = computed(() =>
+    currentUnit.value?.type === 'intervals' ? currentUnit.value.phase : null,
+  )
+  const currentExercise = computed(
+    () => execution.value?.snapshot.exercises.find(({ key }) => key === actualExerciseKey.value) ?? null,
   )
   const exerciseChoices = computed(() => {
     const appearance = currentAppearance.value
-    if (!execution.value || !appearance) return []
-    const planned = [
-      { key: appearance.exerciseKey, label: 'Ejercicio principal', alternativeKey: undefined },
+    if (!appearance || !execution.value) return []
+    const candidates = [
+      { key: appearance.exerciseKey, label: 'Ejercicio principal' },
       ...(appearance.alternatives ?? []).map((alternative) => ({
         key: alternative.exerciseKey,
         label: 'Alternativa',
-        alternativeKey: alternative.key,
       })),
     ]
-    return planned.flatMap((choice) => {
-      const exercise = execution.value!.execution.snapshot.exercises.find(({ key }) => key === choice.key)
-      return exercise ? [{ ...choice, name: exercise.name }] : []
+    return candidates.flatMap((candidate) => {
+      const exercise = execution.value?.snapshot.exercises.find(({ key }) => key === candidate.key)
+      return exercise ? [{ ...candidate, name: exercise.name }] : []
     })
   })
   const visibleFields = computed(() =>
-    metricFields.filter(({ metric }) => actualExercise.value?.supportedMetrics.includes(metric)),
+    METRIC_FIELDS.filter(({ metric }) => currentExercise.value?.supportedMetrics.includes(metric)),
   )
-  const registeredCount = computed(
-    () => savedResults.value.filter(({ result }) => result.type === 'sets').length,
+  const timer = computed(() => temporal.value.timer ?? null)
+  const timerElapsed = computed(() =>
+    timer.value ? elapsedSeconds(timer.value, tick.value, temporal.value.status === 'paused') : 0,
   )
+  const timerRemaining = computed(() =>
+    timer.value ? remainingSeconds(timer.value, tick.value, temporal.value.status === 'paused') : 0,
+  )
+  const timerDisplay = computed(() => {
+    if (!timer.value) return ''
+    const seconds =
+      timer.value.kind === 'rest'
+        ? timerRemaining.value > 0
+          ? timerRemaining.value
+          : timerElapsed.value - timer.value.durationSeconds
+        : timerRemaining.value
+    const abs = Math.abs(seconds)
+    return `${seconds < 0 ? '+' : ''}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(Math.floor(abs % 60)).padStart(2, '0')}`
+  })
+  const registeredCount = computed(() => savedResults.value.length)
   const pendingCount = computed(
     () => savedResults.value.filter(({ status }) => status === 'pending' || status === 'syncing').length,
   )
-  const completed = computed(() => !currentUnit.value && !isAdditional.value)
-  const seriesNumber = computed(() => currentUnit.value?.setIndex ?? 1)
-  const suggestions = computed(() => {
-    const exercise = actualExercise.value
-    const appearance = currentAppearance.value
-    if (!exercise || !appearance || !execution.value) return {}
-    return suggestMetrics(
-      appearance,
-      exercise.key,
-      execution.value.execution.snapshot,
-      savedResults.value.map(({ result }) => result),
-    )
+  const conflictCount = computed(
+    () => savedResults.value.filter(({ status }) => status === 'conflict').length,
+  )
+  const hasSetBlocks = computed(() =>
+    Boolean(execution.value?.snapshot.session.blocks.some((block) => block.type === 'sets')),
+  )
+  const isAmrapFinished = computed(() => Boolean(temporal.value.amrapFinished))
+  const needsWorkConfirmation = computed(() => Boolean(temporal.value.requiresWorkConfirmation))
+  const isPaused = computed(() => temporal.value.status === 'paused')
+  const positionLabel = computed(() => {
+    const unit = currentUnit.value
+    if (!unit) return ''
+    if (unit.type === 'sets') return `Serie ${unit.unit.setIndex}`
+    if (unit.type === 'circuit')
+      return unit.mode === 'amrap'
+        ? `Ronda ${unit.round.roundIndex}`
+        : `Ronda ${unit.round.roundIndex} · ${unit.appearance.key}`
+    return `Ciclo ${unit.cycleIndex} · ${unit.phase.type === 'work' ? 'Trabajo' : 'Descanso'}`
   })
+  const registeredSummary = computed(() =>
+    savedResults.value.map(({ result, status }) => ({
+      result,
+      status,
+      name: result.actualExerciseKey ? exerciseName(result.actualExerciseKey) : 'Recuperación',
+    })),
+  )
+
+  function selectUnit(cursor?: WorkoutExecutionCursor, resultList = results.value): GuidedUnit | null {
+    if (!execution.value) return null
+    if (cursor?.type === 'circuit') {
+      const block = execution.value.snapshot.session.blocks.find(({ key }) => key === cursor.blockKey)
+      if (block?.type === 'circuit' && block.mode === 'amrap') {
+        const appearance = block.exercises.find(({ key }) => key === cursor.plannedExerciseKey)
+        if (appearance)
+          return {
+            type: 'circuit',
+            mode: 'amrap',
+            blockKey: block.key,
+            appearance,
+            round: { kind: 'amrap', roundIndex: cursor.roundIndex },
+          }
+      }
+    }
+    return cursor
+      ? findUnitForCursor(units.value, cursor)
+      : findNextGuidedUnit(execution.value, units.value, resultList)
+  }
+
+  function cursorForAmrap(unit: Extract<GuidedUnit, { type: 'circuit' }>): WorkoutExecutionCursor {
+    return {
+      type: 'circuit',
+      blockKey: unit.blockKey,
+      plannedExerciseKey: unit.appearance.key,
+      roundIndex: unit.round.roundIndex,
+    }
+  }
+
+  function setCurrent(unit: GuidedUnit | null, savedDraft = draft.value) {
+    currentUnit.value = unit
+    if (!unit) {
+      actualExerciseKey.value = ''
+      replaceFields({})
+      return
+    }
+    const appearance = 'appearance' in unit ? unit.appearance : unit.phase.exercise
+    if (!appearance) {
+      actualExerciseKey.value = ''
+      replaceFields({})
+      return
+    }
+    const matchesDraft =
+      savedDraft?.blockKey === unit.blockKey &&
+      savedDraft.plannedExerciseKey === appearance.key &&
+      (savedDraft.type === undefined || savedDraft.type === unit.type)
+    actualExerciseKey.value = (matchesDraft && savedDraft.actualExerciseKey) || appearance.exerciseKey
+    if (matchesDraft) replaceFields(savedDraft.fields)
+    else replaceFields(suggested(appearance.exerciseKey, appearance))
+  }
 
   function updateOnline() {
     isOnline.value = navigator.onLine
@@ -122,27 +210,26 @@ export function useWorkoutExecutionSession(executionId: string) {
   }
 
   async function load() {
-    errorMessage.value = null
     if (!store) {
       errorMessage.value = 'Este navegador no permite guardar resultados localmente.'
       isLoading.value = false
       return
     }
     try {
-      const local = await store.getActiveExecution()
-      const localExecution = local?.execution.id === executionId ? local : null
+      const localStart = await store.getActiveExecution()
+      const localExecution = localStart?.execution.id === executionId ? localStart.execution : null
       if (isOnline.value) {
         try {
           const deviceId = await store.getOrCreateDeviceId()
           const remote = await getOpenWorkoutExecution(deviceId)
           if (remote.state === 'other_device')
             throw new Error('La ejecución abierta pertenece a otro dispositivo.')
-          if (remote.state !== 'current_device' || remote.execution.execution.id !== executionId) {
-            if (!localExecution) throw new Error('No encontramos esta ejecución abierta en el servidor.')
-          } else {
-            execution.value = remote.execution
+          if (remote.state === 'current_device' && remote.execution.execution.id === executionId) {
+            execution.value = remote.execution.execution
             await store.confirmStart(remote.execution)
             await store.mergeServerResults(executionId, remote.execution.execution.results)
+          } else if (!localExecution) {
+            throw new Error('No encontramos esta ejecución abierta en el servidor.')
           }
         } catch (error) {
           if (!localExecution) throw error
@@ -151,11 +238,42 @@ export function useWorkoutExecutionSession(executionId: string) {
       }
       if (!execution.value && localExecution) execution.value = localExecution
       if (!execution.value) throw new Error('No se encontró una copia local de esta ejecución.')
-      WorkoutExecutionSchema.parse(execution.value.execution)
       const progress = await store.getProgress(executionId)
-      draft.value = progress.draft
       savedResults.value = progress.results
-      setupCurrentUnit()
+      temporal.value = progress.temporal
+      draft.value = progress.draft
+      if (temporal.value.status !== 'paused' && temporal.value.timer?.kind === 'work') {
+        temporal.value = {
+          ...temporal.value,
+          timer: undefined,
+          requiresWorkConfirmation: true,
+          workSecondsDraft: temporal.value.timer.elapsedBeforeSegmentSeconds || undefined,
+        }
+        await store.saveTemporalState(executionId, temporal.value)
+      }
+      const unit = selectUnit(temporal.value.cursor)
+      if (!temporal.value.cursor && unit?.type === 'circuit' && unit.mode === 'amrap') {
+        temporal.value = { ...temporal.value, cursor: cursorForAmrap(unit) }
+      }
+      if (unit?.type === 'intervals' && !temporal.value.timer && !temporal.value.requiresWorkConfirmation) {
+        temporal.value = { ...temporal.value, cursor: cursorForUnit(unit), timer: createPhaseTimer(unit) }
+      }
+      if (
+        unit?.type === 'circuit' &&
+        unit.mode === 'amrap' &&
+        !temporal.value.timer &&
+        !temporal.value.amrapFinished
+      ) {
+        const block = execution.value.snapshot.session.blocks.find(({ key }) => key === unit.blockKey)
+        if (block?.type === 'circuit' && block.mode === 'amrap') {
+          temporal.value = {
+            ...temporal.value,
+            timer: createTimer('amrap', block.key, block.maxDurationSeconds),
+          }
+        }
+      }
+      setCurrent(unit)
+      await store.saveTemporalState(executionId, temporal.value)
       if (isOnline.value) void synchronize()
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : 'No se pudo recuperar el entrenamiento.'
@@ -164,225 +282,338 @@ export function useWorkoutExecutionSession(executionId: string) {
     }
   }
 
-  function setupCurrentUnit() {
-    if (!execution.value) return
-    const unfinished = findNextPlannedUnit(
-      plannedUnits.value,
-      savedResults.value.map(({ result }) => result),
-    )
-    const savedDraft = draft.value
-    if (savedDraft?.unit.kind === 'additional') {
-      currentUnit.value = savedDraft.unit
-      isAdditional.value = true
-      activeBlockKey.value = savedDraft.blockKey
-      activeAppearanceKey.value = savedDraft.plannedExerciseKey
-      actualExerciseKey.value = savedDraft.actualExerciseKey
-      replaceFields(savedDraft.fields)
-      return
-    }
-    if (unfinished) {
-      currentUnit.value = unfinished.unit
-      isAdditional.value = false
-      activeBlockKey.value = unfinished.blockKey
-      activeAppearanceKey.value = unfinished.appearance.key
-      const matchingDraft =
-        savedDraft?.blockKey === unfinished.blockKey &&
-        savedDraft.plannedExerciseKey === unfinished.appearance.key &&
-        sameSetIdentity(savedDraft.unit, unfinished.unit)
-          ? savedDraft
-          : null
-      const mainKey = unfinished.appearance.exerciseKey
-      actualExerciseKey.value = matchingDraft?.actualExerciseKey ?? mainKey
-      replaceFields(matchingDraft?.fields ?? suggestedFields(mainKey, unfinished.appearance))
-      draft.value = matchingDraft
-      return
-    }
-    currentUnit.value = null
-    isAdditional.value = false
-    activeBlockKey.value = ''
-    activeAppearanceKey.value = ''
-    draft.value = null
-    actualExerciseKey.value = ''
-    replaceFields({})
-  }
-
-  async function chooseExercise(key: string) {
-    if (!exerciseChoices.value.some((choice) => choice.key === key)) return
-    actualExerciseKey.value = key
-    replaceFields(suggestedFields(key, currentAppearance.value))
-    await persistDraft()
-  }
-
-  function suggestedFields(key: string, appearance: SetsAppearance | null) {
-    const values =
-      appearance && execution.value
-        ? suggestMetrics(
-            appearance,
-            key,
-            execution.value.execution.snapshot,
-            savedResults.value.map(({ result }) => result),
-          )
-        : {}
+  function suggested(appearanceKey: string, appearance: PlannedExercise) {
+    if (!execution.value) return {}
     return Object.fromEntries(
-      Object.entries(values).map(([field, value]) => [field, String(value)]),
+      Object.entries(suggestMetrics(appearance, appearanceKey, execution.value.snapshot, results.value)).map(
+        ([field, value]) => [field, String(value)],
+      ),
     ) as WorkoutSeriesDraft['fields']
   }
 
-  function setField(field: keyof ActualMetrics, value: string) {
-    fields[field] = value
+  function replaceFields(values: Partial<Record<keyof ActualMetrics, string | number>>) {
+    for (const key of Object.keys(fields) as Array<keyof ActualMetrics>) delete fields[key]
+    for (const [key, value] of Object.entries(values)) fields[key as keyof ActualMetrics] = String(value)
   }
 
   async function persistDraft() {
-    if (
-      !store ||
-      !currentUnit.value ||
-      !currentBlock.value ||
-      !currentAppearance.value ||
-      !actualExerciseKey.value
-    )
-      return
+    if (!store || !currentUnit.value || !currentAppearance.value) return
     const next: WorkoutSeriesDraft = {
-      blockKey: currentBlock.value.key,
+      type: currentUnit.value.type,
+      blockKey: currentUnit.value.blockKey,
       plannedExerciseKey: currentAppearance.value.key,
-      unit: currentUnit.value,
       actualExerciseKey: actualExerciseKey.value,
-      fields: Object.fromEntries(Object.entries(fields)) as WorkoutSeriesDraft['fields'],
+      ...(currentUnit.value.type === 'sets' ? { unit: currentUnit.value.unit } : {}),
+      ...(currentUnit.value.type === 'circuit' ? { round: currentUnit.value.round } : {}),
+      ...(currentUnit.value.type === 'intervals'
+        ? { cycleIndex: currentUnit.value.cycleIndex, phaseKey: currentUnit.value.phase.key }
+        : {}),
+      fields: { ...fields },
     }
     try {
       await store.saveDraft(executionId, next)
       draft.value = next
     } catch {
       errorMessage.value =
-        'No se pudo guardar el borrador. Tus cambios siguen en pantalla; libera espacio y reintenta.'
+        'No se pudo guardar el borrador. Los cambios siguen en pantalla; libera espacio y reintenta.'
     }
   }
 
-  async function confirmAndNext() {
+  async function chooseExercise(key: string) {
+    if (!exerciseChoices.value.some((choice) => choice.key === key) || !currentAppearance.value) return
+    actualExerciseKey.value = key
+    replaceFields(suggested(key, currentAppearance.value))
+    await persistDraft()
+  }
+
+  function setField(field: keyof ActualMetrics, value: string) {
+    fields[field] = value
+  }
+
+  async function setWorkSecondsDraft(value: string) {
+    if (!store) return
+    const seconds = value.trim() ? Number(value) : undefined
+    temporal.value = {
+      ...temporal.value,
+      workSecondsDraft:
+        seconds !== undefined && Number.isFinite(seconds) && seconds > 0 ? seconds : undefined,
+    }
+    await store.saveTemporalState(executionId, temporal.value)
+  }
+
+  function buildResult(status: 'performed' | 'skipped', now: number): WorkoutResult | null {
+    const unit = currentUnit.value
+    if (!unit) return null
+    let actualMetrics: ActualMetrics | undefined
+    if (status === 'performed') {
+      const values: Record<string, number> = {}
+      for (const { field } of visibleFields.value) {
+        const raw = fields[field]?.trim()
+        if (!raw) continue
+        const value = Number(raw)
+        if (!Number.isFinite(value)) throw new Error(`Introduce un valor numérico válido para ${field}.`)
+        values[field] = value
+      }
+      const parsed = ActualMetricsSchema.safeParse(values)
+      if (!parsed.success) throw new Error('Revisa las métricas: los valores deben ser mayores que cero.')
+      actualMetrics = Object.keys(parsed.data).length ? parsed.data : undefined
+    }
+    if (unit.type === 'sets')
+      return {
+        type: 'sets',
+        id: crypto.randomUUID(),
+        blockKey: unit.blockKey,
+        plannedExerciseKey: unit.appearance.key,
+        unit: unit.unit,
+        status,
+        ...(status === 'performed' && actualExerciseKey.value
+          ? { actualExerciseKey: actualExerciseKey.value }
+          : {}),
+        ...(actualMetrics ? { actualMetrics } : {}),
+      }
+    if (unit.type === 'circuit')
+      return {
+        type: 'circuit',
+        id: crypto.randomUUID(),
+        blockKey: unit.blockKey,
+        plannedExerciseKey: unit.appearance.key,
+        round: unit.round,
+        status,
+        ...(status === 'performed' ? { actualExerciseKey: actualExerciseKey.value } : {}),
+        ...(actualMetrics ? { actualMetrics } : {}),
+      }
+    const activeSeconds =
+      unit.phase.type === 'work'
+        ? Math.max(
+            1,
+            Math.min(
+              unit.phase.windowSeconds,
+              temporal.value.requiresWorkConfirmation
+                ? (temporal.value.workSecondsDraft ?? 0)
+                : temporal.value.timer
+                  ? elapsedSeconds(temporal.value.timer, now, isPaused.value)
+                  : 0,
+            ),
+          )
+        : undefined
     if (
-      !store ||
-      !execution.value ||
-      !currentUnit.value ||
-      !currentBlock.value ||
-      !currentAppearance.value ||
-      !actualExerciseKey.value ||
-      isSaving.value
+      unit.phase.type === 'work' &&
+      temporal.value.requiresWorkConfirmation &&
+      !temporal.value.workSecondsDraft
     )
+      throw new Error('Introduce la duración real de la fase interrumpida para confirmarla.')
+    return {
+      type: 'intervals',
+      id: crypto.randomUUID(),
+      blockKey: unit.blockKey,
+      cycleIndex: unit.cycleIndex,
+      phaseKey: unit.phase.key,
+      status,
+      ...(status === 'performed' && unit.phase.exercise
+        ? { actualExerciseKey: actualExerciseKey.value }
+        : {}),
+      ...(status === 'performed' && activeSeconds
+        ? { activeSeconds, windowProgressSeconds: activeSeconds }
+        : {}),
+      ...(actualMetrics ? { actualMetrics } : {}),
+    } satisfies IntervalResult
+  }
+
+  function createTimer(
+    kind: WorkoutTimerState['kind'],
+    blockKey: string,
+    durationSeconds: number,
+    extra: Partial<WorkoutTimerState> = {},
+  ): WorkoutTimerState {
+    return {
+      kind,
+      blockKey,
+      startedAt: new Date().toISOString(),
+      durationSeconds,
+      elapsedBeforeSegmentSeconds: 0,
+      ...extra,
+    }
+  }
+
+  function createPhaseTimer(unit: Extract<GuidedUnit, { type: 'intervals' }>): WorkoutTimerState {
+    return createTimer(
+      unit.phase.type === 'work' ? 'work' : 'rest',
+      unit.blockKey,
+      unit.phase.windowSeconds,
+      {
+        cycleIndex: unit.cycleIndex,
+        phaseKey: unit.phase.key,
+      },
+    )
+  }
+
+  function nextUnitAfter(unit: GuidedUnit, newResults: WorkoutResult[]): GuidedUnit | null {
+    if (unit.type === 'circuit' && unit.mode === 'amrap') {
+      const block = execution.value?.snapshot.session.blocks.find(({ key }) => key === unit.blockKey)
+      if (
+        block?.type === 'circuit' &&
+        block.mode === 'amrap' &&
+        temporal.value.timer &&
+        remainingSeconds(temporal.value.timer) > 0
+      ) {
+        return nextAmrapUnit(block, unit) as GuidedUnit
+      }
+      return null
+    }
+    return execution.value ? findNextGuidedUnit(execution.value, units.value, newResults) : null
+  }
+
+  function restAfter(unit: GuidedUnit, next: GuidedUnit | null): number | null {
+    if (!next) return null
+    if (unit.type === 'sets' && next.type === 'sets' && next.blockKey === unit.blockKey) {
+      const block = execution.value?.snapshot.session.blocks.find(({ key }) => key === unit.blockKey)
+      return block?.type === 'sets' ? block.restBetweenSetsSeconds : null
+    }
+    if (
+      unit.type === 'circuit' &&
+      unit.mode === 'rounds' &&
+      next.type === 'circuit' &&
+      next.round.roundIndex > unit.round.roundIndex
+    ) {
+      const block = execution.value?.snapshot.session.blocks.find(({ key }) => key === unit.blockKey)
+      return block?.type === 'circuit' && block.mode === 'rounds'
+        ? (block.restBetweenRoundsSeconds ?? null)
+        : null
+    }
+    return null
+  }
+
+  function completedRound(unit: GuidedUnit, next: GuidedUnit | null) {
+    if (unit.type !== 'circuit' || unit.mode !== 'rounds' || !next) return false
+    const block = execution.value?.snapshot.session.blocks.find(({ key }) => key === unit.blockKey)
+    return block?.type === 'circuit' && block.exercises.at(-1)?.key === unit.appearance.key
+  }
+
+  async function confirmCurrent(status: 'performed' | 'skipped' = 'performed', recovery = false) {
+    if (!store || !execution.value || !currentUnit.value || isSaving.value || (isPaused.value && !recovery))
       return
     errorMessage.value = null
     isSaving.value = true
-    const metrics: Record<string, number> = {}
-    for (const { field } of visibleFields.value) {
-      const raw = fields[field]?.trim()
-      if (!raw) continue
-      const value = Number(raw)
-      if (!Number.isFinite(value)) {
-        errorMessage.value = `Introduce un valor numérico válido para ${metricFields.find((item) => item.field === field)?.label.toLowerCase()}.`
-        isSaving.value = false
-        return
-      }
-      metrics[field] = value
-    }
-    const parsedMetrics = ActualMetricsSchema.safeParse(metrics)
-    if (!parsedMetrics.success) {
-      errorMessage.value = 'Revisa las métricas: los valores deben ser mayores que cero.'
-      isSaving.value = false
-      return
-    }
-    const result = {
-      type: 'sets' as const,
-      id: crypto.randomUUID(),
-      blockKey: currentBlock.value.key,
-      plannedExerciseKey: currentAppearance.value.key,
-      unit: currentUnit.value,
-      actualExerciseKey: actualExerciseKey.value,
-      status: 'performed' as const,
-      ...(Object.keys(parsedMetrics.data).length ? { actualMetrics: parsedMetrics.data } : {}),
-    }
-    const validResult = WorkoutExecutionSchema.safeParse({
-      ...execution.value.execution,
-      results: [...execution.value.execution.results, result],
-    })
-    if (!validResult.success) {
-      errorMessage.value =
-        'La serie no coincide con el plan guardado. Conservamos el formulario para revisarlo.'
-      isSaving.value = false
-      return
-    }
+    const now = Date.now()
     try {
-      await store.confirmResult(executionId, result)
+      const unit = currentUnit.value
+      const result = buildResult(status, now)
+      if (!result) return
+      const resultSet = [
+        ...new Map(
+          [...execution.value.results, ...results.value, result].map((item) => [item.id, item]),
+        ).values(),
+      ]
+      const validExecution = WorkoutExecutionSchema.parse({ ...execution.value, results: resultSet })
+      const next =
+        status === 'performed'
+          ? nextUnitAfter(unit, [...results.value, result])
+          : nextUnitAfter(unit, [...results.value, result])
+      const temporalNext: WorkoutExecutionTemporalState = {
+        ...temporal.value,
+        cursor: next
+          ? next.type === 'circuit' && next.mode === 'amrap'
+            ? cursorForAmrap(next)
+            : cursorForUnit(next)
+          : undefined,
+        timer: undefined,
+        requiresWorkConfirmation: false,
+        workSecondsDraft: undefined,
+        awaitManualAdvance: completedRound(unit, next),
+      }
+      const rest = status === 'performed' ? restAfter(unit, next) : null
+      if (rest) temporalNext.timer = createTimer('rest', unit.blockKey, rest)
+      else if (next?.type === 'intervals') temporalNext.timer = createPhaseTimer(next)
+      else if (next?.type === 'circuit' && next.mode === 'amrap' && temporal.value.timer)
+        temporalNext.timer = temporal.value.timer
+      if (
+        unit.type === 'intervals' &&
+        unit.phase.type === 'work' &&
+        next?.type === 'intervals' &&
+        next.phase.type === 'rest'
+      ) {
+        temporalNext.timer = createPhaseTimer(next)
+      }
+      await store.confirmResult(executionId, result, temporalNext)
       savedResults.value = [...savedResults.value, { result, status: 'pending' }]
-      execution.value = { ...execution.value, execution: validResult.data }
-      moveToNext()
+      execution.value = validExecution
+      temporal.value = temporalNext
+      draft.value = null
+      setCurrent(next, null)
       void synchronize()
-    } catch {
-      errorMessage.value =
-        'No se pudo guardar la serie en este dispositivo. El formulario sigue abierto; vuelve a intentarlo.'
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : 'No se pudo confirmar el resultado.'
     } finally {
       isSaving.value = false
     }
   }
 
-  function moveToNext() {
-    const next = findNextPlannedUnit(
-      plannedUnits.value,
-      savedResults.value.map(({ result }) => result),
+  async function continueManually() {
+    if (!store || !currentUnit.value) return
+    temporal.value = { ...temporal.value, awaitManualAdvance: false, timer: undefined }
+    await store.saveTemporalState(executionId, temporal.value)
+  }
+
+  async function togglePause() {
+    if (!store) return
+    const now = new Date()
+    temporal.value = updatePauseState(temporal.value, now)
+    await store.saveTemporalState(executionId, temporal.value)
+  }
+
+  async function skipCurrent() {
+    await confirmCurrent('skipped', true)
+  }
+
+  async function handleTimer() {
+    const activeTimer = temporal.value.timer
+    const unit = currentUnit.value
+    if (
+      !activeTimer ||
+      !unit ||
+      temporal.value.status === 'paused' ||
+      temporal.value.requiresWorkConfirmation
     )
-    if (!next) {
-      currentUnit.value = null
-      isAdditional.value = false
-      activeBlockKey.value = ''
-      activeAppearanceKey.value = ''
-      draft.value = null
-      actualExerciseKey.value = ''
-      replaceFields({})
       return
+    if (remainingSeconds(activeTimer, Date.now()) > 0) return
+    if (activeTimer.kind === 'amrap') {
+      const next = execution.value
+        ? findNextGuidedUnitAfterBlock(execution.value, units.value, activeTimer.blockKey, results.value)
+        : null
+      temporal.value = {
+        ...temporal.value,
+        timer: next?.type === 'intervals' ? createPhaseTimer(next) : undefined,
+        cursor: next ? cursorForUnit(next) : undefined,
+        amrapFinished: !next,
+      }
+      setCurrent(next, null)
+      await store?.saveTemporalState(executionId, temporal.value)
+    } else if (activeTimer.kind === 'work') {
+      temporal.value = {
+        ...temporal.value,
+        timer: freezeTimer(activeTimer),
+        requiresWorkConfirmation: true,
+        workSecondsDraft: activeTimer.durationSeconds,
+      }
+      await store?.saveTemporalState(executionId, temporal.value)
+    } else if (unit.type === 'intervals' && unit.phase.type === 'rest' && !unit.phase.exercise) {
+      await confirmCurrent('performed', true)
     }
-    currentUnit.value = next.unit
-    isAdditional.value = false
-    activeBlockKey.value = next.blockKey
-    activeAppearanceKey.value = next.appearance.key
-    draft.value = null
-    actualExerciseKey.value = next.appearance.exerciseKey
-    replaceFields(suggestedFields(next.appearance.exerciseKey, next.appearance))
   }
 
-  async function addExtraSet() {
-    const appearance = currentAppearance.value ?? plannedUnits.value.at(-1)?.appearance
-    const blockKey = currentBlock.value?.key ?? plannedUnits.value.at(-1)?.blockKey
-    if (!appearance || !blockKey) {
-      errorMessage.value = 'El snapshot no contiene ejercicios de fuerza para añadir una serie.'
-      return
+  async function onVisibilityChange() {
+    tick.value = Date.now()
+    if (document.visibilityState !== 'visible') return
+    if (temporal.value.timer?.kind === 'work' && temporal.value.status !== 'paused') {
+      temporal.value = {
+        ...temporal.value,
+        timer: undefined,
+        requiresWorkConfirmation: true,
+        workSecondsDraft: temporal.value.timer.elapsedBeforeSegmentSeconds || undefined,
+      }
+      await store?.saveTemporalState(executionId, temporal.value)
     }
-    const existing = savedResults.value.filter(
-      ({ result }) =>
-        result.type === 'sets' &&
-        result.blockKey === blockKey &&
-        result.plannedExerciseKey === appearance.key &&
-        result.unit.kind === 'additional',
-    ).length
-    currentUnit.value = {
-      kind: 'additional',
-      key: `extra-${crypto.randomUUID()}`,
-      setIndex: appearance.sets + existing + 1,
-    }
-    isAdditional.value = true
-    activeBlockKey.value = blockKey
-    activeAppearanceKey.value = appearance.key
-    draft.value = {
-      blockKey,
-      plannedExerciseKey: appearance.key,
-      unit: currentUnit.value,
-      actualExerciseKey: appearance.exerciseKey,
-      fields: suggestedFields(appearance.exerciseKey, appearance),
-    }
-    actualExerciseKey.value = appearance.exerciseKey
-    replaceFields(draft.value.fields)
-    await persistDraft()
-  }
-
-  function replaceFields(values: Partial<Record<keyof ActualMetrics, string | number>>) {
-    for (const field of Object.keys(fields) as Array<keyof ActualMetrics>) delete fields[field]
-    for (const [field, value] of Object.entries(values)) fields[field as keyof ActualMetrics] = String(value)
+    await handleTimer()
   }
 
   async function synchronize() {
@@ -390,26 +621,25 @@ export function useWorkoutExecutionSession(executionId: string) {
     isSyncing.value = true
     try {
       const deviceId = await store.getOrCreateDeviceId()
-      const pending = await store.getPendingResults(executionId)
-      for (const entry of pending) {
+      for (const entry of await store.getPendingResults(executionId)) {
         await store.setResultStatus(executionId, entry.result.id, 'syncing')
         try {
-          await recordWorkoutExecutionResult(executionId, { deviceId, result: entry.result as SetResult })
+          await recordWorkoutExecutionResult(executionId, { deviceId, result: entry.result })
           await store.setResultStatus(executionId, entry.result.id, 'synced')
           syncMessage.value = 'Guardado en el servidor.'
         } catch (error) {
           if (error instanceof ApiError && error.status < 500) {
             const message =
               error.code === 'RESULT_CONFLICT'
-                ? 'El servidor ya tiene otra serie para esta unidad. Tus datos locales se conservan; requiere revisión.'
+                ? 'El servidor ya tiene otro resultado para esta unidad. Tus datos locales se conservan para revisarlos.'
                 : error.code === 'DEVICE_MISMATCH'
                   ? 'Esta ejecución pertenece a otro dispositivo. Tus datos locales se conservan.'
-                  : 'El servidor rechazó esta serie. Tus datos locales se conservan para revisarlos.'
+                  : 'El servidor rechazó este resultado. Tus datos locales se conservan para revisarlos.'
             await store.setResultStatus(executionId, entry.result.id, 'conflict', message)
             syncMessage.value = message
           } else {
             await store.setResultStatus(executionId, entry.result.id, 'pending')
-            syncMessage.value = 'Serie pendiente; se reintentará al volver la conexión.'
+            syncMessage.value = 'Resultado pendiente; se reintentará al volver la conexión.'
           }
           break
         }
@@ -418,31 +648,49 @@ export function useWorkoutExecutionSession(executionId: string) {
     } catch (error) {
       syncMessage.value =
         error instanceof ApiNetworkError
-          ? 'Serie pendiente; se reintentará al volver la conexión.'
+          ? 'Resultado pendiente; se reintentará al volver la conexión.'
           : 'No se pudo actualizar el estado de sincronización.'
     } finally {
       isSyncing.value = false
     }
   }
 
-  function returnToSession() {
-    void router.replace({ name: 'home' })
-  }
-
-  function retrySynchronization() {
-    void synchronize()
-  }
-
   function exerciseName(key: string) {
-    return execution.value?.execution.snapshot.exercises.find((exercise) => exercise.key === key)?.name ?? key
+    return (
+      execution.value?.snapshot.exercises.find(({ key: exerciseKey }) => exerciseKey === key)?.name ?? key
+    )
+  }
+
+  async function addExtraSet() {
+    const unit = units.value.filter((item) => item.type === 'sets').at(-1)
+    if (!unit || unit.type !== 'sets') return
+    const block = execution.value?.snapshot.session.blocks.find(({ key }) => key === unit.blockKey)
+    if (block?.type !== 'sets') return
+    const prior = results.value.filter(
+      (result) =>
+        result.type === 'sets' &&
+        result.unit.kind === 'additional' &&
+        result.plannedExerciseKey === unit.appearance.key,
+    ).length
+    const extra: GuidedUnit = {
+      ...unit,
+      unit: {
+        kind: 'additional',
+        key: `extra-${crypto.randomUUID()}`,
+        setIndex: unit.appearance.sets + prior + 1,
+      },
+    }
+    temporal.value = { ...temporal.value, cursor: cursorForUnit(extra) }
+    setCurrent(extra, null)
+    await store?.saveTemporalState(executionId, temporal.value)
   }
 
   watch(
-    [actualExerciseKey, () => ({ ...fields }), currentUnit, isAdditional],
+    [actualExerciseKey, () => ({ ...fields })],
     () => {
-      if (isLoading.value || !currentUnit.value) return
-      if (saveTimer) clearTimeout(saveTimer)
-      saveTimer = setTimeout(() => void persistDraft(), 250)
+      if (isLoading.value || !currentUnit.value || !currentAppearance.value) return
+      if (draftSaveId) clearTimeout(draftSaveId)
+      draftSaveId = setTimeout(() => void persistDraft(), 250)
     },
     { deep: true },
   )
@@ -450,42 +698,88 @@ export function useWorkoutExecutionSession(executionId: string) {
   onMounted(() => {
     window.addEventListener('online', updateOnline)
     window.addEventListener('offline', updateOnline)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    tickId = setInterval(() => {
+      tick.value = Date.now()
+      void handleTimer()
+    }, 250)
     void load()
   })
   onBeforeUnmount(() => {
     window.removeEventListener('online', updateOnline)
     window.removeEventListener('offline', updateOnline)
-    if (saveTimer) clearTimeout(saveTimer)
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+    if (tickId) clearInterval(tickId)
+    if (draftSaveId) clearTimeout(draftSaveId)
+  })
+
+  const position = computed(() => {
+    const unit = currentUnit.value
+    if (!unit) return registeredCount.value
+    const index = units.value.findIndex((candidate) => resultMatchesUnitForView(candidate, unit))
+    return index >= 0 ? index + 1 : registeredCount.value + 1
   })
 
   return {
     addExtraSet,
-    actualExercise,
-    actualExerciseKey: readonly(actualExerciseKey),
     chooseExercise,
-    completed,
-    confirmAndNext,
+    completed: computed(() => !currentUnit.value || isAmrapFinished.value),
+    confirmCurrent,
+    continueManually,
     currentAppearance,
+    currentBlock,
+    currentExercise,
+    currentPhase,
     currentUnit: readonly(currentUnit),
+    draft: readonly(draft),
     errorMessage: readonly(errorMessage),
-    exerciseName,
     exerciseChoices,
+    exerciseName,
     fields,
-    isAdditional: readonly(isAdditional),
+    isAmrapFinished,
     isLoading: readonly(isLoading),
     isOnline: readonly(isOnline),
+    isPaused,
     isSaving: readonly(isSaving),
     isSyncing: readonly(isSyncing),
-    hasSetBlocks,
+    needsWorkConfirmation,
     pendingCount,
+    conflictCount,
+    hasSetBlocks,
+    position,
+    positionLabel,
     registeredCount,
-    returnToSession,
-    retrySynchronization,
+    registeredSummary,
+    actualExerciseKey: readonly(actualExerciseKey),
+    returnToSession: () => {
+      void router.replace({ name: 'home' })
+    },
+    retrySynchronization: synchronize,
     savedResults: readonly(savedResults),
-    seriesNumber,
     setField,
+    setWorkSecondsDraft,
+    skipCurrent,
     syncMessage: readonly(syncMessage),
-    suggestions,
+    timer,
+    timerDisplay,
+    timerElapsed,
+    timerRemaining,
+    temporal: readonly(temporal),
+    togglePause,
     visibleFields,
   }
+}
+
+function resultMatchesUnitForView(left: GuidedUnit, right: GuidedUnit): boolean {
+  if (left.type !== right.type || left.blockKey !== right.blockKey) return false
+  if (left.type === 'sets' && right.type === 'sets')
+    return left.appearance.key === right.appearance.key && left.unit.setIndex === right.unit.setIndex
+  if (left.type === 'circuit' && right.type === 'circuit')
+    return left.appearance.key === right.appearance.key && left.round.roundIndex === right.round.roundIndex
+  return (
+    left.type === 'intervals' &&
+    right.type === 'intervals' &&
+    left.cycleIndex === right.cycleIndex &&
+    left.phase.key === right.phase.key
+  )
 }
