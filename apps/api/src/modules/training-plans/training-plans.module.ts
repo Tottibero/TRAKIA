@@ -15,8 +15,10 @@ import { TrainingPlansController } from './training-plans.controller.js'
 export {
   TrainingPlanKeyConflictError,
   TrainingPlanService,
+  type TrainingPlanExecutionSession,
   TrainingPlanVersionConflictError,
 } from './training-plan.service.js'
+export { TrainingPlanReadService, TrainingPlanSessionNotFoundError } from './training-plan-read.service.js'
 
 @Module({
   controllers: [TrainingPlansController],
@@ -31,6 +33,6 @@ export {
     ExercisesModule,
   ],
   providers: [TrainingPlanService, TrainingPlanReadService],
-  exports: [TrainingPlanService],
+  exports: [TrainingPlanService, TrainingPlanReadService],
 })
 export class TrainingPlansModule {}
