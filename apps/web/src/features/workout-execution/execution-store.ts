@@ -15,6 +15,7 @@ import {
   type WorkoutExecutionStartRequest,
   type WorkoutExecutionStartResponse,
   type CloseExecutionOperation,
+  type CorrectResultOperation,
   type WorkoutCompletionType,
   type WorkoutExecution,
   type WorkoutFeeling,
@@ -92,6 +93,7 @@ export type WorkoutExecutionProgress = {
   temporal: WorkoutExecutionTemporalState
   reviewDraft: WorkoutExecutionReviewDraft | null
   close: StoredWorkoutClose | null
+  corrections: CorrectResultOperation[]
 }
 
 export interface PendingExecutionStart extends WorkoutExecutionStartRequest {
@@ -123,6 +125,11 @@ export interface WorkoutExecutionStore {
   mergeServerResults(executionId: string, results: WorkoutResult[]): Promise<void>
   setCloseStatus(executionId: string, status: WorkoutSyncStatus, error?: string): Promise<void>
   confirmCloseSynced(executionId: string): Promise<void>
+  confirmCorrection(
+    executionId: string,
+    operation: CorrectResultOperation,
+    result: WorkoutResult,
+  ): Promise<void>
   saveReviewDraft(executionId: string, draft: WorkoutExecutionReviewDraft): Promise<void>
   closeExecution(execution: WorkoutExecution, deviceId: string): Promise<StoredWorkoutClose>
 }
@@ -366,6 +373,48 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       await done
     },
 
+    async confirmCorrection(executionId, operation, result) {
+      const db = await database
+      const transaction = db.transaction(RECORDS, 'readwrite')
+      const done = transactionDone(transaction)
+      const records = transaction.objectStore(RECORDS)
+      const key = progressKey(executionId)
+      const progress = parseProgress(await requestResult(records.get(key)))
+      if (
+        !progress.close ||
+        operation.executionId !== executionId ||
+        operation.payload.correction.resultId !== result.id
+      ) {
+        transaction.abort()
+        await done.catch(() => undefined)
+        throw new Error('La corrección no coincide con el entrenamiento cerrado.')
+      }
+      const existing = progress.corrections.find(({ operationId }) => operationId === operation.operationId)
+      if (existing && !sameJson(existing, operation)) {
+        transaction.abort()
+        await done.catch(() => undefined)
+        throw new Error('El identificador de operación ya pertenece a otra corrección.')
+      }
+      const hasResult = progress.results.some(({ result: current }) => current.id === result.id)
+      if (!hasResult) {
+        transaction.abort()
+        await done.catch(() => undefined)
+        throw new Error('No se encontró el resultado local que se quiere corregir.')
+      }
+      const results = progress.results.map((entry) =>
+        entry.result.id === result.id ? { ...entry, result } : entry,
+      )
+      records.put(
+        {
+          ...progress,
+          results,
+          corrections: existing ? progress.corrections : [...progress.corrections, operation],
+        },
+        key,
+      )
+      await done
+    },
+
     async mergeServerResults(executionId, serverResults) {
       const db = await database
       const transaction = db.transaction(RECORDS, 'readwrite')
@@ -499,6 +548,7 @@ function parseProgress(value: unknown): WorkoutExecutionProgress {
     temporal: isTemporal(candidate.temporal) ? candidate.temporal : { status: 'in_progress', pauses: [] },
     reviewDraft: isReviewDraft(candidate.reviewDraft) ? candidate.reviewDraft : null,
     close: isStoredClose(candidate.close) ? candidate.close : null,
+    corrections: Array.isArray(candidate.corrections) ? candidate.corrections.filter(isStoredCorrection) : [],
   }
 }
 
@@ -509,6 +559,7 @@ function emptyProgress(): WorkoutExecutionProgress {
     temporal: { status: 'in_progress', pauses: [] },
     reviewDraft: null,
     close: null,
+    corrections: [],
   }
 }
 
@@ -547,6 +598,13 @@ function isStoredClose(value: unknown): value is StoredWorkoutClose {
     WorkoutSyncOperationSchema.safeParse(candidate.operation).success &&
     candidate.operation.operationType === 'close_execution' &&
     (candidate.error === undefined || typeof candidate.error === 'string')
+  )
+}
+
+function isStoredCorrection(value: unknown): value is CorrectResultOperation {
+  return (
+    WorkoutSyncOperationSchema.safeParse(value).success &&
+    (value as CorrectResultOperation).operationType === 'correct_result'
   )
 }
 

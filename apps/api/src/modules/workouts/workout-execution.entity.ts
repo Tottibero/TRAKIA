@@ -1,6 +1,7 @@
 import { Check, Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm'
 import type {
   CloseExecutionOperation,
+  CorrectResultOperation,
   WorkoutExecutionSnapshot,
   WorkoutResult,
   WorkoutStatus,
@@ -33,6 +34,8 @@ export class WorkoutExecutionRecord {
   @Column({ type: 'jsonb', default: () => "'[]'::jsonb" }) results!: WorkoutResult[]
   @Column({ name: 'close_operation', type: 'jsonb', nullable: true })
   closeOperation!: CloseExecutionOperation | null
+  @Column({ name: 'correction_operations', type: 'jsonb', default: () => "'[]'::jsonb" })
+  correctionOperations!: CorrectResultOperation[]
   @Column({ type: 'varchar' }) status!: WorkoutStatus
   @Column({ name: 'started_at', type: 'timestamptz' }) startedAt!: Date
   @Column({ name: 'finished_at', type: 'timestamptz', nullable: true }) finishedAt!: Date | null

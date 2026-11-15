@@ -135,6 +135,31 @@ export class WorkoutsController {
       throw toHttpException(error)
     }
   }
+
+  @Post(':executionId/corrections')
+  async correctResult(
+    @Req() request: AuthenticatedWorkoutRequest,
+    @Param() params: unknown,
+    @Body() body: unknown,
+  ) {
+    const path = WorkoutExecutionResultPathParamsSchema.safeParse(params)
+    const input = WorkoutSyncOperationSchema.safeParse(body)
+    if (
+      !path.success ||
+      !input.success ||
+      input.data.operationType !== 'correct_result' ||
+      input.data.executionId !== path.data.executionId
+    )
+      throw invalidRequest()
+    const userId = authenticatedUserId(request)
+    try {
+      return WorkoutSyncResponseSchema.parse(
+        await this.starts.correctResult(userId, path.data.executionId, input.data),
+      )
+    } catch (error) {
+      throw toHttpException(error)
+    }
+  }
 }
 
 function authenticatedUserId(request: AuthenticatedWorkoutRequest): string {

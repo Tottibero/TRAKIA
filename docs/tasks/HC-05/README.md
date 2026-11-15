@@ -8,7 +8,7 @@
 | [HC-05-04](HC-05-04.md) | Completada | Ejecutor guiado para fuerza, circuitos, AMRAP e intervalos; temporizadores y pausas locales. `pnpm check`, auditoría e integración PostgreSQL en `trakia_test` satisfactorios. `quality` remoto diferido al cierre del bloque HC-05. |
 | [HC-05-05](HC-05-05.md) | Completada | Revisión móvil, datos finales y cierre local atómico; verificaciones y auditoría satisfactorias. El escaqueo no figura en el contrato y no aplica penalizaciones; queda pendiente el smoke test integral manual en móvil. Sincronización remota reservada a HC-05-06. |
 | [HC-05-06](HC-05-06.md) | Completada | Cierre idempotente con consolidación transaccional; `pnpm check`, integración en `trakia_test` y auditoría arquitectónica satisfactorios. Se conserva pendiente el smoke test integral manual en móvil de HC-05-05. Aceptación del propietario registrada en el commit local. |
-| HC-05-07 | Planificada | Correcciones auditables y recuperación transversal; auditoría e integración del bloque. |
+| [HC-05-07](HC-05-07.md) | Completada | Correcciones auditables online de sesiones cerradas, persistencia idempotente y regresión final; verificaciones y auditoría satisfactorias. Smoke test manual móvil pendiente, aceptado como limitación no bloqueante. |
 
 El alcance y los criterios detallados de cada tarea se definirán en su ficha antes de implementarla. Orden de prioridad: inicio/reserva, captura persistente, cierre y recuperación; después sincronización/correcciones y verificación integral.
 

@@ -129,6 +129,106 @@ function title() {
             {{ session.closedOperation.value.operation.payload.execution.observations }}
           </p>
         </div>
+        <section class="mt-8 border-t border-white/10 pt-6" aria-labelledby="closed-results-title">
+          <h2 id="closed-results-title" class="text-lg font-semibold text-stone-100">Resultados</h2>
+          <p v-if="session.correctionMessage.value" class="mt-2 text-sm text-lime-200" role="status">
+            {{ session.correctionMessage.value }}
+          </p>
+          <ul class="mt-3 divide-y divide-white/10">
+            <li
+              v-for="entry in session.savedResults.value.filter(
+                ({ result }) => result.status === 'performed' && result.actualExerciseKey,
+              )"
+              :key="entry.result.id"
+              class="py-4"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="break-words text-sm font-medium text-stone-100">
+                    {{ session.exerciseName(entry.result.actualExerciseKey!) }}
+                  </p>
+                  <p class="mt-1 text-sm text-stone-300">
+                    {{ metricsSummary(entry.result.actualMetrics) }}
+                  </p>
+                </div>
+                <button
+                  class="min-h-11 shrink-0 rounded-md border border-white/20 px-3 text-sm font-medium text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+                  type="button"
+                  :disabled="!session.isOnline.value || session.isSaving.value"
+                  @click="session.beginCorrection(entry.result)"
+                >
+                  Corregir
+                </button>
+              </div>
+            </li>
+          </ul>
+          <p v-if="!session.isOnline.value" class="mt-3 text-sm text-amber-200" role="status">
+            Conéctate para corregir un resultado. Los cambios no se guardan sin confirmación del servidor.
+          </p>
+          <form
+            v-if="session.correctionResult.value"
+            class="mt-5 space-y-4 border-t border-white/10 pt-5"
+            @submit.prevent="session.confirmCorrection"
+          >
+            <h3 class="text-base font-semibold text-stone-100">Corregir resultado</h3>
+            <div v-if="session.correctionExerciseChoices.value.length > 1">
+              <label class="block text-sm font-medium text-stone-200" for="corrected-exercise">
+                Ejercicio realizado
+              </label>
+              <select
+                id="corrected-exercise"
+                class="mt-2 min-h-12 w-full rounded-md border border-white/15 bg-[#191a17] px-3 text-base text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+                :value="session.correctionExerciseKey.value"
+                :disabled="session.isSaving.value || session.ambiguousCorrection.value"
+                @change="session.setCorrectionExercise(($event.target as HTMLSelectElement).value)"
+              >
+                <option
+                  v-for="exercise in session.correctionExerciseChoices.value"
+                  :key="exercise.key"
+                  :value="exercise.key"
+                >
+                  {{ exercise.name }}
+                </option>
+              </select>
+            </div>
+            <div v-for="{ field, label, step } in session.correctionVisibleFields.value" :key="field">
+              <label class="block text-sm font-medium text-stone-200" :for="`correction-${field}`">
+                {{ label }}
+              </label>
+              <input
+                :id="`correction-${field}`"
+                class="mt-2 min-h-12 w-full rounded-md border border-white/15 bg-[#191a17] px-3 text-base text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+                type="number"
+                min="0.1"
+                :step="step"
+                :value="session.correctionFields[field] ?? ''"
+                :disabled="session.isSaving.value || session.ambiguousCorrection.value"
+                @input="session.setCorrectionField(field, ($event.target as HTMLInputElement).value)"
+              />
+              <p class="mt-1 text-xs text-stone-400">Deja vacío para retirar un valor registrado.</p>
+            </div>
+            <p v-if="session.correctionError.value" class="text-sm text-amber-200" role="alert">
+              {{ session.correctionError.value }}
+            </p>
+            <div class="flex flex-col gap-2 sm:flex-row">
+              <button
+                class="min-h-12 flex-1 rounded-md bg-lime-300 px-4 font-semibold text-stone-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:cursor-not-allowed disabled:opacity-50"
+                type="submit"
+                :disabled="session.isSaving.value || !session.isOnline.value"
+              >
+                {{ session.isSaving.value ? 'Confirmando…' : 'Confirmar corrección' }}
+              </button>
+              <button
+                class="min-h-12 rounded-md border border-white/20 px-4 font-medium text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+                type="button"
+                :disabled="session.isSaving.value || session.ambiguousCorrection.value"
+                @click="session.cancelCorrection"
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </section>
         <button
           v-if="session.closedOperation.value?.status === 'pending' && session.isOnline.value"
           class="mt-4 min-h-11 rounded-md border border-white/20 px-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"

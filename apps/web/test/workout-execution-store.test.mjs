@@ -134,6 +134,7 @@ test('persisted server results merge into local recovery as synchronized without
     temporal: { status: 'in_progress', pauses: [] },
     reviewDraft: null,
     close: null,
+    corrections: [],
   })
 })
 
@@ -207,6 +208,45 @@ test('a failed local close leaves the open execution and progress unchanged', as
   await assert.rejects(store.closeExecution(invalidClose, execution.deviceId))
   assert.equal((await store.getProgress(execution.execution.id)).close, null)
   assert.equal((await store.getActiveExecution()).execution.status, 'in_progress')
+})
+
+test('a confirmed correction updates the local closed result without changing the original close operation', async () => {
+  const factory = new IDBFactory()
+  const store = createWorkoutExecutionStore(factory)
+  await store.confirmStart(execution)
+  const result = setResult('118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5')
+  await store.confirmResult(execution.execution.id, result)
+  const closedExecution = {
+    ...execution.execution,
+    status: 'completed',
+    finishedAt: '2026-11-15T11:00:00.000Z',
+    completionType: 'planned',
+    results: [result],
+  }
+  const close = await store.closeExecution(closedExecution, execution.deviceId)
+  const operation = {
+    operationType: 'correct_result',
+    operationId: '282e240a-4fd8-4407-8922-8fd19a914431',
+    executionId: execution.execution.id,
+    deviceId: execution.deviceId,
+    sequence: 2,
+    payload: {
+      correction: {
+        id: 'bc883d87-e26f-45d6-b2dd-1c0a946508c0',
+        resultId: result.id,
+        correctedAt: '2026-11-15T12:00:00.000Z',
+        changes: [{ field: 'reps', before: 5, after: 6 }],
+      },
+    },
+  }
+  const corrected = { ...result, actualMetrics: { reps: 6, weightKg: 80 } }
+  await store.confirmCorrection(execution.execution.id, operation, corrected)
+  await store.confirmCorrection(execution.execution.id, operation, corrected)
+  const progress = await createWorkoutExecutionStore(factory).getProgress(execution.execution.id)
+  assert.deepEqual(progress.results[0].result, corrected)
+  assert.deepEqual(progress.corrections, [operation])
+  assert.deepEqual(progress.close, close)
+  assert.equal(progress.close.operation.payload.execution.results[0].actualMetrics.reps, 5)
 })
 
 test('circuit and interval results share local idempotency and persist their temporal state', async () => {

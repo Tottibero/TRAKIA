@@ -4,6 +4,7 @@ import {
   ActualMetricsSchema,
   WorkoutCompletionTypeSchema,
   WorkoutExecutionSchema,
+  WorkoutSyncOperationSchema,
   type ActualMetrics,
   type ExerciseMetric,
   type IntervalResult,
@@ -12,9 +13,15 @@ import {
   type WorkoutCompletionType,
   type WorkoutFeeling,
   type WorkoutResult,
+  type CorrectResultOperation,
 } from '@trakia/contracts'
 import { ApiError, ApiNetworkError } from '@/shared/api/http'
-import { closeWorkoutExecution, getOpenWorkoutExecution, recordWorkoutExecutionResult } from './api/execution'
+import {
+  closeWorkoutExecution,
+  correctWorkoutExecutionResult,
+  getOpenWorkoutExecution,
+  recordWorkoutExecutionResult,
+} from './api/execution'
 import { synchronizePendingClose } from './close-sync'
 import {
   createWorkoutExecutionStore,
@@ -39,6 +46,7 @@ import {
 } from './guided-planning'
 import { suggestMetrics } from './series-planning'
 import { executionDurationSeconds, finishOpenPause, formatWorkoutDuration } from './workout-review'
+import { applyWorkoutCorrectionResult, createWorkoutCorrectionChanges } from './correction-results'
 
 const METRIC_FIELDS: Array<{
   metric: ExerciseMetric
@@ -83,6 +91,14 @@ export function useWorkoutExecutionSession(executionId: string) {
   const isSyncing = ref(false)
   const isOnline = ref(typeof navigator === 'undefined' ? false : navigator.onLine)
   const errorMessage = ref<string | null>(null)
+  const correctionError = ref<string | null>(null)
+  const correctionMessage = ref('')
+  const correctionResult = ref<WorkoutResult | null>(null)
+  const correctionExerciseKey = ref('')
+  const correctionFields = reactive<Record<string, string>>({})
+  const pendingCorrection = ref<CorrectResultOperation | null>(null)
+  const pendingCorrectionSignature = ref('')
+  const ambiguousCorrection = ref(false)
   const syncMessage = ref('')
   let tickId: ReturnType<typeof setInterval> | undefined
   let draftSaveId: ReturnType<typeof setTimeout> | undefined
@@ -186,6 +202,29 @@ export function useWorkoutExecutionSession(executionId: string) {
       name: result.actualExerciseKey ? exerciseName(result.actualExerciseKey) : 'Recuperación',
     })),
   )
+  const correctionExerciseChoices = computed(() => {
+    const result = correctionResult.value
+    const appearance = result ? plannedAppearanceForResult(result) : null
+    if (!result?.actualExerciseKey || !appearance || !execution.value) return []
+    const metrics = Object.keys(result.actualMetrics ?? {}).map(canonicalMetric)
+    const keys = [
+      appearance.exerciseKey,
+      ...(appearance.alternatives ?? []).map(({ exerciseKey }) => exerciseKey),
+    ]
+    return keys.flatMap((key) => {
+      const exercise = execution.value?.snapshot.exercises.find(({ key: candidate }) => candidate === key)
+      return exercise &&
+        metrics.every((metric) => exercise.supportedMetrics.includes(metric as ExerciseMetric))
+        ? [{ key, name: exercise.name }]
+        : []
+    })
+  })
+  const correctionVisibleFields = computed(() => {
+    const exercise = execution.value?.snapshot.exercises.find(
+      ({ key }) => key === correctionExerciseKey.value,
+    )
+    return METRIC_FIELDS.filter(({ metric }) => exercise?.supportedMetrics.includes(metric))
+  })
 
   function selectUnit(cursor?: WorkoutExecutionCursor, resultList = results.value): GuidedUnit | null {
     if (!execution.value) return null
@@ -257,7 +296,11 @@ export function useWorkoutExecutionSession(executionId: string) {
       if (progress.close) {
         closedOperation.value = progress.close
         isClosed.value = true
-        execution.value = progress.close.operation.payload.execution
+        execution.value = {
+          ...progress.close.operation.payload.execution,
+          results: progress.results.map(({ result }) => result),
+          corrections: progress.corrections.map(({ payload }) => payload.correction),
+        }
         savedResults.value = progress.results
         temporal.value = progress.temporal
         draft.value = progress.draft
@@ -742,6 +785,127 @@ export function useWorkoutExecutionSession(executionId: string) {
     )
   }
 
+  function plannedAppearanceForResult(result: WorkoutResult): PlannedExercise | null {
+    const block = execution.value?.snapshot.session.blocks.find(({ key }) => key === result.blockKey)
+    if (!block) return null
+    if (result.type === 'intervals' && block.type === 'intervals')
+      return block.phases.find(({ key }) => key === result.phaseKey)?.exercise ?? null
+    if (result.type !== 'intervals' && block.type !== 'intervals')
+      return block.exercises.find(({ key }) => key === result.plannedExerciseKey) ?? null
+    return null
+  }
+
+  function beginCorrection(result: WorkoutResult) {
+    if (
+      !isClosed.value ||
+      ambiguousCorrection.value ||
+      result.status !== 'performed' ||
+      !result.actualExerciseKey
+    )
+      return
+    correctionResult.value = result
+    correctionExerciseKey.value = result.actualExerciseKey
+    correctionError.value = null
+    correctionMessage.value = ''
+    pendingCorrection.value = null
+    pendingCorrectionSignature.value = ''
+    ambiguousCorrection.value = false
+    for (const key of Object.keys(correctionFields)) delete correctionFields[key]
+    const exercise = execution.value?.snapshot.exercises.find(({ key }) => key === result.actualExerciseKey)
+    for (const { metric, field } of METRIC_FIELDS) {
+      if (!exercise?.supportedMetrics.includes(metric)) continue
+      const value = result.actualMetrics?.[field]
+      correctionFields[field] = value === undefined ? '' : String(value)
+    }
+  }
+
+  function cancelCorrection() {
+    correctionResult.value = null
+    correctionError.value = null
+    pendingCorrection.value = null
+    pendingCorrectionSignature.value = ''
+    ambiguousCorrection.value = false
+  }
+
+  async function confirmCorrection() {
+    const selected = correctionResult.value
+    if (!store || !execution.value || !selected || !isOnline.value || isSaving.value) return
+    correctionError.value = null
+    let changes
+    try {
+      changes = createWorkoutCorrectionChanges(selected, correctionExerciseKey.value, correctionFields)
+    } catch (error) {
+      correctionError.value = error instanceof Error ? error.message : 'Revisa los valores de la corrección.'
+      return
+    }
+
+    const signature = JSON.stringify({ resultId: selected.id, changes })
+    let operation = pendingCorrection.value
+    if (!operation || pendingCorrectionSignature.value !== signature) {
+      try {
+        const progress = await store.getProgress(executionId)
+        const deviceId = await store.getOrCreateDeviceId()
+        operation = WorkoutSyncOperationSchema.parse({
+          operationType: 'correct_result',
+          operationId: crypto.randomUUID(),
+          executionId,
+          deviceId,
+          sequence: progress.corrections.length + 2,
+          payload: {
+            correction: {
+              id: crypto.randomUUID(),
+              resultId: selected.id,
+              correctedAt: new Date().toISOString(),
+              changes,
+            },
+          },
+        }) as CorrectResultOperation
+        pendingCorrection.value = operation
+        pendingCorrectionSignature.value = signature
+      } catch {
+        correctionError.value = 'No se pudo preparar la corrección localmente. El formulario se conserva.'
+        return
+      }
+    }
+
+    isSaving.value = true
+    correctionMessage.value = ''
+    try {
+      const response = await correctWorkoutExecutionResult(executionId, operation)
+      if (response.result !== 'applied' && response.result !== 'already_applied') {
+        correctionError.value =
+          response.result === 'dependency_pending'
+            ? 'Hay una corrección anterior pendiente. Actualiza la sesión antes de continuar.'
+            : response.result === 'conflict'
+              ? 'El resultado cambió en el servidor. Recarga el entrenamiento y revisa sus valores.'
+              : response.issue.message
+        pendingCorrection.value = null
+        pendingCorrectionSignature.value = ''
+        return
+      }
+      const corrected = applyWorkoutCorrectionResult(selected, operation.payload.correction)
+      await store.confirmCorrection(executionId, operation, corrected)
+      const progress = await store.getProgress(executionId)
+      savedResults.value = progress.results
+      execution.value = {
+        ...execution.value,
+        results: progress.results.map(({ result }) => result),
+        corrections: progress.corrections.map(({ payload }) => payload.correction),
+      }
+      correctionMessage.value = 'Corrección guardada en el servidor.'
+      correctionResult.value = null
+      pendingCorrection.value = null
+      pendingCorrectionSignature.value = ''
+      ambiguousCorrection.value = false
+    } catch {
+      ambiguousCorrection.value = true
+      correctionError.value =
+        'No se pudo confirmar la corrección. El formulario se conserva; puedes reintentar.'
+    } finally {
+      isSaving.value = false
+    }
+  }
+
   async function addExtraSet() {
     if (isClosed.value) return
     const unit = units.value.filter((item) => item.type === 'sets').at(-1)
@@ -923,6 +1087,34 @@ export function useWorkoutExecutionSession(executionId: string) {
     reviewDurationSeconds,
     reviewDurationLabel,
     closedOperation: readonly(closedOperation),
+    correctionExerciseChoices,
+    correctionError: readonly(correctionError),
+    correctionFields,
+    correctionMessage: readonly(correctionMessage),
+    correctionResult: readonly(correctionResult),
+    correctionVisibleFields,
+    ambiguousCorrection: readonly(ambiguousCorrection),
+    correctionExerciseKey: readonly(correctionExerciseKey),
+    beginCorrection,
+    cancelCorrection,
+    confirmCorrection,
+    setCorrectionExercise: (key: string) => {
+      correctionExerciseKey.value = key
+      const supported =
+        execution.value?.snapshot.exercises.find(({ key: candidate }) => candidate === key)
+          ?.supportedMetrics ?? []
+      const result = correctionResult.value
+      for (const { metric, field } of METRIC_FIELDS) {
+        if (!supported.includes(metric)) delete correctionFields[field]
+        else if (!(field in correctionFields)) {
+          const value = result?.actualMetrics?.[field]
+          correctionFields[field] = value === undefined ? '' : String(value)
+        }
+      }
+    },
+    setCorrectionField: (field: keyof ActualMetrics, value: string) => {
+      correctionFields[field] = value
+    },
     openReview,
     returnToExecution,
     confirmClose,
@@ -961,4 +1153,11 @@ function resultMatchesUnitForView(left: GuidedUnit, right: GuidedUnit): boolean 
     left.cycleIndex === right.cycleIndex &&
     left.phase.key === right.phase.key
   )
+}
+
+function canonicalMetric(field: string): string {
+  if (field === 'weightKg') return 'weight'
+  if (field === 'durationSeconds') return 'duration'
+  if (field === 'distanceMeters') return 'distance'
+  return field
 }

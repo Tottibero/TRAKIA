@@ -112,6 +112,18 @@ function closeOperation(execution, overrides = {}) {
   }
 }
 
+function correctionOperation(execution, correction, overrides = {}) {
+  return {
+    operationType: 'correct_result',
+    operationId: '282e240a-4fd8-4407-8922-8fd19a914431',
+    executionId: execution.id,
+    deviceId,
+    sequence: 2,
+    payload: { correction },
+    ...overrides,
+  }
+}
+
 test('start reserves a backend snapshot after device and shared session locks', async () => {
   const { calls, rows, service } = createHarness()
   const result = await service.start(userId, request)
@@ -345,6 +357,121 @@ test('close execution rejects a contradictory replay without changing the accept
   assert.equal(response.result, 'conflict')
   assert.equal(rows[0].closeOperation.operationId, operation.operationId)
   assert.equal(rows[0].closeOperation.payload.execution.feeling, undefined)
+})
+
+test('correctResult changes a closed result atomically and replays the same operation idempotently', async () => {
+  const { rows, service } = createHarness()
+  const started = await service.start(userId, request)
+  const result = {
+    type: 'sets',
+    id: '118a8a3f-2f58-49e4-9ccd-f6c46ea621d5',
+    blockKey: 'main',
+    plannedExerciseKey: 'squat',
+    unit: { kind: 'planned', setIndex: 1 },
+    actualExerciseKey: 'back-squat',
+    status: 'performed',
+    actualMetrics: { reps: 5, weightKg: 80 },
+  }
+  const completed = {
+    ...started.execution,
+    status: 'completed',
+    finishedAt: new Date(Date.parse(started.execution.startedAt) + 60_000).toISOString(),
+    completionType: 'planned',
+    results: [result],
+  }
+  const close = closeOperation(completed)
+  await service.closeExecution(userId, started.execution.id, close)
+  const correction = {
+    id: 'bc883d87-e26f-45d6-b2dd-1c0a946508c0',
+    resultId: result.id,
+    correctedAt: '2026-11-15T12:00:00.000Z',
+    changes: [{ field: 'reps', before: 5, after: 6 }],
+  }
+  const operation = correctionOperation(completed, correction)
+
+  assert.equal((await service.correctResult(userId, completed.id, operation)).result, 'applied')
+  assert.equal((await service.correctResult(userId, completed.id, operation)).result, 'already_applied')
+  assert.equal(rows[0].status, 'completed')
+  assert.deepEqual(rows[0].results[0].actualMetrics, { reps: 6, weightKg: 80 })
+  assert.deepEqual(rows[0].correctionOperations, [operation])
+  assert.deepEqual(rows[0].closeOperation, close)
+  assert.deepEqual((await service.findByRequest(userId, deviceId, request.requestId)).execution.corrections, [
+    correction,
+  ])
+
+  const exerciseCorrection = {
+    ...operation,
+    operationId: 'b0ca05a1-5c60-47b1-8e06-5cab9743ae72',
+    sequence: 3,
+    payload: {
+      correction: {
+        id: 'eeb519b3-c8ed-48d4-ae3a-57e174313153',
+        resultId: result.id,
+        correctedAt: '2026-11-15T12:01:00.000Z',
+        changes: [{ field: 'exerciseKey', before: 'back-squat', after: 'goblet-squat' }],
+      },
+    },
+  }
+  assert.equal((await service.correctResult(userId, completed.id, exerciseCorrection)).result, 'applied')
+  assert.equal(rows[0].results[0].actualExerciseKey, 'goblet-squat')
+  assert.equal(rows[0].status, 'completed')
+
+  const changedReplay = {
+    ...operation,
+    payload: { correction: { ...correction, changes: [{ field: 'reps', before: 5, after: 7 }] } },
+  }
+  assert.equal((await service.correctResult(userId, completed.id, changedReplay)).result, 'conflict')
+  assert.equal(rows[0].results[0].actualMetrics.reps, 6)
+})
+
+test('correctResult rejects stale values, invalid alternatives and out-of-order operations without mutation', async () => {
+  const { rows, service } = createHarness()
+  const started = await service.start(userId, request)
+  const result = {
+    type: 'sets',
+    id: '118a8a3f-2f58-49e4-9ccd-f6c46ea621d5',
+    blockKey: 'main',
+    plannedExerciseKey: 'squat',
+    unit: { kind: 'planned', setIndex: 1 },
+    actualExerciseKey: 'back-squat',
+    status: 'performed',
+    actualMetrics: { reps: 5, weightKg: 80 },
+  }
+  const completed = {
+    ...started.execution,
+    status: 'completed',
+    finishedAt: new Date(Date.parse(started.execution.startedAt) + 60_000).toISOString(),
+    completionType: 'planned',
+    results: [result],
+  }
+  await service.closeExecution(userId, completed.id, closeOperation(completed))
+  const stale = correctionOperation(completed, {
+    id: 'bc883d87-e26f-45d6-b2dd-1c0a946508c0',
+    resultId: result.id,
+    correctedAt: '2026-11-15T12:00:00.000Z',
+    changes: [{ field: 'reps', before: 4, after: 6 }],
+  })
+  assert.equal((await service.correctResult(userId, completed.id, stale)).result, 'rejected')
+  const invalidExercise = correctionOperation(completed, {
+    id: 'eeb519b3-c8ed-48d4-ae3a-57e174313153',
+    resultId: result.id,
+    correctedAt: '2026-11-15T12:00:30.000Z',
+    changes: [{ field: 'exerciseKey', before: 'back-squat', after: 'unlisted-exercise' }],
+  })
+  assert.equal((await service.correctResult(userId, completed.id, invalidExercise)).result, 'rejected')
+  const gap = correctionOperation(completed, stale.payload.correction, {
+    operationId: 'b0ca05a1-5c60-47b1-8e06-5cab9743ae72',
+    sequence: 3,
+  })
+  assert.deepEqual(await service.correctResult(userId, completed.id, gap), {
+    operationId: gap.operationId,
+    executionId: completed.id,
+    sequence: 3,
+    result: 'dependency_pending',
+    requiredSequence: 2,
+  })
+  assert.equal(rows[0].results[0].actualMetrics.reps, 5)
+  assert.deepEqual(rows[0].correctionOperations, [])
 })
 
 test('close execution conflicts on result identity, workout unit, owner device and account', async () => {

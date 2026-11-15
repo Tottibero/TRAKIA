@@ -118,3 +118,10 @@ No se observa incompatibilidad que requiera nuevo tipo de bloque: superseries se
 - Sensaciones usan cinco niveles (`muy_bien`, `bien`, `regular`, `mal`, `muy_mal`); observaciones limitadas a 1000 caracteres y motivo a 240.
 - El dominio actual no define «escaqueo», penalización ni efecto en Constancia. No se infiere ni se crea ninguno; se conservan `skipped` y `not_reached` como conceptos diferenciados.
 - El almacén IndexedDB existente conserva la ejecución terminal y una operación `close_execution` pendiente dentro del registro de progreso por ejecución. La transacción local no libera la reserva PostgreSQL; el transporte completo pertenece a HC-05-06.
+
+## Aplicación aprobada en HC-05-07
+
+- Las correcciones posteriores al cierre usan `CorrectResultOperation` consecutivas desde secuencia 2. Se aceptan solo online y desde el dispositivo original; no se añade cola offline.
+- `workout_executions.correction_operations` conserva los sobres `correct_result` aceptados. Cada corrección actualiza el resultado efectivo y añade su historial en la misma transacción, bajo bloqueo de fila. El cierre y el estado `completed` permanecen intactos.
+- El servidor exige que cada `before` coincida con el valor efectivo vigente y revalida el resultado y el historial completo contra el snapshot. La repetición idéntica devuelve `already_applied`; una operación contradictoria o desactualizada no escribe.
+- La vista cerrada permite corregir métricas admitidas y el ejercicio realizado entre las opciones del snapshot. El resultado local cambia tras `applied`/`already_applied`; los errores conservan el formulario y la operación para reintentar. No se corrigen `activeSeconds` ni `windowProgressSeconds`, ausentes del contrato.

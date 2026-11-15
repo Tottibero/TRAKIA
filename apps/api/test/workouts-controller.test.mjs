@@ -236,3 +236,55 @@ test('workouts controller authenticates, validates and binds a close to the rout
     status: 401,
   })
 })
+
+test('workouts controller authenticates, validates and binds corrections to the route execution', async () => {
+  const calls = []
+  const operation = {
+    operationType: 'correct_result',
+    operationId: '282e240a-4fd8-4407-8922-8fd19a914431',
+    executionId: execution.id,
+    deviceId: request.deviceId,
+    sequence: 2,
+    payload: {
+      correction: {
+        id: 'bc883d87-e26f-45d6-b2dd-1c0a946508c0',
+        resultId: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+        correctedAt: '2026-11-15T12:00:00.000Z',
+        changes: [{ field: 'reps', before: 5, after: 6 }],
+      },
+    },
+  }
+  const controller = new WorkoutsController({
+    correctResult: async (...args) => {
+      calls.push(args)
+      return {
+        operationId: operation.operationId,
+        executionId: execution.id,
+        sequence: 2,
+        result: 'applied',
+      }
+    },
+  })
+  assert.equal(
+    (
+      await controller.correctResult(
+        { authUserId: 'authenticated-user' },
+        { executionId: execution.id },
+        operation,
+      )
+    ).result,
+    'applied',
+  )
+  assert.deepEqual(calls, [['authenticated-user', execution.id, operation]])
+  await assert.rejects(
+    controller.correctResult(
+      { authUserId: 'authenticated-user' },
+      { executionId: '6aec8e0a-9b96-4c97-9fc1-42a7badc67ca' },
+      operation,
+    ),
+    { status: 400 },
+  )
+  await assert.rejects(controller.correctResult({}, { executionId: execution.id }, operation), {
+    status: 401,
+  })
+})
