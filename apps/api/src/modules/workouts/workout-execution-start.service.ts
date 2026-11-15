@@ -2,7 +2,9 @@ import { Injectable } from '@nestjs/common'
 import {
   WorkoutExecutionSnapshotSchema,
   WorkoutExecutionSchema,
+  WorkoutResultSchema,
   type CloseExecutionOperation,
+  type CorrectResultOperation,
   type WorkoutExecution,
   type WorkoutExecutionSnapshot,
   type WorkoutExecutionStartRequest,
@@ -12,6 +14,7 @@ import {
   type WorkoutExecutionResultResponse,
   type WorkoutSyncResponse,
   type WorkoutResult,
+  type WorkoutCorrection,
   type PlannedBlock,
   type PlannedExercise,
   type PlannedSession,
@@ -155,6 +158,7 @@ export class WorkoutExecutionStartService {
           planKey: session.planKey,
           sessionKey: session.sessionKey,
           snapshot,
+          correctionOperations: [],
           status: 'in_progress',
           startedAt: new Date(),
           finishedAt: null,
@@ -324,6 +328,85 @@ export class WorkoutExecutionStartService {
     })
   }
 
+  async correctResult(
+    userId: string,
+    executionId: string,
+    operation: CorrectResultOperation,
+  ): Promise<WorkoutSyncResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkoutExecutionRecord)
+      const record = await repository.findOne({
+        where: { id: executionId, userId },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!record) throw new WorkoutExecutionSessionNotFoundError()
+
+      const identity = {
+        operationId: operation.operationId,
+        executionId: operation.executionId,
+        sequence: operation.sequence,
+      }
+      if (operation.executionId !== record.id || record.deviceId !== operation.deviceId) {
+        return syncConflict(identity, 'EXECUTION_CONFLICT', 'La ejecución no pertenece a este dispositivo.')
+      }
+      if (record.status !== 'completed' || !record.closeOperation) {
+        return syncConflict(
+          identity,
+          'EXECUTION_CONFLICT',
+          'Solo se pueden corregir entrenamientos cerrados.',
+        )
+      }
+
+      const operations = record.correctionOperations ?? []
+      const existing = operations.find(({ operationId }) => operationId === operation.operationId)
+      if (existing) {
+        return isDeepStrictEqual(existing, operation)
+          ? { ...identity, result: 'already_applied' }
+          : syncConflict(identity, 'OPERATION_CONTENT_MISMATCH', 'La operación ya existe con otro contenido.')
+      }
+      const expectedSequence = operations.length + 2
+      if (operation.sequence > expectedSequence) {
+        return {
+          ...identity,
+          result: 'dependency_pending',
+          requiredSequence: expectedSequence,
+        }
+      }
+      if (operation.sequence !== expectedSequence) {
+        return syncConflict(identity, 'EXECUTION_CONFLICT', 'La secuencia de corrección ya fue utilizada.')
+      }
+
+      const correction = operation.payload.correction
+      const results = [...(record.results ?? [])]
+      const resultIndex = results.findIndex(({ id }) => id === correction.resultId)
+      if (resultIndex < 0) {
+        return syncRejected(identity, 'RESULT_NOT_FOUND', 'No se encontró el resultado que quieres corregir.')
+      }
+
+      let correctedResult: WorkoutResult
+      try {
+        correctedResult = applyCorrection(results[resultIndex]!, correction)
+        results[resultIndex] = correctedResult
+        WorkoutExecutionSchema.parse({
+          ...toExecution(record),
+          results,
+          corrections: [...operations.map(({ payload }) => payload.correction), correction],
+        })
+      } catch {
+        return syncRejected(
+          identity,
+          'INVALID_OPERATION',
+          'La corrección no coincide con el resultado actual.',
+        )
+      }
+
+      record.results = results
+      record.correctionOperations = [...operations, operation]
+      await repository.save(record)
+      return { ...identity, result: 'applied' }
+    })
+  }
+
   private resolveReplay(
     record: WorkoutExecutionRecord,
     input: WorkoutExecutionStartRequest,
@@ -387,7 +470,7 @@ function toExecution(record: WorkoutExecutionRecord): WorkoutExecution {
     ...(record.finishedAt ? { finishedAt: record.finishedAt.toISOString() } : {}),
     pauses: [],
     results: record.results ?? [],
-    corrections: [],
+    corrections: (record.correctionOperations ?? []).map(({ payload }) => payload.correction),
   }
 }
 
@@ -444,10 +527,47 @@ function syncConflict(
 
 function syncRejected(
   identity: Pick<WorkoutSyncResponse, 'operationId' | 'executionId' | 'sequence'>,
-  code: 'INVALID_OPERATION',
+  code: 'INVALID_OPERATION' | 'RESULT_NOT_FOUND',
   message: string,
 ): WorkoutSyncResponse {
   return { ...identity, result: 'rejected', issue: { code, message } }
+}
+
+function applyCorrection(result: WorkoutResult, correction: WorkoutCorrection): WorkoutResult {
+  const exerciseChange = correction.changes.find((change) => change.field === 'exerciseKey')
+  const currentExercise = result.actualExerciseKey
+  if (exerciseChange && currentExercise !== exerciseChange.before)
+    throw new Error('The current exercise does not match the correction.')
+
+  const actualMetrics = { ...(result.actualMetrics ?? {}) }
+  for (const change of correction.changes) {
+    if (change.field === 'exerciseKey') continue
+    const field = actualMetricField(change.field)
+    const current = actualMetrics[field] ?? null
+    if (current !== change.before) throw new Error('The current metric does not match the correction.')
+    if (change.after === null) delete actualMetrics[field]
+    else actualMetrics[field] = change.after
+  }
+
+  const updated = {
+    ...result,
+    ...(exerciseChange ? { actualExerciseKey: exerciseChange.after } : {}),
+    ...(Object.keys(actualMetrics).length ? { actualMetrics } : { actualMetrics: undefined }),
+  }
+  return WorkoutResultSchema.parse(updated)
+}
+
+function actualMetricField(field: Exclude<WorkoutCorrection['changes'][number]['field'], 'exerciseKey'>) {
+  switch (field) {
+    case 'weight':
+      return 'weightKg' as const
+    case 'duration':
+      return 'durationSeconds' as const
+    case 'distance':
+      return 'distanceMeters' as const
+    default:
+      return field
+  }
 }
 
 function findOpenRecord(repository: Repository<WorkoutExecutionRecord>, userId: string) {

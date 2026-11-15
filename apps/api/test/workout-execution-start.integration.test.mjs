@@ -8,6 +8,7 @@ import { PrepareTrainingPlanImportReview1794700800000 } from '../dist/database/m
 import { AddWorkoutExecutionStart1795046400000 } from '../dist/database/migrations/1795046400000-AddWorkoutExecutionStart.js'
 import { AddWorkoutExecutionResults1795132800000 } from '../dist/database/migrations/1795132800000-AddWorkoutExecutionResults.js'
 import { AddWorkoutExecutionCloseOperation1795219200000 } from '../dist/database/migrations/1795219200000-AddWorkoutExecutionCloseOperation.js'
+import { AddWorkoutExecutionCorrectionOperations1795305600000 } from '../dist/database/migrations/1795305600000-AddWorkoutExecutionCorrectionOperations.js'
 import { CreateUsers1794441600000 } from '../dist/database/migrations/1794441600000-CreateUsers.js'
 import { ExerciseCatalogService } from '../dist/modules/exercises/exercise-catalog.service.js'
 import { Exercise } from '../dist/modules/exercises/exercise.entity.js'
@@ -47,6 +48,7 @@ test('workout starts are atomic, idempotent, protected and recoverable in an iso
     await new AddWorkoutExecutionStart1795046400000().up(runner)
     await new AddWorkoutExecutionResults1795132800000().up(runner)
     await new AddWorkoutExecutionCloseOperation1795219200000().up(runner)
+    await new AddWorkoutExecutionCorrectionOperations1795305600000().up(runner)
 
     const [{ id: userId }] = await runner.query(
       `INSERT INTO users (email, password_hash) VALUES ('workout-start@example.test', 'test-hash') RETURNING id`,
@@ -450,6 +452,90 @@ test('workout starts are atomic, idempotent, protected and recoverable in an iso
       confirmedResult,
       pendingResult,
     ])
+
+    const correction = {
+      id: 'bc883d87-e26f-45d6-b2dd-1c0a946508c0',
+      resultId: confirmedResult.id,
+      correctedAt: '2026-11-15T12:00:00.000Z',
+      changes: [{ field: 'reps', before: 5, after: 6 }],
+    }
+    const correctionOperation = {
+      operationType: 'correct_result',
+      operationId: '282e240a-4fd8-4407-8922-8fd19a914431',
+      executionId: winningExecution.id,
+      deviceId: winningStart.deviceId,
+      sequence: 2,
+      payload: { correction },
+    }
+    assert.equal(
+      (await startService.correctResult(userId, winningExecution.id, correctionOperation)).result,
+      'applied',
+    )
+    assert.equal(
+      (await startService.correctResult(userId, winningExecution.id, correctionOperation)).result,
+      'already_applied',
+    )
+    const correctedRecord = await repository.findOneBy({ id: winningExecution.id })
+    assert.equal(correctedRecord.status, 'completed')
+    assert.equal(correctedRecord.results[0].actualMetrics.reps, 6)
+    assert.deepEqual(correctedRecord.correctionOperations, [correctionOperation])
+    assert.deepEqual(correctedRecord.closeOperation, closeOperation)
+    assert.equal(correctedRecord.finishedAt.toISOString(), closeExecution.finishedAt)
+    assert.deepEqual(
+      (await startService.findByRequest(userId, winningStart.deviceId, winningStart.requestId)).execution
+        .corrections,
+      [correction],
+    )
+
+    const staleCorrection = {
+      ...correctionOperation,
+      operationId: 'b0ca05a1-5c60-47b1-8e06-5cab9743ae72',
+      sequence: 3,
+      payload: {
+        correction: {
+          ...correction,
+          id: 'eeb519b3-c8ed-48d4-ae3a-57e174313153',
+          changes: [{ field: 'reps', before: 5, after: 7 }],
+        },
+      },
+    }
+    assert.equal(
+      (await startService.correctResult(userId, winningExecution.id, staleCorrection)).result,
+      'rejected',
+    )
+    await runner.query(`
+      CREATE FUNCTION reject_workout_correction_update() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.correction_operations <> OLD.correction_operations THEN
+          RAISE EXCEPTION 'forced correction persistence failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `)
+    await runner.query(`
+      CREATE TRIGGER reject_workout_correction_update
+      BEFORE UPDATE ON workout_executions
+      FOR EACH ROW EXECUTE FUNCTION reject_workout_correction_update()
+    `)
+    const rollbackCorrection = {
+      ...staleCorrection,
+      payload: {
+        correction: {
+          ...staleCorrection.payload.correction,
+          changes: [{ field: 'reps', before: 6, after: 7 }],
+        },
+      },
+    }
+    await assert.rejects(
+      startService.correctResult(userId, winningExecution.id, rollbackCorrection),
+      /forced correction persistence failure/,
+    )
+    const rolledBackCorrection = await repository.findOneBy({ id: winningExecution.id })
+    assert.equal(rolledBackCorrection.results[0].actualMetrics.reps, 6)
+    assert.deepEqual(rolledBackCorrection.correctionOperations, [correctionOperation])
+    await runner.query('DROP TRIGGER reject_workout_correction_update ON workout_executions')
+    await runner.query('DROP FUNCTION reject_workout_correction_update()')
 
     const unusedSessionKey = winningExecution.sessionKey === 'tuesday' ? 'wednesday' : 'tuesday'
     const afterCloseStart = await startService.start(userId, {

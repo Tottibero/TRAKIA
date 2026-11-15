@@ -1,6 +1,6 @@
 # Decisiones de sincronización de ejecuciones deportivas
 
-Este documento define el contrato conceptual de sincronización de ejecuciones cerradas. El transporte, la cola, el almacenamiento offline y el procesamiento del servidor se implementarán en tareas posteriores. Las formas externas Zod viven en `packages/contracts/src/workout-sync/`.
+Este documento define el contrato de sincronización de ejecuciones cerradas y sus correcciones posteriores. Las formas externas Zod viven en `packages/contracts/src/workout-sync/`.
 
 ## Decisiones aprobadas
 
@@ -31,4 +31,10 @@ HC-05-06 implementa el cierre de secuencia 1 mediante `POST /workouts/executions
 
 La web reutiliza el registro de cierre existente en IndexedDB y reintenta al cargar la PWA, al abrir la vista cerrada y al recuperar conexión. Solo una respuesta `applied` o `already_applied` marca el cierre y sus resultados como sincronizados y elimina `activeExecution`; el cierre local permanece disponible. Los fallos recuperables conservan la operación y los conflictos no reescriben resultados.
 
-Siguen pendientes la secuenciación y persistencia remota de correcciones posteriores, la detección de sus dependencias y su resolución. HC-05-06 no implementa esos mecanismos ni colas remotas.
+## Correcciones posteriores al cierre
+
+HC-05-07 implementa `POST /workouts/executions/:executionId/corrections` para una operación `correct_result`. El servicio de `workouts` bloquea la ejecución, comprueba cuenta, dispositivo original, estado completado, resultado, secuencia consecutiva y valores `before`; aplica la corrección al resultado efectivo y valida la ejecución completa contra el snapshot antes de persistir.
+
+La migración `AddWorkoutExecutionCorrectionOperations1795305600000` añade `correction_operations jsonb NOT NULL DEFAULT []`. La columna conserva el sobre completo de cada operación, incluido `operationId`, secuencia y `WorkoutCorrection`. Resultado e historial se escriben de forma atómica. Un retry idéntico devuelve `already_applied`; conflictos de identidad, contenido o valores vigentes no reescriben datos. La transición de estado, `finishedAt`, `close_operation` y la reserva global no se modifican.
+
+La PWA solo permite enviar correcciones online desde el dispositivo asociado a la ejecución. La vista espera respuesta aceptada antes de actualizar el resultado mostrado y persiste localmente la corrección confirmada. Un error conserva el formulario y la identidad en la vista para reintentar; no hay cola offline. Cambios en `activeSeconds` y `windowProgressSeconds` siguen fuera de alcance porque el contrato `WorkoutCorrectionChange` no los representa.
