@@ -22,6 +22,8 @@ import {
   WorkoutExecutionResultRequestSchema,
   WorkoutExecutionResultPathParamsSchema,
   WorkoutExecutionResultResponseSchema,
+  WorkoutSyncOperationSchema,
+  WorkoutSyncResponseSchema,
 } from '@trakia/contracts'
 import {
   WorkoutExecutionDeviceMismatchError,
@@ -103,6 +105,31 @@ export class WorkoutsController {
     try {
       return WorkoutExecutionResultResponseSchema.parse(
         await this.starts.recordResult(userId, path.data.executionId, input.data),
+      )
+    } catch (error) {
+      throw toHttpException(error)
+    }
+  }
+
+  @Post(':executionId/close')
+  async closeExecution(
+    @Req() request: AuthenticatedWorkoutRequest,
+    @Param() params: unknown,
+    @Body() body: unknown,
+  ) {
+    const path = WorkoutExecutionResultPathParamsSchema.safeParse(params)
+    const input = WorkoutSyncOperationSchema.safeParse(body)
+    if (
+      !path.success ||
+      !input.success ||
+      input.data.operationType !== 'close_execution' ||
+      input.data.executionId !== path.data.executionId
+    )
+      throw invalidRequest()
+    const userId = authenticatedUserId(request)
+    try {
+      return WorkoutSyncResponseSchema.parse(
+        await this.starts.closeExecution(userId, path.data.executionId, input.data),
       )
     } catch (error) {
       throw toHttpException(error)

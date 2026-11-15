@@ -14,7 +14,8 @@ import {
   type WorkoutResult,
 } from '@trakia/contracts'
 import { ApiError, ApiNetworkError } from '@/shared/api/http'
-import { getOpenWorkoutExecution, recordWorkoutExecutionResult } from './api/execution'
+import { closeWorkoutExecution, getOpenWorkoutExecution, recordWorkoutExecutionResult } from './api/execution'
+import { synchronizePendingClose } from './close-sync'
 import {
   createWorkoutExecutionStore,
   type StoredWorkoutResult,
@@ -240,7 +241,7 @@ export function useWorkoutExecutionSession(executionId: string) {
 
   function updateOnline() {
     isOnline.value = navigator.onLine
-    if (isOnline.value) void synchronize()
+    if (isOnline.value) void (isClosed.value ? synchronizeClose() : synchronize())
   }
 
   async function load() {
@@ -261,6 +262,7 @@ export function useWorkoutExecutionSession(executionId: string) {
         temporal.value = progress.temporal
         draft.value = progress.draft
         Object.assign(reviewDraft, progress.reviewDraft ?? {})
+        if (isOnline.value) void synchronizeClose()
         return
       }
       if (isOnline.value) {
@@ -675,7 +677,8 @@ export function useWorkoutExecutionSession(executionId: string) {
   }
 
   async function synchronize() {
-    if (!store || isClosed.value || !execution.value || !isOnline.value || isSyncing.value) return
+    if (isClosed.value) return synchronizeClose()
+    if (!store || !execution.value || !isOnline.value || isSyncing.value) return
     isSyncing.value = true
     try {
       const deviceId = await store.getOrCreateDeviceId()
@@ -686,6 +689,10 @@ export function useWorkoutExecutionSession(executionId: string) {
           await store.setResultStatus(executionId, entry.result.id, 'synced')
           syncMessage.value = 'Guardado en el servidor.'
         } catch (error) {
+          if ((await store.getProgress(executionId)).close?.status === 'synced') {
+            syncMessage.value = 'Cierre sincronizado con el servidor.'
+            break
+          }
           if (error instanceof ApiError && error.status < 500) {
             const message =
               error.code === 'RESULT_CONFLICT'
@@ -708,6 +715,22 @@ export function useWorkoutExecutionSession(executionId: string) {
         error instanceof ApiNetworkError
           ? 'Resultado pendiente; se reintentará al volver la conexión.'
           : 'No se pudo actualizar el estado de sincronización.'
+    } finally {
+      isSyncing.value = false
+      if (isClosed.value && isOnline.value) void synchronizeClose()
+    }
+  }
+
+  async function synchronizeClose() {
+    if (!store || !isClosed.value || !isOnline.value || isSyncing.value) return
+    isSyncing.value = true
+    try {
+      const outcome = await synchronizePendingClose(store, executionId, closeWorkoutExecution)
+      closedOperation.value = outcome.close
+      savedResults.value = (await store.getProgress(executionId)).results
+      syncMessage.value = outcome.message
+    } catch {
+      syncMessage.value = 'El cierre sigue guardado en este dispositivo; se reintentará más tarde.'
     } finally {
       isSyncing.value = false
     }
@@ -802,6 +825,8 @@ export function useWorkoutExecutionSession(executionId: string) {
       execution.value = close.operation.payload.execution
       isClosed.value = true
       isReviewing.value = false
+      syncMessage.value = 'Cierre pendiente; se reintentará al volver la conexión.'
+      if (isOnline.value) void synchronizeClose()
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : 'No se pudo cerrar el entrenamiento.'
     } finally {

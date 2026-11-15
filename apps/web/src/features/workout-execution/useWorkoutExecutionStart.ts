@@ -1,11 +1,13 @@
 import { computed, onBeforeUnmount, onMounted, readonly, shallowRef, type Ref } from 'vue'
 import { ApiError, ApiNetworkError } from '@/shared/api/http'
 import {
+  closeWorkoutExecution,
   getOpenWorkoutExecution,
   getWorkoutExecutionStartByRequest,
   startWorkoutExecution,
 } from './api/execution'
 import { createWorkoutExecutionStore } from './execution-store'
+import { synchronizePendingClose } from './close-sync'
 import { restoreWorkoutExecution } from './restore-execution'
 
 export function useWorkoutExecutionStart(
@@ -20,6 +22,7 @@ export function useWorkoutExecutionStart(
   const activeExecution = shallowRef<Awaited<ReturnType<typeof startWorkoutExecution>> | null>(null)
   const errorMessage = shallowRef<string | null>(null)
   const statusMessage = shallowRef<string | null>(null)
+  let recovering = false
   const canStart = computed(() =>
     Boolean(
       store &&
@@ -33,13 +36,17 @@ export function useWorkoutExecutionStart(
 
   const updateOnline = () => {
     isOnline.value = navigator.onLine
+    if (isOnline.value) void recover()
   }
 
   async function recover() {
+    if (recovering) return
+    recovering = true
     errorMessage.value = null
     if (!store) {
       errorMessage.value = 'Este navegador no permite guardar la recuperación local de la sesión.'
       isLoading.value = false
+      recovering = false
       return
     }
     try {
@@ -49,9 +56,26 @@ export function useWorkoutExecutionStart(
         getOpen: getOpenWorkoutExecution,
       })
       isBlockedByOtherDevice.value = restored === 'other_device'
-      activeExecution.value = restored === 'other_device' ? null : restored
-      if (activeExecution.value)
-        statusMessage.value = 'Inicio confirmado. Esta sesión se recupera en este dispositivo.'
+      if (restored && restored !== 'other_device') {
+        const progress = await store.getProgress(restored.execution.id)
+        if (progress.close?.status === 'synced') {
+          await store.confirmCloseSynced(restored.execution.id)
+          activeExecution.value = null
+          statusMessage.value = 'El cierre está sincronizado. Ya puedes iniciar otro entrenamiento.'
+        } else if (progress.close && isOnline.value) {
+          const outcome = await synchronizePendingClose(store, restored.execution.id, closeWorkoutExecution)
+          activeExecution.value = outcome.close?.status === 'synced' ? null : restored
+          statusMessage.value = outcome.message
+        } else {
+          activeExecution.value = restored
+          statusMessage.value = progress.close
+            ? 'Cierre pendiente; se sincronizará al volver la conexión.'
+            : 'Inicio confirmado. Esta sesión se recupera en este dispositivo.'
+        }
+      } else {
+        activeExecution.value = null
+      }
+      if (activeExecution.value) errorMessage.value = null
       else if (isBlockedByOtherDevice.value)
         errorMessage.value = 'Hay una ejecución abierta de esta cuenta en otro dispositivo.'
     } catch (error) {
@@ -63,6 +87,7 @@ export function useWorkoutExecutionStart(
       }
     } finally {
       isLoading.value = false
+      recovering = false
     }
   }
 

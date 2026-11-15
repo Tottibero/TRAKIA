@@ -1,5 +1,10 @@
 import { Check, Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm'
-import type { WorkoutExecutionSnapshot, WorkoutResult, WorkoutStatus } from '@trakia/contracts'
+import type {
+  CloseExecutionOperation,
+  WorkoutExecutionSnapshot,
+  WorkoutResult,
+  WorkoutStatus,
+} from '@trakia/contracts'
 
 @Entity({ name: 'workout_executions' })
 @Index('uq_workout_executions_user_request', ['userId', 'requestId'], {
@@ -26,6 +31,8 @@ export class WorkoutExecutionRecord {
   @Column({ name: 'session_key', type: 'varchar' }) sessionKey!: string
   @Column({ type: 'jsonb', nullable: true }) snapshot!: WorkoutExecutionSnapshot | null
   @Column({ type: 'jsonb', default: () => "'[]'::jsonb" }) results!: WorkoutResult[]
+  @Column({ name: 'close_operation', type: 'jsonb', nullable: true })
+  closeOperation!: CloseExecutionOperation | null
   @Column({ type: 'varchar' }) status!: WorkoutStatus
   @Column({ name: 'started_at', type: 'timestamptz' }) startedAt!: Date
   @Column({ name: 'finished_at', type: 'timestamptz', nullable: true }) finishedAt!: Date | null

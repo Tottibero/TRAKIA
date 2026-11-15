@@ -185,6 +185,14 @@ test('a local close stores a complete stable operation atomically and locks spor
     (await reopened.getProgress(execution.execution.id)).close.operation.payload.execution.status,
     'completed',
   )
+  await store.setCloseStatus(execution.execution.id, 'syncing')
+  await store.confirmCloseSynced(execution.execution.id)
+  await store.setResultStatus(execution.execution.id, result.id, 'conflict', 'late result response')
+  const synchronized = await reopened.getProgress(execution.execution.id)
+  assert.equal(synchronized.close.status, 'synced')
+  assert.equal(synchronized.results[0].status, 'synced')
+  assert.equal(synchronized.results[0].error, undefined)
+  assert.equal(await reopened.getActiveExecution(), null)
 })
 
 test('a failed local close leaves the open execution and progress unchanged', async () => {

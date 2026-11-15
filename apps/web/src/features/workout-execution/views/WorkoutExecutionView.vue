@@ -85,7 +85,30 @@ function title() {
 
       <section v-else-if="session.isClosed.value" class="pt-8" aria-labelledby="closed-title">
         <h1 id="closed-title" class="text-3xl font-semibold tracking-[-0.035em]">Entrenamiento cerrado</h1>
-        <p class="mt-2 text-sm leading-6 text-stone-300">El cierre quedó guardado en este dispositivo.</p>
+        <p class="mt-2 text-sm leading-6 text-stone-300">El cierre permanece guardado en este dispositivo.</p>
+        <p
+          class="mt-3 text-xs leading-5"
+          :class="
+            session.closedOperation.value?.status === 'conflict' ||
+            session.closedOperation.value?.status === 'rejected'
+              ? 'text-amber-200'
+              : 'text-stone-400'
+          "
+          role="status"
+          aria-live="polite"
+        >
+          {{
+            session.syncMessage.value ||
+            (session.closedOperation.value?.status === 'synced'
+              ? 'Cierre sincronizado con el servidor.'
+              : session.closedOperation.value?.status === 'syncing'
+                ? 'Sincronizando cierre…'
+                : session.closedOperation.value?.status === 'conflict' ||
+                    session.closedOperation.value?.status === 'rejected'
+                  ? 'El cierre requiere atención. Los datos locales se conservan.'
+                  : 'Cierre pendiente; se reintentará al volver la conexión.')
+          }}
+        </p>
         <div v-if="session.reviewSummary.value" class="mt-6 space-y-5">
           <p class="text-sm text-stone-200">
             {{ session.reviewSummary.value.performed.length }} realizadas ·
@@ -106,6 +129,15 @@ function title() {
             {{ session.closedOperation.value.operation.payload.execution.observations }}
           </p>
         </div>
+        <button
+          v-if="session.closedOperation.value?.status === 'pending' && session.isOnline.value"
+          class="mt-4 min-h-11 rounded-md border border-white/20 px-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+          type="button"
+          :disabled="session.isSyncing.value"
+          @click="session.retrySynchronization"
+        >
+          Reintentar sincronización
+        </button>
         <button
           class="mt-8 min-h-12 w-full rounded-md border border-white/20 px-4 font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
           type="button"

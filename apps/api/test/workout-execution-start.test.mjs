@@ -100,6 +100,18 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
 
 const request = { requestId, deviceId, planId, sessionId }
 
+function closeOperation(execution, overrides = {}) {
+  return {
+    operationType: 'close_execution',
+    operationId: '65c6ff1d-cbbb-4f8a-b07d-22c22a4a77b4',
+    executionId: execution.id,
+    deviceId,
+    sequence: 1,
+    payload: { execution },
+    ...overrides,
+  }
+}
+
 test('start reserves a backend snapshot after device and shared session locks', async () => {
   const { calls, rows, service } = createHarness()
   const result = await service.start(userId, request)
@@ -268,6 +280,129 @@ test('recordResult accepts a planned alternative and rejects an exercise outside
     }),
     WorkoutExecutionResultInvalidError,
   )
+})
+
+test('close execution consolidates pending results and replays the immutable operation idempotently', async () => {
+  const { rows, service } = createHarness()
+  const started = await service.start(userId, request)
+  const pendingResult = {
+    type: 'sets',
+    id: '118a8a3f-2f58-49e4-9ccd-f6c46ea621d5',
+    blockKey: 'main',
+    plannedExerciseKey: 'squat',
+    unit: { kind: 'planned', setIndex: 1 },
+    actualExerciseKey: 'back-squat',
+    status: 'performed',
+    actualMetrics: { reps: 5, weightKg: 80 },
+  }
+  const execution = {
+    ...started.execution,
+    status: 'completed',
+    finishedAt: new Date(Date.parse(started.execution.startedAt) + 60_000).toISOString(),
+    pauses: [],
+    feeling: 'bien',
+    completionType: 'early',
+    closureReason: 'Tiempo limitado.',
+    results: [pendingResult],
+  }
+  const operation = closeOperation(execution)
+
+  assert.deepEqual(await service.closeExecution(userId, execution.id, operation), {
+    operationId: operation.operationId,
+    executionId: execution.id,
+    sequence: 1,
+    result: 'applied',
+  })
+  assert.deepEqual(await service.closeExecution(userId, execution.id, operation), {
+    operationId: operation.operationId,
+    executionId: execution.id,
+    sequence: 1,
+    result: 'already_applied',
+  })
+  assert.equal(rows[0].status, 'completed')
+  assert.deepEqual(rows[0].results, [pendingResult])
+  assert.deepEqual(rows[0].closeOperation, operation)
+})
+
+test('close execution rejects a contradictory replay without changing the accepted close', async () => {
+  const { rows, service } = createHarness()
+  const started = await service.start(userId, request)
+  const execution = {
+    ...started.execution,
+    status: 'completed',
+    finishedAt: new Date(Date.parse(started.execution.startedAt) + 60_000).toISOString(),
+    pauses: [],
+    completionType: 'planned',
+    results: [],
+  }
+  const operation = closeOperation(execution)
+  await service.closeExecution(userId, execution.id, operation)
+  const contradictory = {
+    ...operation,
+    payload: { execution: { ...execution, feeling: 'mal' } },
+  }
+  const response = await service.closeExecution(userId, execution.id, contradictory)
+  assert.equal(response.result, 'conflict')
+  assert.equal(rows[0].closeOperation.operationId, operation.operationId)
+  assert.equal(rows[0].closeOperation.payload.execution.feeling, undefined)
+})
+
+test('close execution conflicts on result identity, workout unit, owner device and account', async () => {
+  const { rows, service } = createHarness()
+  const started = await service.start(userId, request)
+  const serverResult = {
+    type: 'sets',
+    id: '118a8a3f-2f58-49e4-9ccd-f6c46ea621d5',
+    blockKey: 'main',
+    plannedExerciseKey: 'squat',
+    unit: { kind: 'planned', setIndex: 1 },
+    actualExerciseKey: 'back-squat',
+    status: 'performed',
+    actualMetrics: { reps: 5, weightKg: 80 },
+  }
+  await service.recordResult(userId, started.execution.id, { deviceId, result: serverResult })
+  const changedIdentityContent = {
+    ...serverResult,
+    actualMetrics: { reps: 5, weightKg: 81 },
+  }
+  const identityConflict = await service.closeExecution(
+    userId,
+    started.execution.id,
+    closeOperation(
+      {
+        ...started.execution,
+        status: 'completed',
+        finishedAt: new Date(Date.parse(started.execution.startedAt) + 60_000).toISOString(),
+        pauses: [],
+        completionType: 'planned',
+        results: [changedIdentityContent],
+      },
+      { operationId: 'bd98883f-e5ee-4b21-8d95-5733f70f1985' },
+    ),
+  )
+  assert.equal(identityConflict.result, 'conflict')
+
+  const incoming = { ...serverResult, id: 'c6fa5f96-8a06-4d42-a607-24e1e19e5cb1' }
+  const execution = {
+    ...started.execution,
+    status: 'completed',
+    finishedAt: new Date(Date.parse(started.execution.startedAt) + 60_000).toISOString(),
+    pauses: [],
+    completionType: 'planned',
+    results: [incoming],
+  }
+  const operation = closeOperation(execution)
+  const conflict = await service.closeExecution(userId, execution.id, operation)
+  assert.equal(conflict.result, 'conflict')
+  assert.equal(rows[0].status, 'in_progress')
+  assert.equal(rows[0].closeOperation, undefined)
+
+  const wrongDevice = await service.closeExecution(userId, execution.id, {
+    ...operation,
+    deviceId: '223b6405-2f90-4c5c-aee0-60517c9ef94a',
+  })
+  assert.equal(wrongDevice.result, 'conflict')
+  await assert.rejects(service.closeExecution('other-user', execution.id, operation), /could not be found/)
 })
 
 test('recordResult accepts circuit and interval results and detects duplicate unit identities', async () => {
