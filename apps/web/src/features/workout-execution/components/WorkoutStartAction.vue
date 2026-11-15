@@ -45,5 +45,15 @@ const workoutStart = useWorkoutExecutionStart(toRef(props, 'planId'), toRef(prop
     >
       {{ workoutStart.isStarting.value ? 'Iniciando…' : 'Iniciar entrenamiento' }}
     </button>
+    <RouterLink
+      v-else
+      class="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-3 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-200 sm:w-auto"
+      :to="{
+        name: 'workout-execution',
+        params: { executionId: workoutStart.activeExecution.value.execution.id },
+      }"
+    >
+      Continuar entrenamiento
+    </RouterLink>
   </section>
 </template>

@@ -41,6 +41,9 @@ export const WorkoutExecutionStartErrorCodeSchema = z.enum([
   'OPEN_EXECUTION_EXISTS',
   'DEVICE_MISMATCH',
   'REQUEST_ID_CONFLICT',
+  'RESULT_CONFLICT',
+  'EXECUTION_CLOSED',
+  'RESULT_INVALID',
   'INTERNAL_ERROR',
 ])
 export type WorkoutExecutionStartErrorCode = z.infer<typeof WorkoutExecutionStartErrorCodeSchema>

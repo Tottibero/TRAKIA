@@ -3,9 +3,13 @@ import {
   WorkoutExecutionOpenResponseSchema,
   WorkoutExecutionStartRequestSchema,
   WorkoutExecutionStartResponseSchema,
+  WorkoutExecutionResultRequestSchema,
+  WorkoutExecutionResultResponseSchema,
   type WorkoutExecutionOpenResponse,
   type WorkoutExecutionStartRequest,
   type WorkoutExecutionStartResponse,
+  type WorkoutExecutionResultRequest,
+  type WorkoutExecutionResultResponse,
 } from '@trakia/contracts'
 import { apiRequest } from '@/shared/api/http'
 
@@ -39,4 +43,19 @@ export async function getWorkoutExecutionStartByRequest(
     `/workouts/executions/requests/${encodeURIComponent(requestId)}?deviceId=${encodeURIComponent(deviceId)}`,
   )
   return WorkoutExecutionStartResponseSchema.parse(response)
+}
+
+export async function recordWorkoutExecutionResult(
+  executionId: string,
+  input: WorkoutExecutionResultRequest,
+): Promise<WorkoutExecutionResultResponse> {
+  const request = WorkoutExecutionResultRequestSchema.parse(input)
+  const response = await apiRequest<unknown>(
+    `/workouts/executions/${encodeURIComponent(executionId)}/results`,
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    },
+  )
+  return WorkoutExecutionResultResponseSchema.parse(response)
 }

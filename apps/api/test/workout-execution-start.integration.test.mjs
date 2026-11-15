@@ -6,6 +6,7 @@ import { CreateExerciseCatalog1794528000000 } from '../dist/database/migrations/
 import { CreateTrainingPlans1794614400000 } from '../dist/database/migrations/1794614400000-CreateTrainingPlans.js'
 import { PrepareTrainingPlanImportReview1794700800000 } from '../dist/database/migrations/1794700800000-PrepareTrainingPlanImportReview.js'
 import { AddWorkoutExecutionStart1795046400000 } from '../dist/database/migrations/1795046400000-AddWorkoutExecutionStart.js'
+import { AddWorkoutExecutionResults1795132800000 } from '../dist/database/migrations/1795132800000-AddWorkoutExecutionResults.js'
 import { CreateUsers1794441600000 } from '../dist/database/migrations/1794441600000-CreateUsers.js'
 import { ExerciseCatalogService } from '../dist/modules/exercises/exercise-catalog.service.js'
 import { Exercise } from '../dist/modules/exercises/exercise.entity.js'
@@ -43,6 +44,7 @@ test('workout starts are atomic, idempotent, protected and recoverable in an iso
     await new CreateTrainingPlans1794614400000().up(runner)
     await new PrepareTrainingPlanImportReview1794700800000().up(runner)
     await new AddWorkoutExecutionStart1795046400000().up(runner)
+    await new AddWorkoutExecutionResults1795132800000().up(runner)
 
     const [{ id: userId }] = await runner.query(
       `INSERT INTO users (email, password_hash) VALUES ('workout-start@example.test', 'test-hash') RETURNING id`,
@@ -172,6 +174,57 @@ test('workout starts are atomic, idempotent, protected and recoverable in an iso
       state: 'other_device',
       execution: null,
     })
+
+    const resultInput = {
+      deviceId,
+      result: {
+        type: 'sets',
+        id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+        blockKey: 'main',
+        plannedExerciseKey: 'squat',
+        unit: { kind: 'planned', setIndex: 1 },
+        actualExerciseKey: 'back-squat',
+        status: 'performed',
+        actualMetrics: { reps: 5, weightKg: 80 },
+      },
+    }
+    assert.deepEqual(await startService.recordResult(userId, started.execution.id, resultInput), {
+      result: resultInput.result,
+      replayed: false,
+    })
+    assert.deepEqual(await startService.recordResult(userId, started.execution.id, resultInput), {
+      result: resultInput.result,
+      replayed: true,
+    })
+    assert.deepEqual((await startService.findOpen(userId, deviceId)).execution.execution.results, [
+      resultInput.result,
+    ])
+    await assert.rejects(
+      startService.recordResult(userId, started.execution.id, {
+        ...resultInput,
+        result: { ...resultInput.result, actualMetrics: { reps: 5, weightKg: 82 } },
+      }),
+      /different content/,
+    )
+    await assert.rejects(
+      startService.recordResult(userId, started.execution.id, {
+        deviceId: otherDeviceId,
+        result: resultInput.result,
+      }),
+      /another device/,
+    )
+    await assert.rejects(
+      startService.recordResult(userId, started.execution.id, {
+        ...resultInput,
+        result: {
+          ...resultInput.result,
+          id: crypto.randomUUID(),
+          unit: { kind: 'planned', setIndex: 2 },
+          actualMetrics: { calories: 80 },
+        },
+      }),
+      /not valid/,
+    )
 
     const competingStarts = await Promise.allSettled(
       ['tuesday', 'wednesday'].map((key) =>

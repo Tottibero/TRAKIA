@@ -98,3 +98,47 @@ test('workouts controller rejects malformed inputs and classifies predictable co
     { status: 404 },
   )
 })
+
+test('workouts controller authenticates and validates result recording inputs', async () => {
+  const calls = []
+  const controller = new WorkoutsController({
+    recordResult: async (...args) => {
+      calls.push(args)
+      return { result: args[2].result, replayed: false }
+    },
+  })
+  const result = {
+    type: 'sets',
+    id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+    blockKey: 'main',
+    plannedExerciseKey: 'squat',
+    unit: { kind: 'planned', setIndex: 1 },
+    actualExerciseKey: 'back-squat',
+    status: 'performed',
+    actualMetrics: { reps: 5, weightKg: 80 },
+  }
+  await controller.recordResult(
+    { authUserId: 'authenticated-user' },
+    { executionId: execution.id },
+    {
+      deviceId: request.deviceId,
+      result,
+    },
+  )
+  assert.deepEqual(calls, [['authenticated-user', execution.id, { deviceId: request.deviceId, result }]])
+  await assert.rejects(
+    controller.recordResult(
+      { authUserId: 'authenticated-user' },
+      { executionId: execution.id },
+      {
+        deviceId: request.deviceId,
+        result: { ...result, extra: true },
+      },
+    ),
+    { status: 400 },
+  )
+  await assert.rejects(
+    controller.recordResult({}, { executionId: execution.id }, { deviceId: request.deviceId, result }),
+    { status: 401 },
+  )
+})

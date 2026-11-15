@@ -4,7 +4,7 @@
 | --- | --- | --- |
 | [HC-05-01](HC-05-01.md) | Completada | Diseño técnico del ejecutor y desglose del bloque; aceptación registrada. |
 | [HC-05-02](HC-05-02.md) | Completada | Inicio online, reserva idempotente y recuperación; D18 actualizado para exclusividad global por cuenta. `pnpm check`, arquitectura e integración PostgreSQL en `trakia_test` satisfactorios; aceptación registrada. |
-| HC-05-03 | Planificada | Registro guiado de fuerza, bloques y circuitos con borradores locales. |
+| [HC-05-03](HC-05-03.md) | Completada | Series secuenciales, alternativas y métricas contextuales; borradores y confirmaciones IndexedDB con POST idempotente inmediato; pruebas y auditoría arquitectónica satisfactorias. Aceptación registrada en el cierre local. |
 | HC-05-04 | Planificada | Intervalos, temporizadores, pausa/reanudación y recuperación contextual. |
 | HC-05-05 | Planificada | Revisión, cierre local definitivo, omitidos y unidades no alcanzadas. |
 | HC-05-06 | Planificada | Cola de sincronización, idempotencia, errores y reconciliación. |

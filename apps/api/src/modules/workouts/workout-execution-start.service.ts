@@ -1,16 +1,20 @@
 import { Injectable } from '@nestjs/common'
 import {
   WorkoutExecutionSnapshotSchema,
+  WorkoutExecutionSchema,
   type WorkoutExecution,
   type WorkoutExecutionSnapshot,
   type WorkoutExecutionStartRequest,
   type WorkoutExecutionStartResponse,
   type WorkoutExecutionOpenResponse,
+  type WorkoutExecutionResultRequest,
+  type WorkoutExecutionResultResponse,
   type PlannedBlock,
   type PlannedExercise,
   type PlannedSession,
 } from '@trakia/contracts'
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm'
 import { DataSource, EntityManager, QueryFailedError, Repository } from 'typeorm'
 import { ExerciseCatalogService } from '../exercises/exercises.module.js'
@@ -64,6 +68,27 @@ export class WorkoutExecutionRequestConflictError extends Error {
   constructor() {
     super('The requestId was already used with different start details.')
     this.name = 'WorkoutExecutionRequestConflictError'
+  }
+}
+
+export class WorkoutExecutionResultConflictError extends Error {
+  constructor() {
+    super('The result identity or workout unit was already confirmed with different content.')
+    this.name = 'WorkoutExecutionResultConflictError'
+  }
+}
+
+export class WorkoutExecutionClosedError extends Error {
+  constructor() {
+    super('Results can only be added to an open workout execution.')
+    this.name = 'WorkoutExecutionClosedError'
+  }
+}
+
+export class WorkoutExecutionResultInvalidError extends Error {
+  constructor() {
+    super('The workout result is not valid for the execution snapshot.')
+    this.name = 'WorkoutExecutionResultInvalidError'
   }
 }
 
@@ -166,6 +191,53 @@ export class WorkoutExecutionStartService {
     return toStartResponse(record)
   }
 
+  async recordResult(
+    userId: string,
+    executionId: string,
+    input: WorkoutExecutionResultRequest,
+  ): Promise<WorkoutExecutionResultResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkoutExecutionRecord)
+      const record = await repository.findOne({
+        where: { id: executionId, userId },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      assertOwnerDevice(record, input.deviceId)
+      if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
+
+      const result = input.result
+      if (result.type !== 'sets' || result.status !== 'performed')
+        throw new WorkoutExecutionResultInvalidError()
+      const results = record.results ?? []
+      const existing = results.find((candidate) => candidate.id === result.id)
+      if (existing) {
+        if (!isDeepStrictEqual(existing, result)) throw new WorkoutExecutionResultConflictError()
+        return { result: existing, replayed: true }
+      }
+      if (
+        results.some(
+          (candidate) =>
+            candidate.type === 'sets' &&
+            candidate.blockKey === result.blockKey &&
+            candidate.plannedExerciseKey === result.plannedExerciseKey &&
+            sameSetUnit(candidate.unit, result.unit),
+        )
+      )
+        throw new WorkoutExecutionResultConflictError()
+
+      try {
+        WorkoutExecutionSchema.parse({ ...toExecution(record), results: [...results, result] })
+      } catch {
+        throw new WorkoutExecutionResultInvalidError()
+      }
+
+      record.results = [...results, result]
+      await repository.save(record)
+      return { result, replayed: false }
+    })
+  }
+
   private resolveReplay(
     record: WorkoutExecutionRecord,
     input: WorkoutExecutionStartRequest,
@@ -228,7 +300,7 @@ function toExecution(record: WorkoutExecutionRecord): WorkoutExecution {
     startedAt: record.startedAt.toISOString(),
     ...(record.finishedAt ? { finishedAt: record.finishedAt.toISOString() } : {}),
     pauses: [],
-    results: [],
+    results: record.results ?? [],
     corrections: [],
   }
 }
@@ -240,6 +312,17 @@ function toStartResponse(record: WorkoutExecutionRecord): WorkoutExecutionStartR
 
 function assertOwnerDevice(record: WorkoutExecutionRecord, deviceId: string): void {
   if (record.deviceId !== deviceId) throw new WorkoutExecutionDeviceMismatchError()
+}
+
+function sameSetUnit(
+  left: Extract<WorkoutExecution['results'][number], { type: 'sets' }>['unit'],
+  right: Extract<WorkoutExecution['results'][number], { type: 'sets' }>['unit'],
+): boolean {
+  return (
+    left.kind === right.kind &&
+    left.setIndex === right.setIndex &&
+    (left.kind !== 'additional' || (right.kind === 'additional' && left.key === right.key))
+  )
 }
 
 function isUniqueViolation(error: unknown, constraint: string): boolean {

@@ -19,6 +19,9 @@ import {
   WorkoutExecutionStartErrorSchema,
   WorkoutExecutionStartRequestSchema,
   WorkoutExecutionStartResponseSchema,
+  WorkoutExecutionResultRequestSchema,
+  WorkoutExecutionResultPathParamsSchema,
+  WorkoutExecutionResultResponseSchema,
 } from '@trakia/contracts'
 import {
   WorkoutExecutionDeviceMismatchError,
@@ -29,6 +32,9 @@ import {
   WorkoutExecutionSessionProtectedError,
   WorkoutExecutionSnapshotInvalidError,
   WorkoutExecutionStartService,
+  WorkoutExecutionClosedError,
+  WorkoutExecutionResultConflictError,
+  WorkoutExecutionResultInvalidError,
 } from './workout-execution-start.service.js'
 
 interface AuthenticatedWorkoutRequest {
@@ -78,6 +84,25 @@ export class WorkoutsController {
     try {
       return WorkoutExecutionStartResponseSchema.parse(
         await this.starts.findByRequest(userId, parsedQuery.data.deviceId, parsedParams.data.requestId),
+      )
+    } catch (error) {
+      throw toHttpException(error)
+    }
+  }
+
+  @Post(':executionId/results')
+  async recordResult(
+    @Req() request: AuthenticatedWorkoutRequest,
+    @Param() params: unknown,
+    @Body() body: unknown,
+  ) {
+    const input = WorkoutExecutionResultRequestSchema.safeParse(body)
+    const path = WorkoutExecutionResultPathParamsSchema.safeParse(params)
+    if (!input.success || !path.success) throw invalidRequest()
+    const userId = authenticatedUserId(request)
+    try {
+      return WorkoutExecutionResultResponseSchema.parse(
+        await this.starts.recordResult(userId, path.data.executionId, input.data),
       )
     } catch (error) {
       throw toHttpException(error)
@@ -137,6 +162,24 @@ function toHttpException(error: unknown): HttpException {
   if (error instanceof WorkoutExecutionRequestConflictError) {
     return new HttpException(
       WorkoutExecutionStartErrorSchema.parse({ code: 'REQUEST_ID_CONFLICT', message: error.message }),
+      409,
+    )
+  }
+  if (error instanceof WorkoutExecutionResultConflictError) {
+    return new HttpException(
+      WorkoutExecutionStartErrorSchema.parse({ code: 'RESULT_CONFLICT', message: error.message }),
+      409,
+    )
+  }
+  if (error instanceof WorkoutExecutionClosedError) {
+    return new HttpException(
+      WorkoutExecutionStartErrorSchema.parse({ code: 'EXECUTION_CLOSED', message: error.message }),
+      409,
+    )
+  }
+  if (error instanceof WorkoutExecutionResultInvalidError) {
+    return new HttpException(
+      WorkoutExecutionStartErrorSchema.parse({ code: 'RESULT_INVALID', message: error.message }),
       409,
     )
   }
