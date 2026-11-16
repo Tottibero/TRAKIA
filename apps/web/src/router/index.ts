@@ -5,7 +5,7 @@ import { ApiError } from '../shared/api/http'
 import { queryClient } from '../app/queryClient'
 import { TrainingPlanImportView } from '@/features/training-plan-imports'
 import { TrainingPlanSessionDetailView, WeeklyHomeView } from '@/features/training-plan-calendar'
-import WorkoutExecutionView from '@/features/workout-execution/views/WorkoutExecutionView.vue'
+import WorkoutExecutionRouteView from '@/features/workout-execution/views/WorkoutExecutionRouteView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -14,7 +14,7 @@ const router = createRouter({
     {
       path: '/workouts/executions/:executionId',
       name: 'workout-execution',
-      component: WorkoutExecutionView,
+      component: WorkoutExecutionRouteView,
       meta: { requiresAuth: true },
     },
     { path: '/', name: 'home', component: WeeklyHomeView, meta: { requiresAuth: true } },
