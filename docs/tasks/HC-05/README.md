@@ -9,6 +9,7 @@
 | [HC-05-05](HC-05-05.md) | Completada | Revisión móvil, datos finales y cierre local atómico; verificaciones y auditoría satisfactorias. El escaqueo no figura en el contrato y no aplica penalizaciones; queda pendiente el smoke test integral manual en móvil. Sincronización remota reservada a HC-05-06. |
 | [HC-05-06](HC-05-06.md) | Completada | Cierre idempotente con consolidación transaccional; `pnpm check`, integración en `trakia_test` y auditoría arquitectónica satisfactorios. Se conserva pendiente el smoke test integral manual en móvil de HC-05-05. Aceptación del propietario registrada en el commit local. |
 | [HC-05-07](HC-05-07.md) | Completada | Correcciones auditables online de sesiones cerradas, persistencia idempotente y regresión final; verificaciones y auditoría satisfactorias. Smoke test manual móvil pendiente, aceptado como limitación no bloqueante. |
+| [HC-05-09-03a](HC-05-09-03a.md) | Completada | Vista PWA online, seis pruebas de interfaz, 23 pruebas PostgreSQL, `pnpm check` y arquitectura satisfactorios; smoke aceptado: press banca, 7 reps, 40 kg, RPE 7. Recuperación tras recarga no confirmada manualmente. |
 
 El alcance y los criterios detallados de cada tarea se definirán en su ficha antes de implementarla. Orden de prioridad: inicio/reserva, captura persistente, cierre y recuperación; después sincronización/correcciones y verificación integral.
 
