@@ -8,7 +8,11 @@ import {
   type WorkoutExecutionResultRequest,
   type WorkoutResult,
 } from '@trakia/contracts'
-import type { WorkoutExecutionResultResponse } from '@trakia/contracts'
+import type {
+  WorkoutExecutionCloseRequest,
+  WorkoutExecutionCloseResponse,
+  WorkoutExecutionResultResponse,
+} from '@trakia/contracts'
 
 const METRIC_FIELDS: Array<{
   metric: ExerciseMetric
@@ -40,6 +44,10 @@ export function createOnlineStrengthFlow(
       executionId: string,
       input: WorkoutExecutionResultRequest,
     ) => Promise<WorkoutExecutionResultResponse>
+    closeExecution?: (
+      executionId: string,
+      input?: WorkoutExecutionCloseRequest,
+    ) => Promise<WorkoutExecutionCloseResponse>
     createResultId?: () => string
   },
 ) {
@@ -48,8 +56,11 @@ export function createOnlineStrengthFlow(
   const validationErrors = reactive<Partial<Record<keyof ActualMetrics, string>>>({})
   const isLoading = ref(true)
   const isSaving = ref(false)
+  const isClosing = ref(false)
+  const isClosed = ref(false)
   const isOnline = ref(typeof navigator === 'undefined' ? false : navigator.onLine)
   const errorMessage = ref<string | null>(null)
+  const closeErrorMessage = ref<string | null>(null)
   const saveMessage = ref<string | null>(null)
   const formError = ref<string | null>(null)
   let pendingResult: WorkoutResult | null = null
@@ -215,6 +226,32 @@ export function createOnlineStrengthFlow(
     }
   }
 
+  async function finish(input: WorkoutExecutionCloseRequest = {}) {
+    if (
+      !execution.value ||
+      !dependencies.closeExecution ||
+      !isOnline.value ||
+      isClosing.value ||
+      isClosed.value
+    )
+      return false
+    isClosing.value = true
+    closeErrorMessage.value = null
+    try {
+      const response = await dependencies.closeExecution(executionId, input)
+      if (response.execution.id !== executionId || response.execution.status !== 'completed')
+        throw new Error('No se pudo confirmar el cierre del entrenamiento.')
+      execution.value = response.execution
+      isClosed.value = true
+      return true
+    } catch {
+      closeErrorMessage.value = 'No se pudo finalizar el entrenamiento. Inténtalo de nuevo.'
+      return false
+    } finally {
+      isClosing.value = false
+    }
+  }
+
   function confirmResult(confirmation: WorkoutExecutionResultResponse) {
     if (!execution.value) return
     execution.value = {
@@ -231,6 +268,7 @@ export function createOnlineStrengthFlow(
 
   return {
     canSave,
+    closeErrorMessage,
     confirmedResult,
     errorMessage,
     execution,
@@ -238,12 +276,15 @@ export function createOnlineStrengthFlow(
     formError,
     hasPendingResult,
     isLoading,
+    isClosing,
+    isClosed,
     isOnline,
     isSaving,
     metricFields,
     plannedUnit,
     recover,
     save,
+    finish,
     saveMessage,
     setMetric,
     setOnline,

@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   HttpException,
   InternalServerErrorException,
   NotFoundException,
@@ -14,6 +15,7 @@ import {
 } from '@nestjs/common'
 import {
   WorkoutExecutionOpenQuerySchema,
+  WorkoutExecutionLegacyRequestQuerySchema,
   WorkoutExecutionOpenResponseSchema,
   WorkoutExecutionRequestPathParamsSchema,
   WorkoutExecutionStartErrorSchema,
@@ -22,6 +24,8 @@ import {
   WorkoutExecutionResultRequestSchema,
   WorkoutExecutionResultPathParamsSchema,
   WorkoutExecutionResultResponseSchema,
+  WorkoutExecutionCloseRequestSchema,
+  WorkoutExecutionCloseResponseSchema,
   WorkoutSyncOperationSchema,
   WorkoutSyncResponseSchema,
 } from '@trakia/contracts'
@@ -37,6 +41,7 @@ import {
   WorkoutExecutionClosedError,
   WorkoutExecutionResultConflictError,
   WorkoutExecutionResultInvalidError,
+  WorkoutExecutionCloseConflictError,
 } from './workout-execution-start.service.js'
 
 interface AuthenticatedWorkoutRequest {
@@ -48,6 +53,7 @@ export class WorkoutsController {
   constructor(private readonly starts: WorkoutExecutionStartService) {}
 
   @Post('start')
+  @HttpCode(200)
   async start(@Req() request: AuthenticatedWorkoutRequest, @Body() body: unknown) {
     const input = WorkoutExecutionStartRequestSchema.safeParse(body)
     if (!input.success) throw invalidRequest()
@@ -65,9 +71,7 @@ export class WorkoutsController {
     if (!parsed.success) throw invalidRequest()
     const userId = authenticatedUserId(request)
     try {
-      return WorkoutExecutionOpenResponseSchema.parse(
-        await this.starts.findOpen(userId, parsed.data.deviceId),
-      )
+      return WorkoutExecutionOpenResponseSchema.parse(await this.starts.findOpen(userId))
     } catch (error) {
       throw toHttpException(error)
     }
@@ -80,7 +84,7 @@ export class WorkoutsController {
     @Query() query: unknown,
   ) {
     const parsedParams = WorkoutExecutionRequestPathParamsSchema.safeParse(params)
-    const parsedQuery = WorkoutExecutionOpenQuerySchema.safeParse(query)
+    const parsedQuery = WorkoutExecutionLegacyRequestQuerySchema.safeParse(query)
     if (!parsedParams.success || !parsedQuery.success) throw invalidRequest()
     const userId = authenticatedUserId(request)
     try {
@@ -93,6 +97,7 @@ export class WorkoutsController {
   }
 
   @Post(':executionId/results')
+  @HttpCode(200)
   async recordResult(
     @Req() request: AuthenticatedWorkoutRequest,
     @Param() params: unknown,
@@ -112,7 +117,27 @@ export class WorkoutsController {
   }
 
   @Post(':executionId/close')
+  @HttpCode(200)
   async closeExecution(
+    @Req() request: AuthenticatedWorkoutRequest,
+    @Param() params: unknown,
+    @Body() body: unknown,
+  ) {
+    const path = WorkoutExecutionResultPathParamsSchema.safeParse(params)
+    const input = WorkoutExecutionCloseRequestSchema.safeParse(body)
+    if (!path.success || !input.success) throw invalidRequest()
+    const userId = authenticatedUserId(request)
+    try {
+      return WorkoutExecutionCloseResponseSchema.parse(
+        await this.starts.closeOnlineExecution(userId, path.data.executionId, input.data),
+      )
+    } catch (error) {
+      throw toHttpException(error)
+    }
+  }
+
+  @Post(':executionId/sync-close')
+  async synchronizeClose(
     @Req() request: AuthenticatedWorkoutRequest,
     @Param() params: unknown,
     @Body() body: unknown,
@@ -176,6 +201,12 @@ function invalidRequest(): BadRequestException {
 }
 
 function toHttpException(error: unknown): HttpException {
+  if (error instanceof WorkoutExecutionCloseConflictError) {
+    return new HttpException(
+      WorkoutExecutionStartErrorSchema.parse({ code: 'EXECUTION_CLOSED', message: error.message }),
+      409,
+    )
+  }
   if (error instanceof WorkoutExecutionSessionNotFoundError) {
     return new NotFoundException(
       WorkoutExecutionStartErrorSchema.parse({ code: 'SESSION_NOT_FOUND', message: error.message }),

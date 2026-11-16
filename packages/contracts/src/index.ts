@@ -94,6 +94,14 @@ export {
   WorkoutPauseSchema,
   WorkoutStatusSchema,
 } from './workout-executions/workout-execution.js'
+export {
+  WorkoutExecutionCloseRequestSchema,
+  WorkoutExecutionCloseResponseSchema,
+} from './workout-executions/workout-execution-close.js'
+export type {
+  WorkoutExecutionCloseRequest,
+  WorkoutExecutionCloseResponse,
+} from './workout-executions/workout-execution-close.js'
 export type {
   WorkoutCompletionType,
   WorkoutExecution,
@@ -104,6 +112,7 @@ export type {
   WorkoutStatus,
 } from './workout-executions/workout-execution.js'
 export {
+  WorkoutExecutionLegacyRequestQuerySchema,
   WorkoutExecutionOpenQuerySchema,
   WorkoutExecutionOpenResponseSchema,
   WorkoutExecutionRequestPathParamsSchema,

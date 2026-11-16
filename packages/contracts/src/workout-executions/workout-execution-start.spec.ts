@@ -3,14 +3,12 @@ import {
   WorkoutExecutionOpenQuerySchema,
   WorkoutExecutionOpenResponseSchema,
   WorkoutExecutionRequestPathParamsSchema,
-  WorkoutExecutionStartErrorSchema,
   WorkoutExecutionStartRequestSchema,
   WorkoutExecutionStartResponseSchema,
 } from './workout-execution-start.js'
 
 const request = {
   requestId: 'be61ac38-b0ea-42d7-bf7c-c0d35c7ee882',
-  deviceId: 'e6374ec9-342a-4fce-88f1-a1e175bc95b5',
   planId: '9a316ce8-868b-43dd-8f54-5e3a75a84989',
   sessionId: 'e9fda47c-ce0b-4baa-8315-7bb01b0e0f6c',
 }
@@ -45,34 +43,33 @@ const execution = {
 }
 
 describe('workout execution start HTTP contracts', () => {
-  it('accepts a request with stable request and device identities', () => {
+  it('accepts a request without a device while temporarily tolerating the legacy optional field', () => {
     expect(WorkoutExecutionStartRequestSchema.parse(request)).toEqual(request)
     expect(
-      WorkoutExecutionStartRequestSchema.safeParse({ ...request, snapshot: execution.snapshot }).success,
-    ).toBe(false)
+      WorkoutExecutionStartRequestSchema.safeParse({
+        ...request,
+        deviceId: 'e6374ec9-342a-4fce-88f1-a1e175bc95b5',
+      }).success,
+    ).toBe(true)
   })
 
   it('accepts only a confirmed in-progress execution in the start response', () => {
     expect(
       WorkoutExecutionStartResponseSchema.parse({
         requestId: request.requestId,
-        deviceId: request.deviceId,
         execution,
       }).execution.id,
     ).toBe(execution.id)
     expect(
       WorkoutExecutionStartResponseSchema.safeParse({
         requestId: request.requestId,
-        deviceId: request.deviceId,
         execution: { ...execution, status: 'completed', finishedAt: execution.startedAt },
       }).success,
     ).toBe(false)
   })
 
   it('validates open execution queries, nullable responses and predictable errors', () => {
-    expect(WorkoutExecutionOpenQuerySchema.parse({ deviceId: request.deviceId }).deviceId).toBe(
-      request.deviceId,
-    )
+    expect(WorkoutExecutionOpenQuerySchema.parse({})).toEqual({})
     expect(WorkoutExecutionRequestPathParamsSchema.parse({ requestId: request.requestId }).requestId).toBe(
       request.requestId,
     )
@@ -80,11 +77,14 @@ describe('workout execution start HTTP contracts', () => {
       state: 'none',
       execution: null,
     })
+    expect(
+      WorkoutExecutionOpenResponseSchema.parse({
+        state: 'open',
+        execution: { requestId: request.requestId, execution },
+      }).state,
+    ).toBe('open')
     expect(WorkoutExecutionOpenResponseSchema.parse({ state: 'other_device', execution: null }).state).toBe(
       'other_device',
     )
-    expect(
-      WorkoutExecutionStartErrorSchema.parse({ code: 'DEVICE_MISMATCH', message: 'Other device.' }).code,
-    ).toBe('DEVICE_MISMATCH')
   })
 })

@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 const StableKeySchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
 const PositiveIntegerSchema = z.number().int().positive()
-const PositiveMeasurementSchema = z.number().positive()
+const PositiveMeasurementSchema = z.number().finite().positive()
 
 /** Actual values use the canonical exercise metrics and their established units. */
 export const ActualMetricsSchema = z

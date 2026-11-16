@@ -12,6 +12,8 @@ import {
   type WorkoutExecutionOpenResponse,
   type WorkoutExecutionResultRequest,
   type WorkoutExecutionResultResponse,
+  type WorkoutExecutionCloseRequest,
+  type WorkoutExecutionCloseResponse,
   type WorkoutSyncResponse,
   type WorkoutResult,
   type WorkoutCorrection,
@@ -58,7 +60,7 @@ export class WorkoutExecutionSnapshotInvalidError extends Error {
 
 export class WorkoutExecutionOpenExistsError extends Error {
   constructor() {
-    super('This account already has an open workout execution on this device.')
+    super('This account already has an open workout execution.')
     this.name = 'WorkoutExecutionOpenExistsError'
   }
 }
@@ -88,6 +90,13 @@ export class WorkoutExecutionClosedError extends Error {
   constructor() {
     super('Results can only be added to an open workout execution.')
     this.name = 'WorkoutExecutionClosedError'
+  }
+}
+
+export class WorkoutExecutionCloseConflictError extends Error {
+  constructor() {
+    super('The workout execution is already closed with different final details.')
+    this.name = 'WorkoutExecutionCloseConflictError'
   }
 }
 
@@ -142,16 +151,13 @@ export class WorkoutExecutionStartService {
         if (protectedKeys.has(session.sessionKey)) throw new WorkoutExecutionSessionProtectedError()
 
         const open = await findOpenRecord(repository, userId)
-        if (open) {
-          if (open.deviceId !== input.deviceId) throw new WorkoutExecutionDeviceMismatchError()
-          throw new WorkoutExecutionOpenExistsError()
-        }
+        if (open) throw new WorkoutExecutionOpenExistsError()
 
         const snapshot = await this.createSnapshot(session.session, manager)
         const record = repository.create({
           id: randomUUID(),
           userId,
-          deviceId: input.deviceId,
+          deviceId: null,
           requestId: input.requestId,
           planId: input.planId,
           sessionId: input.sessionId,
@@ -171,20 +177,16 @@ export class WorkoutExecutionStartService {
         if (existing) return this.resolveReplay(existing, input)
       }
       if (isUniqueViolation(error, 'uq_workout_executions_open_user')) {
-        const open = await findOpenRecord(this.executions, userId)
-        if (open?.deviceId && open.deviceId !== input.deviceId)
-          throw new WorkoutExecutionDeviceMismatchError()
         throw new WorkoutExecutionOpenExistsError()
       }
       throw error
     }
   }
 
-  async findOpen(userId: string, deviceId: string): Promise<WorkoutExecutionOpenResponse> {
+  async findOpen(userId: string): Promise<WorkoutExecutionOpenResponse> {
     const record = await findOpenRecord(this.executions, userId)
     if (!record) return { state: 'none', execution: null }
-    if (record.deviceId !== deviceId) return { state: 'other_device', execution: null }
-    return { state: 'current_device', execution: toStartResponse(record) }
+    return { state: 'open', execution: toStartResponse(record) }
   }
 
   async findByRequest(
@@ -210,12 +212,10 @@ export class WorkoutExecutionStartService {
         lock: { mode: 'pessimistic_write' },
       })
       if (!record) throw new WorkoutExecutionSessionNotFoundError()
-      assertOwnerDevice(record, input.deviceId)
       if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
 
       const result = input.result
-      if (result.status === 'skipped' && result.type !== 'intervals')
-        throw new WorkoutExecutionResultInvalidError()
+      if (!isOnlineStrengthSet(record.snapshot, result)) throw new WorkoutExecutionResultInvalidError()
       const results = record.results ?? []
       const existing = results.find((candidate) => candidate.id === result.id)
       if (existing) {
@@ -328,6 +328,68 @@ export class WorkoutExecutionStartService {
     })
   }
 
+  async closeOnlineExecution(
+    userId: string,
+    executionId: string,
+    input: WorkoutExecutionCloseRequest,
+  ): Promise<WorkoutExecutionCloseResponse> {
+    const details = {
+      ...(input.feeling !== undefined ? { feeling: input.feeling } : {}),
+      ...(input.observations !== undefined ? { observations: input.observations } : {}),
+      completionType: input.completionType ?? 'planned',
+      ...(input.closureReason !== undefined ? { closureReason: input.closureReason } : {}),
+    } as const
+
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkoutExecutionRecord)
+      const record = await repository.findOne({
+        where: { id: executionId, userId },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!record) throw new WorkoutExecutionSessionNotFoundError()
+
+      if (record.status === 'completed') {
+        const currentDetails = {
+          ...(record.feeling !== null && record.feeling !== undefined ? { feeling: record.feeling } : {}),
+          ...(record.observations !== null && record.observations !== undefined
+            ? { observations: record.observations }
+            : {}),
+          completionType: record.completionType ?? 'planned',
+          ...(record.closureReason !== null && record.closureReason !== undefined
+            ? { closureReason: record.closureReason }
+            : {}),
+        }
+        if (!isDeepStrictEqual(currentDetails, details)) throw new WorkoutExecutionCloseConflictError()
+        return { result: 'already_closed', execution: toExecution(record) }
+      }
+      if (record.status !== 'in_progress' && record.status !== 'paused')
+        throw new WorkoutExecutionCloseConflictError()
+
+      const [{ finishedAt }] = await manager.query('SELECT clock_timestamp() AS "finishedAt"')
+      const finished = new Date(finishedAt)
+      const execution = {
+        ...toExecution(record),
+        status: 'completed' as const,
+        finishedAt: finished.toISOString(),
+        ...details,
+      }
+      try {
+        WorkoutExecutionSchema.parse(execution)
+      } catch {
+        throw new WorkoutExecutionResultInvalidError()
+      }
+
+      record.status = 'completed'
+      record.finishedAt = finished
+      record.feeling = input.feeling ?? null
+      record.observations = input.observations ?? null
+      record.completionType = details.completionType
+      record.closureReason = input.closureReason ?? null
+      await repository.save(record)
+      return { result: 'closed', execution }
+    })
+  }
+
   async correctResult(
     userId: string,
     executionId: string,
@@ -411,11 +473,7 @@ export class WorkoutExecutionStartService {
     record: WorkoutExecutionRecord,
     input: WorkoutExecutionStartRequest,
   ): WorkoutExecutionStartResponse {
-    if (
-      record.deviceId !== input.deviceId ||
-      record.planId !== input.planId ||
-      record.sessionId !== input.sessionId
-    )
+    if (record.planId !== input.planId || record.sessionId !== input.sessionId)
       throw new WorkoutExecutionRequestConflictError()
     return toStartResponse(record)
   }
@@ -452,6 +510,18 @@ function collectExerciseKeys(session: PlannedSession): string[] {
   return [...keys].sort()
 }
 
+function isOnlineStrengthSet(snapshot: WorkoutExecutionSnapshot | null, result: WorkoutResult): boolean {
+  if (!snapshot || result.type !== 'sets' || result.status !== 'performed' || result.unit.kind !== 'planned')
+    return false
+  const block = snapshot.session.blocks.find(({ key }) => key === result.blockKey)
+  if (block?.type !== 'sets') return false
+  const planned = block.exercises.find(({ key }) => key === result.plannedExerciseKey)
+  if (!planned) return false
+  return snapshot.exercises.some(
+    ({ key, category }) => key === result.actualExerciseKey && category === 'strength',
+  )
+}
+
 function exercisesForBlock(block: PlannedBlock): PlannedExercise[] {
   return block.type === 'intervals'
     ? block.phases.flatMap((phase) => (phase.exercise ? [phase.exercise] : []))
@@ -468,6 +538,14 @@ function toExecution(record: WorkoutExecutionRecord): WorkoutExecution {
     status: record.status,
     startedAt: record.startedAt.toISOString(),
     ...(record.finishedAt ? { finishedAt: record.finishedAt.toISOString() } : {}),
+    ...(record.feeling ? { feeling: record.feeling } : {}),
+    ...(record.observations !== null && record.observations !== undefined
+      ? { observations: record.observations }
+      : {}),
+    ...(record.completionType ? { completionType: record.completionType } : {}),
+    ...(record.closureReason !== null && record.closureReason !== undefined
+      ? { closureReason: record.closureReason }
+      : {}),
     pauses: [],
     results: record.results ?? [],
     corrections: (record.correctionOperations ?? []).map(({ payload }) => payload.correction),
@@ -475,8 +553,8 @@ function toExecution(record: WorkoutExecutionRecord): WorkoutExecution {
 }
 
 function toStartResponse(record: WorkoutExecutionRecord): WorkoutExecutionStartResponse {
-  if (!record.requestId || !record.deviceId) throw new Error('Stored start identity is incomplete.')
-  return { requestId: record.requestId, deviceId: record.deviceId, execution: toExecution(record) }
+  if (!record.requestId || !record.userId) throw new Error('Stored start identity is incomplete.')
+  return { requestId: record.requestId, execution: toExecution(record) }
 }
 
 function assertOwnerDevice(record: WorkoutExecutionRecord, deviceId: string): void {

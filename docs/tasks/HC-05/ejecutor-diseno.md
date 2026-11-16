@@ -1,5 +1,7 @@
 # HC-05 — Diseño del ejecutor de entrenamientos
 
+> **Estado de la decisión:** las secciones local-first conservan el historial HC-05-01–08. [HC-05-09-02](HC-05-09-02.md) completa y establece el modelo online; las reglas incompatibles quedan sustituidas. No aplicar los apartados históricos como arquitectura objetivo.
+
 ## Estado y fuentes
 
 Este diseño traduce las decisiones de HC-05-01 en guía de implementación, sin alterar el modelo aprobado de [workouts](../../domain/workouts.md), [sincronización](../../domain/workout-synchronization.md) ni [planificación](../../domain/training-plans.md). Los esquemas de `packages/contracts/src/workout-executions/` tipan snapshots, pausas, resultados y correcciones; `workout-sync/` tipa operaciones de cierre/corrección y respuestas. No se añade discriminante: las unidades usan los resultados existentes `set`, `circuit` e `interval`.
@@ -15,7 +17,7 @@ Este diseño traduce las decisiones de HC-05-01 en guía de implementación, sin
 1. **D1:** navegación guiada y secuencial por unidades previstas.
 2. **D2:** cada aparición ofrece ejercicio principal y hasta tres alternativas predefinidas; cambiar ejercicio no reordena el entrenamiento.
 3. **D3:** interfaz contextual a la modalidad deportiva y sus métricas.
-4. **D4:** en series independientes, el descanso comienza al pulsar «Completar serie», a la vez que se registra el resultado.
+4. **D4 (secuencia de captura concretada en HC-05-08):** al terminar físicamente una serie, «Completar serie e iniciar descanso» ancla el descanso de inmediato. A continuación se registran y guardan sus métricas en una acción separada; ese guardado confirma el resultado local junto con el avance del cursor y no reinicia el temporizador. Si falla, se conserva el formulario y el descanso ya persistido.
 5. **D5:** intervalos avanzan automáticamente al terminar su ventana, con acción para finalizar anticipadamente una fase.
 6. **D6:** en fuerza y superseries, avanzar tras descanso es manual; empezar antes o después del tiempo previsto es válido.
 7. **D7:** terminar antes una fase de trabajo HIIT abre inmediatamente la recuperación prevista.
@@ -26,7 +28,7 @@ Este diseño traduce las decisiones de HC-05-01 en guía de implementación, sin
 13. **D13:** al recuperar, descanso según tiempo real transcurrido; ante incertidumbre sobre trabajo activo o HIIT se pide confirmación y no se inventa trabajo.
 14–16. **Diseño técnico:** respetar el protocolo de HC-02 de cierre completo y correcciones como operaciones separadas, secuenciales, idempotentes y causales. Retención, presentación y resolución de incidencias se proponen aquí y requieren validación.
 17. **D17:** cierre accesible siempre, sugerido al acabar la última unidad; siempre exige revisar y confirmar.
-18. **D18 (evolución aprobada en HC-05-02):** como máximo una ejecución deportiva abierta por cuenta, vinculada al dispositivo propietario donde se inició y sin transferencia. Sustituye la decisión original de HC-05-01, que limitaba la exclusión a cada dispositivo.
+18. **D18 (historial HC-05-02; sustituida en HC-05-09-02):** HC-05-02 estableció como máximo una ejecución abierta por cuenta, vinculada al dispositivo propietario y sin transferencia; HC-05-01 había limitado la exclusión por dispositivo. El modelo vigente elimina esa vinculación y permite recuperar la ejecución abierta por usuario autenticado desde cualquier sesión.
 19. **D19:** inicio requiere conexión; continuación y cierre funcionan offline.
 20. **D20:** borradores persistentes en IndexedDB, diferenciados de resultados confirmados.
 21. **D21 (evolución autorizada en HC-05-03 y concretada en HC-05-06):** cada resultado confirmado se persiste primero de forma atómica en IndexedDB y se envía de inmediato al backend, sin bloquear la sesión; los pendientes se reintentan con la misma identidad. El cierre completo consolida en PostgreSQL los resultados locales que aún falten, detecta contradicciones y confirma el estado terminal en una transacción. El cliente reintenta la misma operación de cierre y conserva su copia local tras sincronizar.
@@ -45,7 +47,7 @@ Una unidad planificada se resuelve con resultado `performed` o `skipped`. Un res
 
 ### Transiciones guiadas
 
-- **Fuerza / series:** cargar unidad prevista; editar borrador; completar confirma una sola unidad y, si aplica descanso independiente, inicia dicho descanso (D4); tras temporizador, avance manual (D6). Reintentar confirmación local no duplica la identidad.
+- **Fuerza / series:** cargar unidad prevista; editar borrador; al terminar físicamente, iniciar el descanso previsto antes de introducir métricas (D4); después guardar métricas y resultado con el cursor en la misma transacción local; tras el descanso, avanzar manualmente (D6). Guardar métricas no reinicia ni duplica el descanso. Reintentar confirmación local no duplica la identidad.
 - **Apariciones múltiples:** agotar las series planificadas de una aparición antes de ofrecer la siguiente. Seleccionar una alternativa afecta al ejercicio ejecutado de esa unidad, no al orden ni al snapshot. La siguiente sugerencia de carga busca la última serie confirmada con el mismo `exerciseKey`.
 - **Superserie:** representar solo cuando el plan pueda expresarse como circuito por rondas. Registrar cada ejercicio individualmente; la ronda deriva de esos resultados. Al terminar ronda, descanso planificado (normalmente); reanudar/avanzar es acción manual. No crear un tipo `superset` externo.
 - **Circuito fijo:** rondas previstas con resultado por ejercicio/ronda; rondas extra usan unidades adicionales. Solo rondas realmente iniciadas cuentan.
@@ -125,3 +127,25 @@ No se observa incompatibilidad que requiera nuevo tipo de bloque: superseries se
 - `workout_executions.correction_operations` conserva los sobres `correct_result` aceptados. Cada corrección actualiza el resultado efectivo y añade su historial en la misma transacción, bajo bloqueo de fila. El cierre y el estado `completed` permanecen intactos.
 - El servidor exige que cada `before` coincida con el valor efectivo vigente y revalida el resultado y el historial completo contra el snapshot. La repetición idéntica devuelve `already_applied`; una operación contradictoria o desactualizada no escribe.
 - La vista cerrada permite corregir métricas admitidas y el ejercicio realizado entre las opciones del snapshot. El resultado local cambia tras `applied`/`already_applied`; los errores conservan el formulario y la operación para reintentar. No se corrigen `activeSeconds` ni `windowProgressSeconds`, ausentes del contrato.
+
+## Aplicación aprobada en HC-05-08
+
+- Todas las escrituras al almacén IndexedDB existente normalizan el dato en `putJsonRecord`, en el límite de `IDBObjectStore.put`. Esto quita proxies Vue antes de structured clone; los contratos persistidos son datos JSON. El recuperador valida resultados con `WorkoutResultSchema` y valida el resto del progreso local antes de exponerlo. Ante datos inválidos, informa del registro dañado y conserva los datos almacenados para investigación; no los omite silenciosamente.
+- Las transiciones temporales se muestran como guardadas solo después de confirmar la transacción local. Si pausa, reanudación, temporizador o avance falla, la pantalla conserva el estado anterior, mantiene el cambio pendiente y permite reintentar. El formulario permanece visible ante un fallo y el resultado/cursor se confirman juntos.
+- En fuerza, el toque al terminar la serie inicia primero el descanso con su marca temporal; el formulario identifica esa serie y guarda las métricas después. El guardado conserva el temporizador activo, y la continuación a la siguiente serie sigue siendo manual.
+- El vencimiento de AMRAP termina su ventana sin fabricar rondas/resultados. El vencimiento de recuperación HIIT avanza a la fase temporal siguiente incluso si la recuperación tenía ejercicio asociado; no crea resultado ni métricas. El vencimiento de trabajo mantiene la confirmación de duración real.
+- La zona de entrenamiento omite nombre de sesión, clave y contadores administrativos. La jerarquía móvil prioriza actividad actual, objetivo, campos de registro y acción principal; persistencia/sincronización quedan en estado discreto y pausa/finalización/alternativas/omisión son secundarias.
+- Circuitos y superseries presentan la secuencia ordenada con estados «Hecho», «Ahora» y «Pendiente». Al completar una ronda, el estado se separa de la siguiente ejecución: muestra el descanso, la secuencia pendiente y «Empezar siguiente ronda»; no activa antes el formulario del próximo ejercicio. El avance entre rondas sigue siendo manual.
+- AMRAP presenta ronda parcial, secuencia de la ronda y cuenta atrás. HIIT destaca cuenta atrás, fase actual y siguiente fase. En fuerza se muestra ejercicio/serie y objetivo distinto del resultado; al terminar físicamente la serie empieza el descanso mientras el formulario sigue identificado con la serie completada. Tras guardar métricas aparece el descanso con continuación manual, sin mostrar el formulario siguiente.
+- Las series extra se ofrecen junto al ejercicio correspondiente. Alternativas y omisión permanecen accesibles en controles secundarios.
+- No se añadieron módulos, stores, rutas, servicios de persistencia, colas ni coordinación entre pestañas. El humo manual en móvil sigue pendiente.
+
+## Arquitectura objetivo HC-05-09-02
+
+PostgreSQL es la fuente única de verdad y NestJS confirma cada mutación deportiva. Vue deriva navegación, temporizadores visibles y formularios del estado confirmado y no avanza si la API no responde con éxito. La ejecución requiere conexión y se recupera por usuario autenticado. Se mantiene una única ejecución abierta por usuario, sin propiedad ni identidad de dispositivo.
+
+**D18 objetivo:** como máximo una ejecución abierta por usuario autenticado, recuperable desde cualquier sesión autenticada. Reemplaza tanto la D18 original por dispositivo de HC-05-01 como la variante con dispositivo propietario adoptada por HC-05-02. `requestId` de inicio, IDs de resultado y de corrección se conservan para reintentos HTTP; no se añade ledger ni secuencia genérica.
+
+Se sustituyen D19–D21: no hay continuación deportiva offline, IndexedDB para ejecución/resultados/borradores, cola ni reconciliación. La antigua D22 se conserva en su regla deportiva (no fabricar trabajo), usando timestamps confirmados por servidor. Snapshot, resultados reales y correcciones auditables se mantienen. El cursor normal se deriva de snapshot y resultados; solo se persiste el ancla actual de descanso/AMRAP/HIIT no reconstruible, sin ticks ni segundos restantes. Las métricas mantienen positividad finita y precisión decimal libre del contrato compartido. Resultado y métricas se confirman antes de iniciar el descanso; la transacción inicia el ancla cuando corresponde. El detalle y la secuencia de implementación están en HC-05-09-02.
+
+HC-05-08 continúa como historial de cambios en revisión: se conservan mejoras de presentación y defensas que sigan válidas; la persistencia local, su estado de sincronización y la confirmación de avance anterior al servidor quedan reemplazadas al migrar cada flujo online. No borrar datos locales existentes ni retirar el store hasta detectar y resolver los resultados exclusivamente locales.

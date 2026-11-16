@@ -5,7 +5,6 @@ import {
 } from './workout-execution-results.js'
 
 const request = {
-  deviceId: 'e6374ec9-342a-4fce-88f1-a1e175bc95b5',
   result: {
     type: 'sets',
     id: 'be61ac38-b0ea-42d7-bf7c-c0d35c7ee882',
@@ -29,6 +28,12 @@ describe('workout execution result HTTP contracts', () => {
 
   it('rejects malformed, unsupported, or extra fields', () => {
     expect(WorkoutExecutionResultRequestSchema.safeParse({ ...request, extra: true }).success).toBe(false)
+    expect(
+      WorkoutExecutionResultRequestSchema.safeParse({
+        ...request,
+        deviceId: 'e6374ec9-342a-4fce-88f1-a1e175bc95b5',
+      }).success,
+    ).toBe(false)
     expect(
       WorkoutExecutionResultRequestSchema.safeParse({
         ...request,

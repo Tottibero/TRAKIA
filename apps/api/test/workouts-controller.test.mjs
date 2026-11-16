@@ -6,9 +6,9 @@ import {
   WorkoutExecutionSessionNotFoundError,
 } from '../dist/modules/workouts/workout-execution-start.service.js'
 
+const legacyDeviceId = 'e6374ec9-342a-4fce-88f1-a1e175bc95b5'
 const request = {
   requestId: 'be61ac38-b0ea-42d7-bf7c-c0d35c7ee882',
-  deviceId: 'e6374ec9-342a-4fce-88f1-a1e175bc95b5',
   planId: '9a316ce8-868b-43dd-8f54-5e3a75a84989',
   sessionId: 'e9fda47c-ce0b-4baa-8315-7bb01b0e0f6c',
 }
@@ -46,7 +46,7 @@ test('workouts controller binds start and recovery to the authenticated user', a
   const starts = {
     start: async (...args) => {
       calls.push(['start', ...args])
-      return { requestId: request.requestId, deviceId: request.deviceId, execution }
+      return { requestId: request.requestId, execution }
     },
     findOpen: async (...args) => {
       calls.push(['open', ...args])
@@ -54,16 +54,18 @@ test('workouts controller binds start and recovery to the authenticated user', a
     },
     findByRequest: async (...args) => {
       calls.push(['request', ...args])
-      return { requestId: request.requestId, deviceId: request.deviceId, execution }
+      return { requestId: request.requestId, execution }
     },
   }
   const controller = new WorkoutsController(starts)
   await controller.start({ authUserId: 'authenticated-user' }, request)
-  await controller.findOpen({ authUserId: 'authenticated-user' }, { deviceId: request.deviceId })
+  await controller.findOpen({ authUserId: 'authenticated-user' }, {})
+  await assert.rejects(controller.findOpen({}, {}), { status: 401 })
+  await assert.rejects(controller.start({}, request), { status: 401 })
   await controller.findByRequest(
     { authUserId: 'authenticated-user' },
     { requestId: request.requestId },
-    { deviceId: request.deviceId },
+    { deviceId: 'e6374ec9-342a-4fce-88f1-a1e175bc95b5' },
   )
   assert.deepEqual(
     calls.map(([kind, userId]) => [kind, userId]),
@@ -93,7 +95,7 @@ test('workouts controller rejects malformed inputs and classifies predictable co
     controller.findByRequest(
       { authUserId: 'user' },
       { requestId: request.requestId },
-      { deviceId: request.deviceId },
+      { deviceId: legacyDeviceId },
     ),
     { status: 404 },
   )
@@ -121,29 +123,26 @@ test('workouts controller authenticates and validates result recording inputs', 
     { authUserId: 'authenticated-user' },
     { executionId: execution.id },
     {
-      deviceId: request.deviceId,
       result,
     },
   )
-  assert.deepEqual(calls, [['authenticated-user', execution.id, { deviceId: request.deviceId, result }]])
+  assert.deepEqual(calls, [['authenticated-user', execution.id, { result }]])
   await assert.rejects(
     controller.recordResult(
       { authUserId: 'authenticated-user' },
       { executionId: execution.id },
       {
-        deviceId: request.deviceId,
         result: { ...result, extra: true },
       },
     ),
     { status: 400 },
   )
-  await assert.rejects(
-    controller.recordResult({}, { executionId: execution.id }, { deviceId: request.deviceId, result }),
-    { status: 401 },
-  )
+  await assert.rejects(controller.recordResult({}, { executionId: execution.id }, { result }), {
+    status: 401,
+  })
 })
 
-test('the existing result endpoint accepts circuit and skipped interval contracts', async () => {
+test('the results controller validates shared result shapes before domain-scope checks', async () => {
   const calls = []
   const controller = new WorkoutsController({
     recordResult: async (...args) => {
@@ -175,38 +174,22 @@ test('the existing result endpoint accepts circuit and skipped interval contract
     const response = await controller.recordResult(
       { authUserId: 'authenticated-user' },
       { executionId: execution.id },
-      { deviceId: request.deviceId, result },
+      { result },
     )
     assert.deepEqual(response.result, result)
   }
   assert.equal(calls.length, 2)
 })
 
-test('workouts controller authenticates, validates and binds a close to the route execution', async () => {
+test('workouts controller authenticates and validates direct execution closure', async () => {
   const calls = []
-  const operation = {
-    operationType: 'close_execution',
-    operationId: '65c6ff1d-cbbb-4f8a-b07d-22c22a4a77b4',
-    executionId: execution.id,
-    deviceId: request.deviceId,
-    sequence: 1,
-    payload: {
-      execution: {
-        ...execution,
-        status: 'completed',
-        finishedAt: '2026-11-15T11:00:00.000Z',
-        completionType: 'planned',
-      },
-    },
-  }
+  const input = { completionType: 'early', closureReason: 'Tiempo limitado.' }
   const controller = new WorkoutsController({
-    closeExecution: async (...args) => {
+    closeOnlineExecution: async (...args) => {
       calls.push(args)
       return {
-        operationId: operation.operationId,
-        executionId: execution.id,
-        sequence: 1,
-        result: 'applied',
+        result: 'closed',
+        execution: { ...execution, status: 'completed', finishedAt: '2026-11-15T11:00:00.000Z', ...input },
       }
     },
   })
@@ -214,25 +197,19 @@ test('workouts controller authenticates, validates and binds a close to the rout
     await controller.closeExecution(
       { authUserId: 'authenticated-user' },
       { executionId: execution.id },
-      operation,
+      input,
     ),
     {
-      operationId: operation.operationId,
-      executionId: execution.id,
-      sequence: 1,
-      result: 'applied',
+      result: 'closed',
+      execution: { ...execution, status: 'completed', finishedAt: '2026-11-15T11:00:00.000Z', ...input },
     },
   )
-  assert.deepEqual(calls, [['authenticated-user', execution.id, operation]])
+  assert.deepEqual(calls, [['authenticated-user', execution.id, input]])
   await assert.rejects(
-    controller.closeExecution(
-      { authUserId: 'authenticated-user' },
-      { executionId: '6aec8e0a-9b96-4c97-9fc1-42a7badc67ca' },
-      operation,
-    ),
+    controller.closeExecution({ authUserId: 'authenticated-user' }, { executionId: 'not-a-uuid' }, input),
     { status: 400 },
   )
-  await assert.rejects(controller.closeExecution({}, { executionId: execution.id }, operation), {
+  await assert.rejects(controller.closeExecution({}, { executionId: execution.id }, input), {
     status: 401,
   })
 })
@@ -243,7 +220,7 @@ test('workouts controller authenticates, validates and binds corrections to the 
     operationType: 'correct_result',
     operationId: '282e240a-4fd8-4407-8922-8fd19a914431',
     executionId: execution.id,
-    deviceId: request.deviceId,
+    deviceId: legacyDeviceId,
     sequence: 2,
     payload: {
       correction: {

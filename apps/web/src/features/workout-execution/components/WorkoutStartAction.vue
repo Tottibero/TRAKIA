@@ -13,7 +13,8 @@ const workoutStart = useWorkoutExecutionStart(toRef(props, 'planId'), toRef(prop
       Entrenamiento
     </h2>
     <p class="mt-2 max-w-prose text-sm leading-6 text-stone-300">
-      El inicio necesita conexión. Una vez confirmado, podrás recuperar esta sesión en este dispositivo.
+      El inicio necesita conexión. Una vez confirmado, podrás recuperar esta sesión desde cualquier
+      dispositivo autenticado.
     </p>
     <p v-if="!workoutStart.isOnline.value" class="mt-3 text-sm text-amber-200" role="status">
       Sin conexión: conéctate para iniciar el entrenamiento.

@@ -1,5 +1,7 @@
 # Decisiones de sincronización de ejecuciones deportivas
 
+> **Estado:** este documento conserva el protocolo histórico diseñado para HC-02/HC-05-01–08. HC-05-09-02 completada lo sustituye para el ciclo de ejecución: no hay cierre offline, cola ni reconciliación. Se conserva a continuación el historial y la semántica de correcciones auditables; no es la arquitectura objetivo vigente.
+
 Este documento define el contrato de sincronización de ejecuciones cerradas y sus correcciones posteriores. Las formas externas Zod viven en `packages/contracts/src/workout-sync/`.
 
 ## Decisiones aprobadas

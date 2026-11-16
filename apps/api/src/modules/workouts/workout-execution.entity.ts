@@ -5,6 +5,8 @@ import type {
   WorkoutExecutionSnapshot,
   WorkoutResult,
   WorkoutStatus,
+  WorkoutCompletionType,
+  WorkoutFeeling,
 } from '@trakia/contracts'
 
 @Entity({ name: 'workout_executions' })
@@ -18,7 +20,7 @@ import type {
 })
 @Check(
   'ck_workout_executions_start_identity',
-  '("request_id" IS NULL AND "device_id" IS NULL AND "user_id" IS NULL AND "plan_id" IS NULL AND "session_id" IS NULL) OR ("request_id" IS NOT NULL AND "device_id" IS NOT NULL AND "user_id" IS NOT NULL AND "plan_id" IS NOT NULL AND "session_id" IS NOT NULL AND "snapshot" IS NOT NULL)',
+  '(("request_id" IS NULL AND "device_id" IS NULL AND "user_id" IS NULL AND "plan_id" IS NULL AND "session_id" IS NULL) OR ("request_id" IS NOT NULL AND "user_id" IS NOT NULL AND "plan_id" IS NOT NULL AND "session_id" IS NOT NULL AND "snapshot" IS NOT NULL))',
 )
 export class WorkoutExecutionRecord {
   @PrimaryGeneratedColumn('uuid') id!: string
@@ -39,4 +41,9 @@ export class WorkoutExecutionRecord {
   @Column({ type: 'varchar' }) status!: WorkoutStatus
   @Column({ name: 'started_at', type: 'timestamptz' }) startedAt!: Date
   @Column({ name: 'finished_at', type: 'timestamptz', nullable: true }) finishedAt!: Date | null
+  @Column({ type: 'varchar', nullable: true }) feeling!: WorkoutFeeling | null
+  @Column({ type: 'varchar', nullable: true }) observations!: string | null
+  @Column({ name: 'completion_type', type: 'varchar', nullable: true })
+  completionType!: WorkoutCompletionType | null
+  @Column({ name: 'closure_reason', type: 'varchar', nullable: true }) closureReason!: string | null
 }
