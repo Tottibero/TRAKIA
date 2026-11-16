@@ -6,7 +6,7 @@ import type {
   WorkoutExecution,
   WorkoutResult,
 } from '@trakia/contracts'
-import type { WorkoutExecutionCursor } from './execution-store'
+import type { WorkoutExecutionCursor, WorkoutExecutionTemporalState } from './execution-store'
 
 export type GuidedUnit =
   | {
@@ -31,6 +31,123 @@ export type GuidedUnit =
       cycleIndex: number
       phase: PlannedIntervalPhase
     }
+
+export type CircuitSequenceEntry = {
+  id: string
+  name: string
+  state: 'done' | 'current' | 'pending'
+  label: 'Hecho' | 'Omitido' | 'Ahora' | 'Pendiente'
+}
+
+export type CircuitSequenceProjection = {
+  mode: 'rounds' | 'amrap'
+  roundIndex: number
+  roundCount: number | null
+  waitingForRoundStart: boolean
+  currentIsLast: boolean
+  entries: CircuitSequenceEntry[]
+}
+
+export type IntervalPhasePresentation = {
+  current: { label: 'Trabajo' | 'Recuperación'; seconds: number; exerciseName: string | null }
+  next: { label: 'Trabajo' | 'Recuperación'; seconds: number; exerciseName: string | null } | null
+}
+
+export type ExecutionPresentationMode =
+  'active' | 'circuit-round-boundary' | 'set-result-during-rest' | 'step-rest'
+
+export function projectCircuitSequence(
+  execution: WorkoutExecution,
+  unit: Extract<GuidedUnit, { type: 'circuit' }>,
+  results: WorkoutResult[],
+  waitingForRoundStart: boolean,
+  currentExerciseName?: string,
+): CircuitSequenceProjection | null {
+  const block = execution.snapshot.session.blocks.find(({ key }) => key === unit.blockKey)
+  if (block?.type !== 'circuit') return null
+
+  const entries: CircuitSequenceEntry[] = block.exercises.map((appearance) => {
+    const result = results.find(
+      (candidate) =>
+        candidate.type === 'circuit' &&
+        candidate.blockKey === block.key &&
+        candidate.plannedExerciseKey === appearance.key &&
+        candidate.round.roundIndex === unit.round.roundIndex,
+    )
+    const state = result
+      ? 'done'
+      : !waitingForRoundStart && appearance.key === unit.appearance.key
+        ? 'current'
+        : 'pending'
+    const exercise = execution.snapshot.exercises.find(({ key }) => key === appearance.exerciseKey)
+
+    return {
+      id: `${block.key}:${unit.round.roundIndex}:${appearance.key}`,
+      name:
+        state === 'current'
+          ? currentExerciseName || exercise?.name || 'Ejercicio'
+          : (exercise?.name ?? 'Ejercicio'),
+      state,
+      label: result
+        ? result.status === 'skipped'
+          ? 'Omitido'
+          : 'Hecho'
+        : state === 'current'
+          ? 'Ahora'
+          : 'Pendiente',
+    }
+  })
+
+  return {
+    mode: unit.mode,
+    roundIndex: unit.round.roundIndex,
+    roundCount: block.mode === 'rounds' ? block.rounds : null,
+    waitingForRoundStart,
+    currentIsLast: entries.at(-1)?.state === 'current',
+    entries,
+  }
+}
+
+export function projectIntervalPhase(
+  execution: WorkoutExecution,
+  current: GuidedUnit,
+  next: GuidedUnit | null,
+  currentExerciseName?: string,
+): IntervalPhasePresentation | null {
+  if (current.type !== 'intervals') return null
+  return {
+    current: intervalPhaseLabel(execution, current, currentExerciseName),
+    next: next?.type === 'intervals' ? intervalPhaseLabel(execution, next) : null,
+  }
+}
+
+export function projectExecutionPresentationMode(
+  unit: GuidedUnit,
+  temporal: WorkoutExecutionTemporalState,
+): ExecutionPresentationMode {
+  if (unit.type === 'circuit' && unit.mode === 'rounds' && temporal.awaitManualAdvance)
+    return 'circuit-round-boundary'
+  if (unit.type === 'sets' && temporal.setAwaitingMetrics) return 'set-result-during-rest'
+  if (temporal.awaitManualAdvance && temporal.timer?.kind === 'rest') return 'step-rest'
+  return 'active'
+}
+
+function intervalPhaseLabel(
+  execution: WorkoutExecution,
+  unit: Extract<GuidedUnit, { type: 'intervals' }>,
+  currentExerciseName?: string,
+): IntervalPhasePresentation['current'] {
+  const exerciseKey = unit.phase.exercise?.exerciseKey
+  return {
+    label: unit.phase.type === 'work' ? 'Trabajo' : 'Recuperación',
+    seconds: unit.phase.windowSeconds,
+    exerciseName:
+      currentExerciseName ||
+      (exerciseKey
+        ? (execution.snapshot.exercises.find(({ key }) => key === exerciseKey)?.name ?? null)
+        : null),
+  }
+}
 
 export function collectGuidedUnits(execution: WorkoutExecution): GuidedUnit[] {
   return execution.snapshot.session.blocks.flatMap((block): GuidedUnit[] => {
@@ -138,6 +255,25 @@ export function findNextGuidedUnitAfterBlock(
       )
       return candidateIndex > blockIndex && !results.some((result) => resultMatchesUnit(result, unit))
     }) ?? null
+  )
+}
+
+export function nextGuidedUnitInSequence(units: GuidedUnit[], current: GuidedUnit): GuidedUnit | null {
+  const index = units.findIndex((candidate) => sameUnitCursor(candidate, current))
+  return index >= 0 ? (units[index + 1] ?? null) : null
+}
+
+function sameUnitCursor(left: GuidedUnit, right: GuidedUnit): boolean {
+  if (left.type !== right.type || left.blockKey !== right.blockKey) return false
+  if (left.type === 'sets' && right.type === 'sets')
+    return left.appearance.key === right.appearance.key && left.unit.setIndex === right.unit.setIndex
+  if (left.type === 'circuit' && right.type === 'circuit')
+    return left.appearance.key === right.appearance.key && left.round.roundIndex === right.round.roundIndex
+  return (
+    left.type === 'intervals' &&
+    right.type === 'intervals' &&
+    left.cycleIndex === right.cycleIndex &&
+    left.phase.key === right.phase.key
   )
 }
 
@@ -371,7 +507,7 @@ function resultUnitLabel(result: WorkoutResult): string {
 export function nextAmrapUnit(
   block: Extract<WorkoutExecution['snapshot']['session']['blocks'][number], { type: 'circuit' }>,
   current: Extract<GuidedUnit, { type: 'circuit' }>,
-): GuidedUnit {
+): Extract<GuidedUnit, { type: 'circuit' }> {
   const index = block.exercises.findIndex(({ key }) => key === current.appearance.key)
   const isLast = index === block.exercises.length - 1
   return {

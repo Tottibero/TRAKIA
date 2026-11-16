@@ -7,6 +7,8 @@ import {
   WorkoutExecutionResultResponseSchema,
   WorkoutSyncOperationSchema,
   WorkoutSyncResponseSchema,
+  WorkoutExecutionCloseRequestSchema,
+  WorkoutExecutionCloseResponseSchema,
   type WorkoutExecutionOpenResponse,
   type WorkoutExecutionStartRequest,
   type WorkoutExecutionStartResponse,
@@ -15,13 +17,13 @@ import {
   type CloseExecutionOperation,
   type CorrectResultOperation,
   type WorkoutSyncResponse,
+  type WorkoutExecutionCloseRequest,
 } from '@trakia/contracts'
 import { apiRequest } from '@/shared/api/http'
 
 export async function startWorkoutExecution(input: WorkoutExecutionStartRequest) {
   const request = WorkoutExecutionStartRequestSchema.parse({
     requestId: input.requestId,
-    deviceId: input.deviceId,
     planId: input.planId,
     sessionId: input.sessionId,
   })
@@ -32,11 +34,9 @@ export async function startWorkoutExecution(input: WorkoutExecutionStartRequest)
   return WorkoutExecutionStartResponseSchema.parse(response)
 }
 
-export async function getOpenWorkoutExecution(deviceId: string): Promise<WorkoutExecutionOpenResponse> {
-  const query = WorkoutExecutionOpenQuerySchema.parse({ deviceId })
-  const response = await apiRequest<unknown>(
-    `/workouts/executions/open?deviceId=${encodeURIComponent(query.deviceId)}`,
-  )
+export async function getOpenWorkoutExecution(): Promise<WorkoutExecutionOpenResponse> {
+  WorkoutExecutionOpenQuerySchema.parse({})
+  const response = await apiRequest<unknown>('/workouts/executions/open')
   return WorkoutExecutionOpenResponseSchema.parse(response)
 }
 
@@ -65,7 +65,16 @@ export async function recordWorkoutExecutionResult(
   return WorkoutExecutionResultResponseSchema.parse(response)
 }
 
-export async function closeWorkoutExecution(
+export async function closeWorkoutExecution(executionId: string, input: WorkoutExecutionCloseRequest = {}) {
+  const request = WorkoutExecutionCloseRequestSchema.parse(input)
+  const response = await apiRequest<unknown>(
+    `/workouts/executions/${encodeURIComponent(executionId)}/close`,
+    { method: 'POST', body: JSON.stringify(request) },
+  )
+  return WorkoutExecutionCloseResponseSchema.parse(response)
+}
+
+export async function synchronizeWorkoutExecutionClose(
   executionId: string,
   operation: CloseExecutionOperation,
 ): Promise<WorkoutSyncResponse> {
@@ -73,7 +82,7 @@ export async function closeWorkoutExecution(
   if (request.operationType !== 'close_execution' || request.executionId !== executionId)
     throw new Error('La operación de cierre no coincide con la ejecución.')
   const response = await apiRequest<unknown>(
-    `/workouts/executions/${encodeURIComponent(executionId)}/close`,
+    `/workouts/executions/${encodeURIComponent(executionId)}/sync-close`,
     { method: 'POST', body: JSON.stringify(request) },
   )
   return WorkoutSyncResponseSchema.parse(response)

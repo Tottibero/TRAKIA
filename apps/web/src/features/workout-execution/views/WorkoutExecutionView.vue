@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
 import type { ActualMetrics } from '@trakia/contracts'
-import { useAuth } from '@/features/auth'
 import { useWorkoutExecutionSession } from '../useWorkoutExecutionSession'
 
 const route = useRoute()
-const auth = useAuth()
 const session = useWorkoutExecutionSession(String(route.params.executionId ?? ''))
 
 function metricsSummary(metrics: ActualMetrics | undefined) {
@@ -28,9 +26,7 @@ function title() {
   if (!unit) return 'Entrenamiento'
   if (unit.type === 'intervals' && !unit.phase.exercise)
     return unit.phase.type === 'rest' ? 'Recuperación' : 'Trabajo'
-  return (
-    session.currentExercise.value?.name ?? session.currentAppearance.value?.exerciseKey ?? 'Entrenamiento'
-  )
+  return session.currentExercise.value?.name ?? 'Entrenamiento'
 }
 </script>
 
@@ -47,12 +43,30 @@ function title() {
         <div class="flex items-center gap-3">
           <button
             v-if="
+              session.supportsPause &&
+              !session.isLoading.value &&
+              !session.isClosed.value &&
+              !session.isReviewing.value &&
+              session.currentUnit.value &&
+              !session.isAmrapFinished.value
+            "
+            class="min-h-11 rounded-md border border-white/20 px-3 text-sm font-medium text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+            type="button"
+            :disabled="session.isSaving.value || session.needsTemporalRetry.value"
+            :aria-pressed="session.isPaused.value"
+            @click="session.togglePause"
+          >
+            {{ session.isPaused.value ? 'Reanudar' : 'Pausar' }}
+          </button>
+          <button
+            v-if="
+              session.supportsClose &&
               !session.isLoading.value &&
               !session.errorMessage.value &&
               !session.isClosed.value &&
               !session.isReviewing.value
             "
-            class="min-h-11 rounded-md bg-lime-300 px-3 text-sm font-semibold text-stone-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+            class="min-h-11 rounded-md border border-white/20 px-3 text-sm font-medium text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
             type="button"
             @click="session.openReview"
           >
@@ -62,9 +76,6 @@ function title() {
           <span v-if="!session.isOnline.value" class="text-xs text-amber-200" role="status"
             >Sin conexión</span
           >
-          <span class="hidden max-w-48 truncate text-xs text-stone-400 sm:inline">{{
-            auth.user.value?.email
-          }}</span>
         </div>
       </header>
 
@@ -199,7 +210,6 @@ function title() {
                 :id="`correction-${field}`"
                 class="mt-2 min-h-12 w-full rounded-md border border-white/15 bg-[#191a17] px-3 text-base text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
                 type="number"
-                min="0.1"
                 :step="step"
                 :value="session.correctionFields[field] ?? ''"
                 :disabled="session.isSaving.value || session.ambiguousCorrection.value"
@@ -411,6 +421,15 @@ function title() {
             {{ session.errorMessage.value }}
           </p>
           <button
+            v-if="session.needsLocalRetry.value"
+            class="min-h-11 w-full rounded-md border border-amber-200/40 px-4 text-sm text-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+            type="button"
+            :disabled="session.isSaving.value"
+            @click="session.retryLocalSave"
+          >
+            Reintentar guardado local
+          </button>
+          <button
             class="min-h-12 w-full rounded-md bg-lime-300 px-4 font-semibold text-stone-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:cursor-not-allowed disabled:opacity-50"
             type="submit"
             :disabled="session.isSaving.value || !session.reviewDraft.completionType"
@@ -421,40 +440,236 @@ function title() {
       </section>
 
       <template v-else-if="session.currentUnit.value && !session.isAmrapFinished.value">
-        <div class="pt-6">
-          <div class="flex items-center justify-between gap-3 text-sm text-stone-400">
-            <p>
-              {{ session.positionLabel.value }} <span class="px-1 text-stone-600">·</span> posición
-              {{ session.position.value }} · {{ session.registeredCount.value }} resultados
-            </p>
-            <button
-              class="min-h-11 rounded-md border border-white/20 px-3 text-sm font-medium text-stone-100 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
-              type="button"
-              :aria-pressed="session.isPaused.value"
-              @click="session.togglePause"
-            >
-              {{ session.isPaused.value ? 'Reanudar' : 'Pausar' }}
-            </button>
-          </div>
-          <h1 class="mt-3 break-words text-3xl font-semibold tracking-[-0.035em] text-stone-50 sm:text-4xl">
-            {{ title() }}
+        <section
+          v-if="session.presentationMode.value === 'circuit-round-boundary'"
+          class="pt-6"
+          aria-labelledby="circuit-rest-title"
+        >
+          <h1 id="circuit-rest-title" class="text-3xl font-semibold tracking-[-0.035em] text-stone-50">
+            {{ session.timer.value?.kind === 'rest' ? 'Descanso entre rondas' : 'Ronda completada' }}
           </h1>
-          <p v-if="session.currentPhase.value" class="mt-2 text-sm text-stone-300">
-            {{ session.currentPhase.value.type === 'work' ? 'Trabajo' : 'Descanso' }} ·
-            {{ session.currentPhase.value.windowSeconds }} s previstos
+          <div
+            v-if="session.timer.value?.kind === 'rest'"
+            class="mt-4 border-y border-sky-200/20 bg-sky-200/5 px-3 py-5"
+            aria-live="off"
+          >
+            <p class="text-xs uppercase tracking-[0.16em] text-sky-100">Descanso entre rondas</p>
+            <p class="mt-1 font-mono text-5xl tabular-nums text-sky-100" role="timer">
+              {{ session.timerDisplay.value }}
+            </p>
+            <p class="mt-1 text-sm text-stone-300">
+              {{ session.isPaused.value ? 'Temporizador pausado' : 'Empieza cuando estés listo' }}
+            </p>
+          </div>
+          <div v-if="session.circuitSequence.value" class="mt-5">
+            <h2 class="text-lg font-semibold text-stone-100">
+              Siguiente ronda<span v-if="session.circuitSequence.value.roundCount">
+                · {{ session.circuitSequence.value.roundIndex }} de
+                {{ session.circuitSequence.value.roundCount }}
+              </span>
+            </h2>
+            <ol
+              class="mt-2 space-y-1"
+              :aria-label="`Ejercicios de la ronda ${session.circuitSequence.value.roundIndex}`"
+            >
+              <li
+                v-for="entry in session.circuitSequence.value.entries"
+                :key="entry.id"
+                class="flex min-h-9 items-center justify-between gap-3 rounded-md px-2 text-sm"
+              >
+                <span class="min-w-0 break-words text-stone-100">{{ entry.name }}</span>
+                <span class="shrink-0 text-xs text-stone-400">{{ entry.label }}</span>
+              </li>
+            </ol>
+          </div>
+          <p v-if="session.errorMessage.value" class="mt-4 text-sm text-amber-200" role="alert">
+            {{ session.errorMessage.value }}
           </p>
-          <p v-else-if="session.currentUnit.value.type === 'circuit'" class="mt-2 text-sm text-stone-300">
-            {{
-              session.currentUnit.value.mode === 'amrap'
-                ? `AMRAP · ronda ${session.currentUnit.value.round.roundIndex}`
-                : `Circuito · ronda ${session.currentUnit.value.round.roundIndex}`
-            }}
+          <div
+            class="sticky bottom-0 -mx-4 mt-5 border-t border-white/10 bg-[#10110f] px-4 py-4 sm:-mx-8 sm:px-8"
+          >
+            <button
+              class="min-h-14 w-full rounded-md bg-lime-300 px-5 py-3 text-base font-semibold text-stone-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:bg-stone-700 disabled:text-white"
+              type="button"
+              :disabled="session.isSaving.value || session.needsTemporalRetry.value"
+              @click="session.continueManually"
+            >
+              Empezar siguiente ronda
+            </button>
+            <button
+              v-if="session.needsLocalRetry.value"
+              class="mt-2 min-h-11 w-full rounded-md border border-amber-200/40 px-4 text-sm text-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+              type="button"
+              :disabled="session.isSaving.value"
+              @click="session.retryLocalSave"
+            >
+              Reintentar guardado local
+            </button>
+            <p class="mt-2 text-center text-xs text-stone-400" role="status" aria-live="polite">
+              {{ session.persistenceStatus.value }}
+            </p>
+          </div>
+        </section>
+
+        <section
+          v-else-if="session.presentationMode.value === 'step-rest'"
+          class="pt-6"
+          aria-labelledby="step-rest-title"
+        >
+          <h1 id="step-rest-title" class="text-3xl font-semibold tracking-[-0.035em] text-stone-50">
+            Descanso
+          </h1>
+          <div class="mt-4 border-y border-sky-200/20 bg-sky-200/5 px-3 py-5" aria-live="off">
+            <p class="text-xs uppercase tracking-[0.16em] text-sky-100">Tiempo de descanso</p>
+            <p class="mt-1 font-mono text-5xl tabular-nums text-sky-100" role="timer">
+              {{ session.timerDisplay.value }}
+            </p>
+            <p class="mt-1 text-sm text-stone-300">
+              {{
+                session.isPaused.value
+                  ? 'Temporizador pausado'
+                  : session.timerRemaining.value === 0
+                    ? 'Descanso previsto terminado'
+                    : 'Puedes continuar antes o después del tiempo previsto'
+              }}
+            </p>
+          </div>
+          <p class="mt-5 text-sm text-stone-300">
+            Siguiente: {{ title() }} · {{ session.positionLabel.value.toLowerCase() }}
+          </p>
+          <p v-if="session.errorMessage.value" class="mt-4 text-sm text-amber-200" role="alert">
+            {{ session.errorMessage.value }}
+          </p>
+          <div
+            class="sticky bottom-0 -mx-4 mt-5 border-t border-white/10 bg-[#10110f] px-4 py-4 sm:-mx-8 sm:px-8"
+          >
+            <button
+              class="min-h-14 w-full rounded-md bg-lime-300 px-5 py-3 text-base font-semibold text-stone-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:bg-stone-700 disabled:text-white"
+              type="button"
+              :disabled="session.isSaving.value || session.needsTemporalRetry.value"
+              @click="session.continueManually"
+            >
+              Continuar a {{ session.positionLabel.value.toLowerCase() }}
+            </button>
+            <button
+              v-if="session.needsLocalRetry.value"
+              class="mt-2 min-h-11 w-full rounded-md border border-amber-200/40 px-4 text-sm text-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+              type="button"
+              :disabled="session.isSaving.value"
+              @click="session.retryLocalSave"
+            >
+              Reintentar guardado local
+            </button>
+            <p class="mt-2 text-center text-xs text-stone-400" role="status" aria-live="polite">
+              {{ session.persistenceStatus.value }}
+            </p>
+            <p v-if="session.syncMessage.value" class="mt-2 text-center text-xs text-amber-200" role="status">
+              {{ session.syncMessage.value }}
+            </p>
+          </div>
+        </section>
+
+        <div v-else class="pt-6">
+          <div v-if="session.circuitSequence.value" class="mb-5">
+            <p class="text-sm font-medium text-stone-300">
+              {{
+                session.circuitSequence.value.mode === 'amrap'
+                  ? `Ronda ${session.circuitSequence.value.roundIndex} · AMRAP`
+                  : `Ronda ${session.circuitSequence.value.roundIndex} de ${session.circuitSequence.value.roundCount}`
+              }}
+            </p>
+            <ol
+              class="mt-2 space-y-1"
+              :aria-label="`Secuencia de la ronda ${session.circuitSequence.value.roundIndex}`"
+            >
+              <li
+                v-for="entry in session.circuitSequence.value.entries"
+                :key="entry.id"
+                class="flex min-h-9 items-center justify-between gap-3 rounded-md px-2 text-sm"
+                :class="
+                  entry.state === 'current'
+                    ? 'bg-lime-300/10 font-semibold text-lime-100'
+                    : entry.state === 'done'
+                      ? 'text-stone-300'
+                      : 'text-stone-400'
+                "
+                :aria-current="entry.state === 'current' ? 'step' : undefined"
+              >
+                <span class="min-w-0 break-words">{{ entry.name }}</span>
+                <span class="shrink-0 text-xs">{{ entry.label }}</span>
+              </li>
+            </ol>
+          </div>
+
+          <section
+            v-if="session.currentPhase.value && session.timer.value"
+            class="mb-5 border-y border-amber-200/20 bg-amber-200/5 px-3 py-5"
+            aria-live="off"
+          >
+            <p class="text-xs uppercase tracking-[0.16em] text-amber-100">
+              {{
+                session.currentPhase.value.type === 'work' ? 'Tiempo de trabajo' : 'Tiempo de recuperación'
+              }}
+            </p>
+            <p class="mt-1 font-mono text-5xl tabular-nums text-amber-100" role="timer">
+              {{ session.timerDisplay.value }}
+            </p>
+            <p class="mt-1 text-sm text-stone-300">
+              {{
+                session.isPaused.value
+                  ? 'Temporizador pausado'
+                  : `${session.currentPhase.value.windowSeconds} s previstos`
+              }}
+            </p>
+          </section>
+
+          <template v-if="session.currentPhase.value">
+            <p class="text-sm font-medium text-amber-100">
+              Fase actual · {{ session.intervalPhasePresentation.value?.current.label }}
+            </p>
+            <h1 class="mt-1 break-words text-3xl font-semibold tracking-[-0.035em] text-stone-50 sm:text-4xl">
+              {{
+                session.intervalPhasePresentation.value?.current.exerciseName ??
+                session.intervalPhasePresentation.value?.current.label
+              }}
+            </h1>
+            <p v-if="session.intervalPhasePresentation.value?.next" class="mt-2 text-sm text-stone-300">
+              Siguiente: {{ session.intervalPhasePresentation.value.next.label }}
+              <span v-if="session.intervalPhasePresentation.value.next.exerciseName">
+                · {{ session.intervalPhasePresentation.value.next.exerciseName }}
+              </span>
+              · {{ session.intervalPhasePresentation.value.next.seconds }} s
+            </p>
+          </template>
+          <template v-else>
+            <h1 class="break-words text-3xl font-semibold tracking-[-0.035em] text-stone-50 sm:text-4xl">
+              {{ title() }}
+            </h1>
+            <p v-if="session.currentUnit.value.type === 'sets'" class="mt-1 text-base text-stone-300">
+              Serie {{ session.currentUnit.value.unit.setIndex }}
+            </p>
+          </template>
+
+          <p v-if="session.currentPhase.value && !session.timer.value" class="mt-3 text-sm text-stone-300">
+            Fase actual · {{ session.intervalPhasePresentation.value?.current.label }} ·
+            {{ session.intervalPhasePresentation.value?.current.seconds }} s
           </p>
         </div>
 
         <section
-          v-if="session.timer.value"
-          class="mt-5 flex items-center justify-between gap-4 border-y border-white/10 py-4"
+          v-if="
+            session.timer.value &&
+            !session.currentPhase.value &&
+            ['active', 'set-result-during-rest'].includes(session.presentationMode.value)
+          "
+          class="mt-5 flex items-center justify-between gap-4 border-y border-white/10 px-3 py-4"
+          :class="
+            session.timer.value.kind === 'rest'
+              ? 'bg-sky-300/5'
+              : session.timer.value.kind === 'work'
+                ? 'bg-amber-300/5'
+                : 'bg-lime-300/5'
+          "
           aria-live="off"
         >
           <div>
@@ -467,7 +682,17 @@ function title() {
                     : 'Tiempo de trabajo'
               }}
             </p>
-            <p class="mt-1 font-mono text-4xl tabular-nums text-lime-200" role="timer">
+            <p
+              class="mt-1 font-mono text-4xl tabular-nums"
+              :class="
+                session.timer.value.kind === 'rest'
+                  ? 'text-sky-200'
+                  : session.timer.value.kind === 'work'
+                    ? 'text-amber-200'
+                    : 'text-lime-200'
+              "
+              role="timer"
+            >
               {{ session.timerDisplay.value }}
             </p>
           </div>
@@ -480,6 +705,29 @@ function title() {
                   : `${session.timer.value.durationSeconds} s previstos`
             }}
           </p>
+        </section>
+        <p
+          v-if="session.currentUnit.value.type === 'sets' && !session.temporal.value.awaitManualAdvance"
+          class="mt-3 text-sm text-stone-300"
+          role="status"
+        >
+          {{ session.nextStepLabel.value }}
+        </p>
+
+        <section
+          v-if="session.currentAppearance.value && !session.temporal.value.awaitManualAdvance"
+          class="mt-4 border-t border-white/10 pt-4"
+          aria-label="Objetivo planificado"
+        >
+          <p class="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">Objetivo planificado</p>
+          <p v-if="session.plannedTargetFields.value.length" class="mt-1 text-sm text-lime-100">
+            {{
+              session.plannedTargetFields.value
+                .map(({ label, value, unit }) => `${label}: ${value}${unit ? ` ${unit}` : ''}`)
+                .join(' · ')
+            }}
+          </p>
+          <p v-else class="mt-1 text-sm text-stone-300">Sin métricas objetivo; registra lo que realizaste.</p>
         </section>
 
         <p
@@ -498,23 +746,45 @@ function title() {
           registrado automáticamente.
         </p>
         <section
-          v-if="session.temporal.value.awaitManualAdvance"
+          v-if="
+            session.temporal.value.awaitManualAdvance &&
+            !['circuit-round-boundary', 'step-rest'].includes(session.presentationMode.value)
+          "
           class="mt-4 rounded-md border border-white/10 p-3"
         >
-          <p class="text-sm text-stone-200">Ronda completa. Continúa cuando estés listo.</p>
+          <p class="text-sm text-stone-200">
+            {{
+              session.currentUnit.value.type === 'sets'
+                ? `Serie anterior guardada. Continúa a ${session.positionLabel.value.toLowerCase()} cuando estés listo.`
+                : 'Ronda completa. Continúa cuando estés listo.'
+            }}
+          </p>
           <button
             class="mt-3 min-h-12 w-full rounded-md border border-white/20 px-4 font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
             type="button"
+            :disabled="session.isSaving.value || session.needsTemporalRetry.value"
             @click="session.continueManually"
           >
-            Continuar a la siguiente ronda
+            {{
+              session.currentUnit.value.type === 'sets'
+                ? `Continuar a ${session.positionLabel.value.toLowerCase()}`
+                : 'Continuar a la siguiente ronda'
+            }}
           </button>
         </section>
 
-        <div v-if="session.exerciseChoices.value.length > 1" class="mt-5 border-y border-white/10 py-4">
-          <label class="block text-sm font-medium text-stone-200" for="actual-exercise"
-            >Ejercicio realizado</label
+        <details
+          v-if="session.exerciseChoices.value.length > 1 && !session.temporal.value.awaitManualAdvance"
+          class="mt-4"
+        >
+          <summary
+            class="min-h-11 cursor-pointer py-2 text-sm font-medium text-stone-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
           >
+            Cambiar ejercicio · {{ session.currentExercise.value?.name ?? 'Alternativas' }}
+          </summary>
+          <label class="mt-2 block text-sm font-medium text-stone-200" for="actual-exercise">
+            Ejercicio realizado
+          </label>
           <select
             id="actual-exercise"
             class="mt-2 min-h-12 w-full rounded-md border border-white/15 bg-[#191a17] px-3 text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
@@ -525,7 +795,7 @@ function title() {
               {{ choice.name }} · {{ choice.label.toLowerCase() }}
             </option>
           </select>
-        </div>
+        </details>
 
         <form
           v-if="session.currentAppearance.value && !session.temporal.value.awaitManualAdvance"
@@ -535,13 +805,19 @@ function title() {
           <fieldset>
             <legend class="text-base font-semibold text-stone-100">
               {{
-                session.currentPhase.value?.type === 'rest'
-                  ? 'Resultado de la recuperación'
-                  : 'Resultado realizado'
+                session.isSetAwaitingMetrics.value
+                  ? `Métricas de la serie ${session.currentUnit.value.type === 'sets' ? session.currentUnit.value.unit.setIndex : ''}`
+                  : session.currentPhase.value?.type === 'rest'
+                    ? 'Resultado de la recuperación'
+                    : 'Resultado realizado'
               }}
             </legend>
             <p class="mt-1 text-sm leading-5 text-stone-400">
-              Los campos opcionales muestran solo las métricas de este ejercicio.
+              {{
+                session.isSetAwaitingMetrics.value
+                  ? 'La serie terminó y el descanso ya está en marcha. Registra ahora lo que hiciste; guardar no reinicia el temporizador.'
+                  : 'Los campos editables muestran las métricas realizadas. El objetivo planificado aparece separado arriba.'
+              }}
             </p>
             <div class="mt-4 grid grid-cols-2 gap-3 sm:gap-4">
               <label
@@ -553,8 +829,7 @@ function title() {
                 <input
                   class="mt-1.5 min-h-12 w-full rounded-md border border-white/15 bg-[#191a17] px-3 text-base tabular-nums text-stone-50 focus:border-lime-300 focus:outline-none focus:ring-2 focus:ring-lime-300/30"
                   type="number"
-                  :inputmode="item.step === '1' ? 'numeric' : 'decimal'"
-                  min="0.1"
+                  inputmode="decimal"
                   :step="item.step"
                   :value="session.fields[item.field] ?? ''"
                   :aria-label="item.label"
@@ -573,13 +848,23 @@ function title() {
                 min="1"
                 step="1"
                 inputmode="numeric"
-                :value="session.temporal.value.workSecondsDraft ?? ''"
+                :value="session.workSecondsDraftInput.value"
                 @input="session.setWorkSecondsDraft(($event.target as HTMLInputElement).value)"
               />
             </label>
           </fieldset>
           <p v-if="session.errorMessage.value" class="mt-4 text-sm leading-6 text-rose-200" role="alert">
             {{ session.errorMessage.value }}
+          </p>
+          <p v-if="!session.isOnline.value" class="mt-3 text-sm text-amber-200" role="status">
+            Conéctate para guardar la serie en el servidor.
+          </p>
+          <p
+            v-if="session.currentUnit.value.type !== 'sets'"
+            class="mt-3 text-sm text-stone-300"
+            role="status"
+          >
+            El registro online de este recorrido está habilitado para series de fuerza.
           </p>
           <div
             class="sticky bottom-0 -mx-4 mt-6 border-t border-white/10 bg-[#10110f] px-4 py-4 sm:-mx-8 sm:px-8"
@@ -589,6 +874,9 @@ function title() {
               type="submit"
               :disabled="
                 session.isSaving.value ||
+                !session.isOnline.value ||
+                session.currentUnit.value.type !== 'sets' ||
+                session.needsTemporalRetry.value ||
                 session.isPaused.value ||
                 session.temporal.value.awaitManualAdvance ||
                 session.isAmrapFinished.value ||
@@ -597,43 +885,49 @@ function title() {
             >
               {{
                 session.isSaving.value
-                  ? 'Guardando…'
-                  : session.currentPhase.value?.type === 'work'
-                    ? 'Terminar trabajo e iniciar descanso'
-                    : session.currentUnit.value.type === 'sets'
-                      ? 'Completar serie'
-                      : session.currentUnit.value.type === 'circuit'
-                        ? 'Registrar ejercicio'
-                        : 'Completar fase'
+                  ? 'Esperando confirmación del servidor…'
+                  : session.currentUnit.value.type === 'sets'
+                    ? `Guardar serie ${session.currentUnit.value.unit.setIndex}`
+                    : 'Registro online de fuerza'
               }}
             </button>
             <button
-              v-if="session.currentUnit.value.type === 'intervals'"
-              class="mt-2 min-h-11 w-full rounded-md border border-white/15 px-4 text-sm text-stone-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+              v-if="session.needsLocalRetry.value"
+              class="mt-2 min-h-11 w-full rounded-md border border-amber-200/40 px-4 text-sm text-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
               type="button"
-              :disabled="session.isPaused.value"
-              @click="session.skipCurrent"
+              :disabled="session.isSaving.value"
+              @click="session.retryLocalSave"
             >
-              Omitir fase
+              Reintentar guardado local
             </button>
-            <button
-              v-if="session.needsWorkConfirmation.value"
-              class="mt-2 min-h-11 w-full rounded-md border border-amber-200/30 px-4 text-sm text-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
-              type="button"
-              :disabled="session.isPaused.value"
-              @click="session.skipCurrent"
-            >
-              Omitir fase interrumpida
-            </button>
+            <details class="mt-3 border-t border-white/10 pt-2">
+              <summary
+                class="min-h-11 cursor-pointer py-2 text-sm text-stone-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+              >
+                Otras acciones
+              </summary>
+              <button
+                class="min-h-11 w-full rounded-md border border-white/15 px-4 text-sm text-stone-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+                type="button"
+                :disabled="session.isPaused.value || session.isSaving.value"
+                @click="session.skipCurrent"
+              >
+                {{
+                  session.needsWorkConfirmation.value
+                    ? 'Omitir fase interrumpida'
+                    : session.currentUnit.value.type === 'intervals'
+                      ? session.currentPhase.value?.type === 'rest'
+                        ? 'Omitir recuperación'
+                        : 'Omitir fase'
+                      : 'Omitir ejercicio'
+                }}
+              </button>
+            </details>
             <p class="mt-2 text-center text-xs text-stone-400" role="status" aria-live="polite">
-              Guardado local ·
-              {{
-                session.pendingCount.value
-                  ? `${session.pendingCount.value} pendiente(s) de envío`
-                  : session.conflictCount.value
-                    ? `${session.conflictCount.value} resultado(s) para revisar`
-                    : 'sincronizado'
-              }}
+              {{ session.persistenceStatus.value }}
+            </p>
+            <p v-if="session.syncMessage.value" class="mt-2 text-center text-xs text-amber-200" role="status">
+              {{ session.syncMessage.value }}
             </p>
             <p v-if="session.syncMessage.value" class="mt-2 text-center text-xs text-amber-200" role="status">
               {{ session.syncMessage.value }}
@@ -664,13 +958,15 @@ function title() {
           {{
             session.isAmrapFinished.value
               ? 'El AMRAP ha terminado. Solo se conservan los ejercicios confirmados; no se añadieron unidades al vencer el tiempo.'
-              : 'El plan previsto está recorrido. Revisa los resultados registrados.'
+              : 'Las series de fuerza previstas quedaron confirmadas en el servidor.'
           }}
         </p>
         <div class="mt-5 border-y border-white/10 py-4 text-sm text-stone-300">
           {{ session.registeredCount.value }} resultados
           <span class="ml-3 text-xs text-stone-400">{{
-            session.pendingCount.value ? `${session.pendingCount.value} pendiente(s)` : 'Sincronizado'
+            session.pendingCount.value
+              ? `${session.pendingCount.value} pendiente(s)`
+              : 'Confirmado en PostgreSQL'
           }}</span>
         </div>
         <ol class="divide-y divide-white/10" aria-label="Resultados registrados">
@@ -681,7 +977,11 @@ function title() {
             <div class="mt-1 flex items-center justify-between gap-3">
               <p class="text-sm text-stone-300">{{ metricsSummary(entry.result.actualMetrics) }}</p>
               <span class="shrink-0 text-xs text-stone-400">{{
-                entry.status === 'synced' ? 'Enviado' : entry.status === 'conflict' ? 'Revisar' : 'Pendiente'
+                entry.status === 'synced'
+                  ? 'Confirmado'
+                  : entry.status === 'conflict'
+                    ? 'Revisar'
+                    : 'Pendiente'
               }}</span>
             </div>
           </li>
@@ -697,14 +997,20 @@ function title() {
         >
           Reintentar envío
         </button>
-        <button
-          v-if="session.hasSetBlocks.value && !session.isAmrapFinished.value"
-          class="mt-3 min-h-12 w-full rounded-md bg-lime-300 px-4 font-semibold text-stone-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
-          type="button"
-          @click="session.addExtraSet"
-        >
-          Añadir serie adicional
-        </button>
+        <section v-if="session.extraSetChoices.value.length" class="mt-5 border-t border-white/10 pt-4">
+          <h2 class="text-sm font-semibold text-stone-100">Series adicionales</h2>
+          <div class="mt-2 space-y-2">
+            <button
+              v-for="choice in session.extraSetChoices.value"
+              :key="choice.key"
+              class="min-h-11 w-full rounded-md border border-white/15 px-3 text-left text-sm text-stone-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+              type="button"
+              @click="session.addExtraSet(choice.key, choice.blockKey)"
+            >
+              Añadir serie a {{ choice.name }}
+            </button>
+          </div>
+        </section>
         <button
           class="mt-4 min-h-12 w-full rounded-md border border-white/20 px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
           type="button"

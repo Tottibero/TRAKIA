@@ -1,15 +1,22 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 import type { ActualMetrics } from '@trakia/contracts'
-import { getOpenWorkoutExecution, recordWorkoutExecutionResult } from '../api/execution'
+import ConfirmWorkoutFinishDialog from '../components/ConfirmWorkoutFinishDialog.vue'
+import {
+  closeWorkoutExecution,
+  getOpenWorkoutExecution,
+  recordWorkoutExecutionResult,
+} from '../api/execution'
 import { createOnlineStrengthFlow } from '../online-strength-flow'
 
 const props = defineProps<{ executionId: string }>()
 const router = useRouter()
+const isFinishDialogOpen = shallowRef(false)
 const flow = createOnlineStrengthFlow(props.executionId, {
   getOpen: getOpenWorkoutExecution,
   recordResult: recordWorkoutExecutionResult,
+  closeExecution: closeWorkoutExecution,
 })
 
 function updateOnline() {
@@ -28,6 +35,14 @@ function resultSummary(metrics: ActualMetrics | undefined) {
 
 function metricId(field: keyof ActualMetrics) {
   return `online-strength-${field}`
+}
+
+function openFinishDialog() {
+  if (!flow.isClosing.value && !flow.isSaving.value && flow.isOnline.value) isFinishDialogOpen.value = true
+}
+
+async function confirmFinish() {
+  if (await flow.finish()) isFinishDialogOpen.value = false
 }
 
 onMounted(() => {
@@ -80,6 +95,14 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-else-if="flow.execution.value && flow.plannedUnit.value" class="mt-8">
+          <h2
+            v-if="flow.isClosed.value"
+            class="text-xl font-semibold text-lime-200"
+            role="status"
+            aria-live="polite"
+          >
+            Entrenamiento finalizado
+          </h2>
           <div class="border-b border-white/10 pb-5">
             <p class="text-xs font-medium uppercase tracking-[0.12em] text-stone-400">
               {{ flow.plannedUnit.value.block.key }} · Serie 1
@@ -99,7 +122,7 @@ onBeforeUnmount(() => {
             </p>
           </div>
 
-          <form v-else class="space-y-5 pt-5" @submit.prevent="flow.save">
+          <form v-else-if="!flow.isClosed.value" class="space-y-5 pt-5" @submit.prevent="flow.save">
             <p v-if="flow.formError.value" class="text-sm text-rose-200" role="alert">
               {{ flow.formError.value }}
             </p>
@@ -155,6 +178,15 @@ onBeforeUnmount(() => {
               }}
             </button>
           </form>
+          <button
+            v-if="!flow.isClosed.value"
+            class="mt-8 inline-flex min-h-12 items-center justify-center rounded-md border border-white/20 px-4 text-sm font-semibold text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            :disabled="flow.isClosing.value || flow.isSaving.value || !flow.isOnline.value"
+            @click="openFinishDialog"
+          >
+            {{ flow.isClosing.value ? 'Finalizando…' : 'Finalizar entrenamiento' }}
+          </button>
         </div>
 
         <p v-else-if="!flow.errorMessage.value" class="mt-8 text-sm leading-6 text-amber-200" role="status">
@@ -177,5 +209,11 @@ onBeforeUnmount(() => {
         </button>
       </section>
     </div>
+    <ConfirmWorkoutFinishDialog
+      v-model="isFinishDialogOpen"
+      :is-saving="flow.isClosing.value"
+      :error-message="flow.closeErrorMessage.value"
+      @confirm="confirmFinish"
+    />
   </main>
 </template>

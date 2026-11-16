@@ -42,6 +42,7 @@ La identidad de una ejecución es su ID interno. La identidad de un resultado es
 - `performed` puede registrar métricas reales parciales o ninguna medición. `skipped` no lleva métricas ni afirma un ejercicio realizado. No se usa cero para representar una medición ausente.
 - Las métricas reales son independientes de los objetivos, pueden quedar por debajo de ellos y no necesitan cubrir todas las métricas previstas. Se comprueban con la compatibilidad del ejercicio realmente usado cuando el snapshot contiene esa información.
 - `reps`, `weightKg`, `durationSeconds`, `distanceMeters`, `rpe` y `calories` conservan las métricas canónicas de `ExerciseMetricSchema` y sus unidades: kg como carga externa total, segundos, metros y kcal; RPE no añade unidad. Las mediciones numéricas ausentes se omiten, no se sustituyen por cero.
+- Las métricas reales presentes son números finitos estrictamente mayores que cero. Se admite precisión decimal libre para las seis métricas conforme a `ActualMetricsSchema`; no hay máximos ni pasos/cuántización en el contrato. Repeticiones y RPE no reciben una restricción adicional de enteros o escala que no exista en el dominio. La misma Zod es la validación de frontend y API; el formulario no introduce mínimos/pasos distintos.
 - Los intervalos se identifican por clave de bloque, índice positivo de ciclo y clave de fase. La ocurrencia temporal no convierte su ventana en trabajo realizado. Puede haber trabajo parcial; la recuperación puede ser activa o pasiva según el snapshot.
 - En AMRAP solo se representan rondas iniciadas; no se crean rondas ficticias no alcanzadas. Una ronda final puede tener resultados para solo parte de sus ejercicios. En circuitos fijos, las rondas adicionales se distinguen de las previstas.
 
@@ -54,9 +55,9 @@ En la implementación funcional, las correcciones serán inmutables; el valor an
 ## Reglas transversales de HC-02-01
 
 - Planificación, ejecución, cumplimiento y rendimiento son conceptos separados. El resultado real se conserva aunque no cumpla el objetivo; una omisión no borra lo planificado.
-- El cierre local es definitivo y no depende de la conectividad. Una sesión en curso permanece vinculada al dispositivo que la inició hasta su cierre y sincronización.
+- **Regla histórica sustituida para el ejecutor:** HC-02-01 describió el cierre local y la vinculación a dispositivo. La arquitectura objetivo propuesta en HC-05-09-02 exige conexión para cada operación deportiva; PostgreSQL confirma resultados y cierre y no hay sincronización posterior. Se conserva la regla de no alterar historia de planificación al editar sesiones futuras.
 - El dominio no clasifica el cierre anticipado como «escaqueo», no aplica penalizaciones ni modifica Constancia por esta decisión. Las omisiones y unidades no alcanzadas conservan sus estados deportivos.
-- El estado de sincronización pertenece al transporte, no al estado deportivo. Los datos sin sincronizar se conservan localmente; los fallos recuperables admiten reintentos idempotentes, sin duplicar ejecuciones, resultados o correcciones.
+- **Regla histórica sustituida para el ejecutor:** los estados `pending`/`syncing`/`synced` y la retención local describen el modelo previo. En la propuesta online solo se refleja como deportivo lo confirmado por API; se mantienen reintentos HTTP seguros mediante identidad de inicio, resultado o corrección.
 - La edición revisada de planificación solo afecta sesiones futuras no iniciadas y preserva ejecuciones y resultados históricos. Una ejecución iniciada interpreta su snapshot original.
 - Las actividades retrospectivas voluntarias, su ventana local de siete fechas en `Europe/Madrid` y su relación con Constancia no forman parte de este contrato.
 
@@ -64,4 +65,10 @@ En la implementación funcional, las correcciones serán inmutables; el valor an
 
 HC-02-04 define datos, tipos, esquemas Zod, validación estructural y documentación. No inicia, pausa, reanuda ni cierra ejecuciones; tampoco gestiona trabajo en curso, temporizadores, duración activa, estados derivados de ronda, `not_reached`, cumplimiento, rendimiento, aplicación de correcciones, persistencia/transacciones, sincronización, idempotencia HTTP, propietario del dispositivo ni exportación. Esas operaciones corresponden a tareas funcionales posteriores.
 
-El contrato deportivo no incluye estados de sincronización. La sincronización es independiente del cierre local. La coherencia transaccional, los conflictos entre dispositivos y la compatibilidad con cambios futuros del catálogo requieren decisiones de implementación posteriores.
+El contrato deportivo no incluye estados de sincronización. **Regla histórica del diseño local-first:** la sincronización se trató como independiente del cierre local; la propuesta online HC-05-09-02 reemplaza ese cierre. La coherencia transaccional y la compatibilidad del snapshot con cambios futuros del catálogo siguen requiriendo validación de implementación.
+
+### Modelo online HC-05-09-02
+
+PostgreSQL conserva la única versión de la ejecución; NestJS autoriza transiciones y Vue mantiene estado temporal de presentación. Una ejecución abierta pertenece a la cuenta autenticada, no a un dispositivo. El cursor, ronda, `not_reached`, duración activa y resúmenes se derivan de snapshot, resultados, pausas y timestamps. Solo se persiste el ancla actual de temporizador cuando no se puede reconstruir: descanso (`resultId` + `startedAt`), ventana AMRAP (`blockKey` + `startedAt`) o fase HIIT (`blockKey`, `cycleIndex`, `phaseKey` + `startedAt`); duración procede del snapshot y pausa se descuenta por intervalos. No se persisten ticks ni tiempo restante. Los resultados reales, métricas, alternativas y el historial auditable de correcciones descritos arriba se conservan. No se crean resultados por timeout ni para unidades no alcanzadas.
+
+El modelo online reemplaza el cierre offline y la sincronización diferida; no altera retroactivamente las fichas HC-02 ni HC-05 que documentan las decisiones anteriores.

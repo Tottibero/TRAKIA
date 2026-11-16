@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   WorkoutExecutionOpenExistsError,
-  WorkoutExecutionDeviceMismatchError,
+  WorkoutExecutionCloseConflictError,
   WorkoutExecutionRequestConflictError,
   WorkoutExecutionResultConflictError,
   WorkoutExecutionResultInvalidError,
@@ -68,6 +68,8 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
     getRepository: () => repository,
     query: async (...args) => {
       calls.push(['query', ...args])
+      if (String(args[0]).includes('clock_timestamp'))
+        return [{ finishedAt: new Date(rows[0].startedAt.getTime() + 60_000) }]
       return []
     },
   }
@@ -98,7 +100,7 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
   }
 }
 
-const request = { requestId, deviceId, planId, sessionId }
+const request = { requestId, planId, sessionId }
 
 function closeOperation(execution, overrides = {}) {
   return {
@@ -124,7 +126,7 @@ function correctionOperation(execution, correction, overrides = {}) {
   }
 }
 
-test('start reserves a backend snapshot after device and shared session locks', async () => {
+test('start reserves a backend snapshot after account and shared session locks without device ownership', async () => {
   const { calls, rows, service } = createHarness()
   const result = await service.start(userId, request)
   assert.equal(result.execution.status, 'in_progress')
@@ -163,26 +165,20 @@ test('a protected historical session is not started again', async () => {
   assert.equal(rows.length, 0)
 })
 
-test('an account with an open execution on this device cannot reserve another session', async () => {
+test('an account with an open execution cannot reserve another session', async () => {
   const { rows, service } = createHarness({ initiallyOpen: true })
   await assert.rejects(service.start(userId, request), WorkoutExecutionOpenExistsError)
   assert.equal(rows.length, 1)
 })
 
-test('an account with an open execution on another device cannot reserve a session', async () => {
-  const { service } = createHarness({ initiallyOpen: true })
-  const otherDeviceRequest = { ...request, deviceId: '223b6405-2f90-4c5c-aee0-60517c9ef94a' }
-  await assert.rejects(service.start(userId, otherDeviceRequest), WorkoutExecutionDeviceMismatchError)
-})
-
-test('open execution recovery is scoped to its owning device', async () => {
+test('open execution recovery is scoped to its authenticated account and does not require a device', async () => {
   const { service } = createHarness()
   const started = await service.start(userId, request)
-  const recovered = await service.findOpen(userId, deviceId)
-  assert.equal(recovered.state, 'current_device')
+  const recovered = await service.findOpen(userId)
+  assert.equal(recovered.state, 'open')
   assert.equal(recovered.execution.execution.id, started.execution.id)
-  assert.deepEqual(await service.findOpen(userId, '223b6405-2f90-4c5c-aee0-60517c9ef94a'), {
-    state: 'other_device',
+  assert.deepEqual(await service.findOpen('other-authenticated-user'), {
+    state: 'none',
     execution: null,
   })
 })
@@ -191,7 +187,6 @@ test('recordResult persists once and returns the stored result for an identical 
   const { rows, service } = createHarness()
   const started = await service.start(userId, request)
   const input = {
-    deviceId,
     result: {
       type: 'sets',
       id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
@@ -212,14 +207,13 @@ test('recordResult persists once and returns the stored result for an identical 
     replayed: true,
   })
   assert.equal(rows[0].results.length, 1)
-  assert.deepEqual((await service.findOpen(userId, deviceId)).execution.execution.results, [input.result])
+  assert.deepEqual((await service.findOpen(userId)).execution.execution.results, [input.result])
 })
 
 test('recordResult rejects a changed identity payload and a second result for the same set', async () => {
   const { service } = createHarness()
   const started = await service.start(userId, request)
   const input = {
-    deviceId,
     result: {
       type: 'sets',
       id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
@@ -262,13 +256,11 @@ test('recordResult accepts a planned alternative and rejects an exercise outside
     actualMetrics: { reps: 10, weightKg: 20 },
   }
   assert.equal(
-    (await service.recordResult(userId, started.execution.id, { deviceId, result: validAlternative }))
-      .replayed,
+    (await service.recordResult(userId, started.execution.id, { result: validAlternative })).replayed,
     false,
   )
   await assert.rejects(
     service.recordResult(userId, started.execution.id, {
-      deviceId,
       result: {
         ...validAlternative,
         id: 'a994285e-6720-43b5-9819-99d37b719dc6',
@@ -280,7 +272,6 @@ test('recordResult accepts a planned alternative and rejects an exercise outside
   )
   await assert.rejects(
     service.recordResult(userId, started.execution.id, {
-      deviceId,
       result: {
         ...validAlternative,
         id: 'fdb3a678-f956-487d-8a8c-4906d6a6df82',
@@ -297,6 +288,7 @@ test('recordResult accepts a planned alternative and rejects an exercise outside
 test('close execution consolidates pending results and replays the immutable operation idempotently', async () => {
   const { rows, service } = createHarness()
   const started = await service.start(userId, request)
+  rows[0].deviceId = deviceId
   const pendingResult = {
     type: 'sets',
     id: '118a8a3f-2f58-49e4-9ccd-f6c46ea621d5',
@@ -339,6 +331,7 @@ test('close execution consolidates pending results and replays the immutable ope
 test('close execution rejects a contradictory replay without changing the accepted close', async () => {
   const { rows, service } = createHarness()
   const started = await service.start(userId, request)
+  rows[0].deviceId = deviceId
   const execution = {
     ...started.execution,
     status: 'completed',
@@ -359,9 +352,45 @@ test('close execution rejects a contradictory replay without changing the accept
   assert.equal(rows[0].closeOperation.payload.execution.feeling, undefined)
 })
 
+test('online close preserves confirmed results, timestamps on the server and replays idempotently', async () => {
+  const { rows, service } = createHarness()
+  const started = await service.start(userId, request)
+  const result = {
+    type: 'sets',
+    id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+    blockKey: 'main',
+    plannedExerciseKey: 'squat',
+    actualExerciseKey: 'back-squat',
+    unit: { kind: 'planned', setIndex: 1 },
+    status: 'performed',
+    actualMetrics: { reps: 5, weightKg: 60 },
+  }
+  await service.recordResult(userId, started.execution.id, { result })
+  const details = { completionType: 'early', closureReason: 'Tiempo limitado.' }
+
+  const closed = await service.closeOnlineExecution(userId, started.execution.id, details)
+  assert.equal(closed.result, 'closed')
+  assert.equal(Date.parse(closed.execution.finishedAt), rows[0].startedAt.getTime() + 60_000)
+  assert.deepEqual(closed.execution.results, [result])
+  assert.equal(closed.execution.closureReason, details.closureReason)
+  assert.equal(rows[0].finishedAt.toISOString(), closed.execution.finishedAt)
+  assert.deepEqual(rows[0].results, [result])
+
+  const replay = await service.closeOnlineExecution(userId, started.execution.id, details)
+  assert.equal(replay.result, 'already_closed')
+  assert.equal(replay.execution.finishedAt, closed.execution.finishedAt)
+  await assert.rejects(
+    service.closeOnlineExecution(userId, started.execution.id, {}),
+    WorkoutExecutionCloseConflictError,
+  )
+  assert.deepEqual(rows[0].results, [result])
+  assert.equal(rows[0].finishedAt.toISOString(), closed.execution.finishedAt)
+})
+
 test('correctResult changes a closed result atomically and replays the same operation idempotently', async () => {
   const { rows, service } = createHarness()
   const started = await service.start(userId, request)
+  rows[0].deviceId = deviceId
   const result = {
     type: 'sets',
     id: '118a8a3f-2f58-49e4-9ccd-f6c46ea621d5',
@@ -427,6 +456,7 @@ test('correctResult changes a closed result atomically and replays the same oper
 test('correctResult rejects stale values, invalid alternatives and out-of-order operations without mutation', async () => {
   const { rows, service } = createHarness()
   const started = await service.start(userId, request)
+  rows[0].deviceId = deviceId
   const result = {
     type: 'sets',
     id: '118a8a3f-2f58-49e4-9ccd-f6c46ea621d5',
@@ -477,6 +507,7 @@ test('correctResult rejects stale values, invalid alternatives and out-of-order 
 test('close execution conflicts on result identity, workout unit, owner device and account', async () => {
   const { rows, service } = createHarness()
   const started = await service.start(userId, request)
+  rows[0].deviceId = deviceId
   const serverResult = {
     type: 'sets',
     id: '118a8a3f-2f58-49e4-9ccd-f6c46ea621d5',
@@ -532,7 +563,7 @@ test('close execution conflicts on result identity, workout unit, owner device a
   await assert.rejects(service.closeExecution('other-user', execution.id, operation), /could not be found/)
 })
 
-test('recordResult accepts circuit and interval results and detects duplicate unit identities', async () => {
+test('online result recording rejects modalities outside the first strength-set slice', async () => {
   const plannedSession = {
     ...session,
     blocks: [
@@ -578,20 +609,9 @@ test('recordResult accepts circuit and interval results and detects duplicate un
     status: 'performed',
     actualMetrics: { reps: 8 },
   }
-  assert.equal(
-    (await service.recordResult(userId, started.execution.id, { deviceId, result: circuit })).replayed,
-    false,
-  )
-  assert.equal(
-    (await service.recordResult(userId, started.execution.id, { deviceId, result: circuit })).replayed,
-    true,
-  )
   await assert.rejects(
-    service.recordResult(userId, started.execution.id, {
-      deviceId,
-      result: { ...circuit, id: 'c6fa5f96-8a06-4d42-a607-24e1e19e5cb1' },
-    }),
-    WorkoutExecutionResultConflictError,
+    service.recordResult(userId, started.execution.id, { result: circuit }),
+    WorkoutExecutionResultInvalidError,
   )
 
   const interval = {
@@ -613,18 +633,13 @@ test('recordResult accepts circuit and interval results and detects duplicate un
     phaseKey: 'rest',
     status: 'skipped',
   }
-  assert.equal(
-    (await service.recordResult(userId, started.execution.id, { deviceId, result: interval })).replayed,
-    false,
+  await assert.rejects(
+    service.recordResult(userId, started.execution.id, { result: interval }),
+    WorkoutExecutionResultInvalidError,
   )
-  assert.equal(
-    (await service.recordResult(userId, started.execution.id, { deviceId, result: skippedRest })).replayed,
-    false,
+  await assert.rejects(
+    service.recordResult(userId, started.execution.id, { result: skippedRest }),
+    WorkoutExecutionResultInvalidError,
   )
-  assert.equal(rows[0].results.length, 3)
-  assert.deepEqual((await service.findOpen(userId, deviceId)).execution.execution.results, [
-    circuit,
-    interval,
-    skippedRest,
-  ])
+  assert.deepEqual(rows[0].results ?? [], [])
 })

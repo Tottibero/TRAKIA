@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { IDBFactory } from 'fake-indexeddb'
+import { IDBFactory, IDBObjectStore } from 'fake-indexeddb'
+import { reactive } from 'vue'
 import { createWorkoutExecutionStore } from '../src/features/workout-execution/execution-store.ts'
 
 const execution = {
@@ -58,6 +59,14 @@ function openV1(factory, name) {
   })
 }
 
+function openExisting(factory, name) {
+  return new Promise((resolve, reject) => {
+    const request = factory.open(name)
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
 test('series draft and confirmed pending result persist separately and a retry does not duplicate them', async () => {
   const factory = new IDBFactory()
   const store = createWorkoutExecutionStore(factory)
@@ -81,14 +90,14 @@ test('series draft and confirmed pending result persist separately and a retry d
   assert.deepEqual(await store.getPendingResults(execution.execution.id), [])
 })
 
-test('the rest anchor is committed with the completed set at the tap timestamp', async () => {
+test('rest starts before metrics commit and a later save does not reset or duplicate it', async () => {
   const store = createWorkoutExecutionStore(new IDBFactory())
   const completedAt = '2026-11-15T10:00:42.000Z'
   const result = setResult('118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5')
-  const temporal = {
+  const restStarted = {
     status: 'in_progress',
     pauses: [],
-    cursor: { type: 'sets', blockKey: 'main', plannedExerciseKey: 'squat', setIndex: 2 },
+    cursor: { type: 'sets', blockKey: 'main', plannedExerciseKey: 'squat', setIndex: 1 },
     timer: {
       kind: 'rest',
       blockKey: 'main',
@@ -96,11 +105,122 @@ test('the rest anchor is committed with the completed set at the tap timestamp',
       durationSeconds: 60,
       elapsedBeforeSegmentSeconds: 0,
     },
+    setAwaitingMetrics: true,
   }
-  await store.confirmResult(execution.execution.id, result, temporal)
+  await store.saveTemporalState(execution.execution.id, restStarted)
+  const metricsSaved = {
+    ...restStarted,
+    cursor: { type: 'sets', blockKey: 'main', plannedExerciseKey: 'squat', setIndex: 2 },
+    setAwaitingMetrics: false,
+    awaitManualAdvance: true,
+  }
+  await store.confirmResult(execution.execution.id, result, metricsSaved)
+  await store.confirmResult(execution.execution.id, result, metricsSaved)
   const progress = await store.getProgress(execution.execution.id)
   assert.deepEqual(progress.results, [{ result, status: 'pending' }])
   assert.equal(progress.temporal.timer.startedAt, completedAt)
+  assert.equal(progress.temporal.cursor.setIndex, 2)
+  assert.equal(progress.temporal.awaitManualAdvance, true)
+})
+
+test('reactive temporal state is serialized before IndexedDB writes', async () => {
+  const store = createWorkoutExecutionStore(new IDBFactory())
+  await store.confirmStart(execution)
+  const temporal = reactive({
+    status: 'paused',
+    pauses: [{ startedAt: '2026-11-15T10:00:00.000Z' }],
+    cursor: { type: 'sets', blockKey: 'main', plannedExerciseKey: 'squat', setIndex: 1 },
+    timer: {
+      kind: 'rest',
+      blockKey: 'main',
+      startedAt: '2026-11-15T10:00:42.000Z',
+      durationSeconds: 60,
+      elapsedBeforeSegmentSeconds: 0,
+    },
+  })
+
+  await store.saveTemporalState(execution.execution.id, temporal)
+  const result = setResult('118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5')
+  await store.confirmResult(execution.execution.id, result, temporal)
+
+  const persisted = (await store.getProgress(execution.execution.id)).temporal
+  assert.deepEqual(persisted, JSON.parse(JSON.stringify(temporal)))
+})
+
+test('invalid persisted results are reported and retained instead of silently filtered', async () => {
+  const factory = new IDBFactory()
+  const store = createWorkoutExecutionStore(factory)
+  await store.saveTemporalState(execution.execution.id, { status: 'in_progress', pauses: [] })
+  const database = await openExisting(factory, 'trakia-workout-execution')
+  const transaction = database.transaction('records', 'readwrite')
+  const rawProgress = {
+    draft: null,
+    results: [
+      { result: setResult('118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5'), status: 'pending' },
+      { result: { id: 'broken', type: 'sets' }, status: 'pending' },
+    ],
+    temporal: { status: 'in_progress', pauses: [] },
+    reviewDraft: null,
+    close: null,
+    corrections: [],
+  }
+  transaction.objectStore('records').put(rawProgress, `progress:${execution.execution.id}`)
+  await new Promise((resolve, reject) => {
+    transaction.oncomplete = resolve
+    transaction.onerror = () => reject(transaction.error)
+  })
+  database.close()
+
+  await assert.rejects(store.getProgress(execution.execution.id), /progreso local está dañado/)
+  const verify = await openExisting(factory, 'trakia-workout-execution')
+  const read = verify.transaction('records').objectStore('records').get(`progress:${execution.execution.id}`)
+  const preserved = await new Promise((resolve, reject) => {
+    read.onsuccess = () => resolve(read.result)
+    read.onerror = () => reject(read.error)
+  })
+  assert.equal(preserved.results.length, 2)
+  verify.close()
+})
+
+test('failed pause write leaves the previous state readable and a retry persists pause and resume', async () => {
+  const factory = new IDBFactory()
+  const store = createWorkoutExecutionStore(factory)
+  const executionId = execution.execution.id
+  const originalPut = IDBObjectStore.prototype.put
+  let shouldFail = true
+  IDBObjectStore.prototype.put = function (value, key) {
+    if (shouldFail && String(key).startsWith('progress:') && value?.temporal?.status === 'paused') {
+      shouldFail = false
+      throw new DOMException('simulated quota failure', 'QuotaExceededError')
+    }
+    return originalPut.call(this, value, key)
+  }
+
+  try {
+    await store.saveTemporalState(executionId, { status: 'in_progress', pauses: [] })
+    await assert.rejects(
+      store.saveTemporalState(executionId, {
+        status: 'paused',
+        pauses: [{ startedAt: '2026-11-15T10:00:00.000Z' }],
+      }),
+      { name: 'QuotaExceededError' },
+    )
+    assert.equal((await store.getProgress(executionId)).temporal.status, 'in_progress')
+    const paused = {
+      status: 'paused',
+      pauses: [{ startedAt: '2026-11-15T10:00:00.000Z' }],
+    }
+    await store.saveTemporalState(executionId, paused)
+    const resumed = {
+      status: 'in_progress',
+      pauses: [{ startedAt: '2026-11-15T10:00:00.000Z', finishedAt: '2026-11-15T10:05:00.000Z' }],
+    }
+    await store.saveTemporalState(executionId, resumed)
+    const recovered = await createWorkoutExecutionStore(factory).getProgress(executionId)
+    assert.deepEqual(recovered.temporal, resumed)
+  } finally {
+    IDBObjectStore.prototype.put = originalPut
+  }
 })
 
 test('additional set identities remain distinct and a confirmed unit cannot be replaced', async () => {
@@ -290,6 +410,7 @@ test('circuit and interval results share local idempotency and persist their tem
       ...interval,
       id: 'fdb3a678-f956-487d-8a8c-4906d6a6df82',
       activeSeconds: 25,
+      windowProgressSeconds: 25,
     }),
     /unidad ya está confirmada/,
   )

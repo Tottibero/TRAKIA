@@ -193,3 +193,89 @@ test('a fresh PWA view after reload restores the confirmed result from the open 
   assert.equal(flow.fields.rpe, '7')
   assert.equal(flow.canSave.value, false)
 })
+
+test('online close waits for server confirmation and prevents duplicate requests', async () => {
+  let resolveClose
+  let closeCalls = 0
+  const flow = createOnlineStrengthFlow(executionId, {
+    getOpen: async () => openResponse(execution()),
+    recordResult: async () => assert.fail('close must not submit results'),
+    closeExecution: async () => {
+      closeCalls += 1
+      return new Promise((resolve) => {
+        resolveClose = () =>
+          resolve({
+            result: 'closed',
+            execution: {
+              ...execution(),
+              status: 'completed',
+              finishedAt: '2026-11-16T10:00:00.000Z',
+              completionType: 'planned',
+            },
+          })
+      })
+    },
+  })
+  flow.setOnline(true)
+  await flow.recover()
+
+  const closePromise = flow.finish()
+  assert.equal(flow.isClosing.value, true)
+  assert.equal(flow.isClosed.value, false)
+  assert.equal(await flow.finish(), false)
+  assert.equal(closeCalls, 1)
+  resolveClose()
+  assert.equal(await closePromise, true)
+  assert.equal(flow.isClosed.value, true)
+  assert.equal(flow.execution.value.status, 'completed')
+})
+
+test('failed HTTP close leaves the execution open and offers a retry', async () => {
+  let closeCalls = 0
+  const flow = createOnlineStrengthFlow(executionId, {
+    getOpen: async () => openResponse(execution()),
+    recordResult: async () => assert.fail('close must not submit results'),
+    closeExecution: async () => {
+      closeCalls += 1
+      if (closeCalls === 1) throw Object.assign(new Error('HTTP 503'), { status: 503 })
+      return {
+        result: 'closed',
+        execution: {
+          ...execution(),
+          status: 'completed',
+          finishedAt: '2026-11-16T10:00:00.000Z',
+          completionType: 'planned',
+        },
+      }
+    },
+  })
+  flow.setOnline(true)
+  await flow.recover()
+
+  assert.equal(await flow.finish(), false)
+  assert.equal(flow.execution.value.status, 'in_progress')
+  assert.equal(flow.isClosed.value, false)
+  assert.equal(flow.closeErrorMessage.value, 'No se pudo finalizar el entrenamiento. Inténtalo de nuevo.')
+  assert.equal(await flow.finish(), true)
+  assert.equal(closeCalls, 2)
+})
+
+test('the online close view uses an accessible modal and has no local persistence dependency', () => {
+  const view = readFileSync(
+    new URL('../src/features/workout-execution/views/OnlineStrengthExecutionView.vue', import.meta.url),
+    'utf8',
+  )
+  const dialog = readFileSync(
+    new URL('../src/features/workout-execution/components/ConfirmWorkoutFinishDialog.vue', import.meta.url),
+    'utf8',
+  )
+  assert.match(view, /Finalizar entrenamiento/)
+  assert.match(view, /ConfirmWorkoutFinishDialog/)
+  assert.doesNotMatch(view, /window\.confirm\(/)
+  assert.match(view, /Entrenamiento finalizado/)
+  assert.doesNotMatch(view, /indexedDB|execution-store|retrySynchronization/)
+  assert.match(dialog, /<dialog/)
+  assert.match(dialog, /showModal\(\)/)
+  assert.match(dialog, /Seguir entrenando/)
+  assert.match(dialog, /Reintentar/)
+})

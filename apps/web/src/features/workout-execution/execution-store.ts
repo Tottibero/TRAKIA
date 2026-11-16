@@ -4,6 +4,8 @@ import {
   WorkoutExecutionStartRequestSchema,
   WorkoutExecutionStartResponseSchema,
   WorkoutFeelingSchema,
+  WorkoutPauseSchema,
+  WorkoutResultSchema,
   WorkoutSyncStatusSchema,
   WorkoutSyncOperationSchema,
   type ActualMetrics,
@@ -66,6 +68,7 @@ export type WorkoutExecutionTemporalState = {
   workSecondsDraft?: number
   awaitManualAdvance?: boolean
   amrapFinished?: boolean
+  setAwaitingMetrics?: boolean
 }
 
 export type StoredWorkoutResult = {
@@ -155,7 +158,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
         return existing
       }
       const deviceId = crypto.randomUUID()
-      store.put(deviceId, DEVICE_ID)
+      putJsonRecord(store, deviceId, DEVICE_ID)
       await transactionDone(transaction)
       return deviceId
     },
@@ -197,8 +200,8 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
         sessionId,
       })
       const stored: PendingExecutionStart = { ...pending, createdAt: new Date().toISOString() }
-      store.put(deviceId, DEVICE_ID)
-      store.put(stored, PENDING_START)
+      putJsonRecord(store, deviceId, DEVICE_ID)
+      putJsonRecord(store, stored, PENDING_START)
       await transactionDone(transaction)
       return stored
     },
@@ -223,7 +226,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
         transaction.abort()
         throw new Error('The confirmed start does not match the pending local request.')
       }
-      store.put(confirmed, ACTIVE_EXECUTION)
+      putJsonRecord(store, confirmed, ACTIVE_EXECUTION)
       store.delete(PENDING_START)
       await transactionDone(transaction)
     },
@@ -247,11 +250,14 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       const records = transaction.objectStore(RECORDS)
       const progress = parseProgress(await requestResult(records.get(progressKey(executionId))))
       assertExecutionOpen(progress)
-      records.put({ ...progress, draft }, progressKey(executionId))
+      if (!isDraft(draft)) throw new Error('El borrador no coincide con el formato local esperado.')
+      putJsonRecord(records, { ...progress, draft }, progressKey(executionId))
       await done
     },
 
     async confirmResult(executionId, result, temporal) {
+      const validatedResult = WorkoutResultSchema.parse(result)
+      if (temporal !== undefined) assertTemporal(temporal)
       const db = await database
       const transaction = db.transaction(RECORDS, 'readwrite')
       const done = transactionDone(transaction)
@@ -259,29 +265,33 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       const key = progressKey(executionId)
       const progress = parseProgress(await requestResult(records.get(key)))
       assertExecutionOpen(progress)
-      const existingId = progress.results.find(({ result: current }) => current.id === result.id)
+      const existingId = progress.results.find(({ result: current }) => current.id === validatedResult.id)
+      const temporalSnapshot = temporal ?? progress.temporal
       if (existingId) {
-        if (!sameJson(existingId.result, result)) {
+        if (!sameJson(existingId.result, validatedResult)) {
           transaction.abort()
           await done.catch(() => undefined)
           throw new Error('Este identificador ya pertenece a otro resultado.')
         }
-        records.put({ ...progress, draft: null, temporal: temporal ?? progress.temporal }, key)
+        putJsonRecord(records, { ...progress, draft: null, temporal: temporalSnapshot }, key)
         await done
         return
       }
-      const existingUnit = progress.results.find(({ result: current }) => sameWorkoutUnit(current, result))
+      const existingUnit = progress.results.find(({ result: current }) =>
+        sameWorkoutUnit(current, validatedResult),
+      )
       if (existingUnit) {
         transaction.abort()
         await done.catch(() => undefined)
         throw new Error('Esta unidad ya está confirmada en este dispositivo.')
       }
-      records.put(
+      putJsonRecord(
+        records,
         {
           ...progress,
           draft: null,
-          results: [...progress.results, { result, status: 'pending' }],
-          temporal: temporal ?? progress.temporal,
+          results: [...progress.results, { result: validatedResult, status: 'pending' }],
+          temporal: temporalSnapshot,
         } satisfies WorkoutExecutionProgress,
         key,
       )
@@ -289,6 +299,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
     },
 
     async saveTemporalState(executionId, temporal) {
+      assertTemporal(temporal)
       const db = await database
       const transaction = db.transaction(RECORDS, 'readwrite')
       const done = transactionDone(transaction)
@@ -296,7 +307,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       const key = progressKey(executionId)
       const progress = parseProgress(await requestResult(records.get(key)))
       assertExecutionOpen(progress)
-      records.put({ ...progress, temporal }, key)
+      putJsonRecord(records, { ...progress, temporal }, key)
       await done
     },
 
@@ -318,7 +329,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
           ? { result: entry.result, status, ...(error ? { error } : {}) }
           : entry,
       )
-      records.put({ ...progress, results }, key)
+      putJsonRecord(records, { ...progress, results }, key)
       await done
     },
 
@@ -340,7 +351,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       }
       const close = { ...progress.close, status, ...(error ? { error } : {}) }
       if (!error) delete close.error
-      records.put({ ...progress, close }, key)
+      putJsonRecord(records, { ...progress, close }, key)
       await done
     },
 
@@ -360,7 +371,8 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       const results = progress.results.map((entry) =>
         resultIds.has(entry.result.id) ? { result: entry.result, status: 'synced' as const } : entry,
       )
-      records.put(
+      putJsonRecord(
+        records,
         {
           ...progress,
           results,
@@ -404,7 +416,8 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       const results = progress.results.map((entry) =>
         entry.result.id === result.id ? { ...entry, result } : entry,
       )
-      records.put(
+      putJsonRecord(
+        records,
         {
           ...progress,
           results,
@@ -438,7 +451,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
             error: 'El servidor devuelve otro contenido para este resultado.',
           }
       }
-      records.put({ ...progress, results: merged }, key)
+      putJsonRecord(records, { ...progress, results: merged }, key)
       await done
     },
 
@@ -450,7 +463,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       const key = progressKey(executionId)
       const progress = parseProgress(await requestResult(records.get(key)))
       assertExecutionOpen(progress)
-      records.put({ ...progress, reviewDraft: parseReviewDraft(draft) }, key)
+      putJsonRecord(records, { ...progress, reviewDraft: parseReviewDraft(draft) }, key)
       await done
     },
 
@@ -507,7 +520,7 @@ export function createWorkoutExecutionStore(factory: IDBFactory = indexedDB): Wo
       }
       const operation = parsedOperation
       const close: StoredWorkoutClose = { operation, status: 'pending' }
-      records.put({ ...progress, draft: null, reviewDraft: null, close }, key)
+      putJsonRecord(records, { ...progress, draft: null, reviewDraft: null, close }, key)
       await done
       return close
     },
@@ -539,16 +552,37 @@ function progressKey(executionId: string): string {
 }
 
 function parseProgress(value: unknown): WorkoutExecutionProgress {
-  if (!value || typeof value !== 'object') return emptyProgress()
+  if (value === undefined) return emptyProgress()
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw invalidProgress('el registro principal no es un objeto')
   const candidate = value as Partial<WorkoutExecutionProgress>
-  const results = Array.isArray(candidate.results) ? candidate.results.filter(isStoredResult) : []
+  if (!Array.isArray(candidate.results)) throw invalidProgress('la lista de resultados no es válida')
+  const results = candidate.results.map(parseStoredResult)
+  if (candidate.draft !== null && candidate.draft !== undefined && !isDraft(candidate.draft))
+    throw invalidProgress('el borrador no es válido')
+  if (
+    candidate.reviewDraft !== null &&
+    candidate.reviewDraft !== undefined &&
+    !isReviewDraft(candidate.reviewDraft)
+  )
+    throw invalidProgress('el borrador de cierre no es válido')
+  if (candidate.close !== null && candidate.close !== undefined && !isStoredClose(candidate.close))
+    throw invalidProgress('la operación de cierre no es válida')
+  if (candidate.corrections !== undefined && !Array.isArray(candidate.corrections))
+    throw invalidProgress('la lista de correcciones no es válida')
+  const corrections = (candidate.corrections ?? []).map((correction) => {
+    if (!isStoredCorrection(correction)) throw invalidProgress('una corrección no es válida')
+    return correction
+  })
+  if (candidate.temporal !== undefined && !isTemporal(candidate.temporal))
+    throw invalidProgress('el estado temporal no es válido')
   return {
-    draft: isDraft(candidate.draft) ? candidate.draft : null,
+    draft: candidate.draft ?? null,
     results,
-    temporal: isTemporal(candidate.temporal) ? candidate.temporal : { status: 'in_progress', pauses: [] },
-    reviewDraft: isReviewDraft(candidate.reviewDraft) ? candidate.reviewDraft : null,
-    close: isStoredClose(candidate.close) ? candidate.close : null,
-    corrections: Array.isArray(candidate.corrections) ? candidate.corrections.filter(isStoredCorrection) : [],
+    temporal: candidate.temporal ?? { status: 'in_progress', pauses: [] },
+    reviewDraft: candidate.reviewDraft ?? null,
+    close: candidate.close ?? null,
+    corrections,
   }
 }
 
@@ -561,6 +595,12 @@ function emptyProgress(): WorkoutExecutionProgress {
     close: null,
     corrections: [],
   }
+}
+
+function putJsonRecord(store: IDBObjectStore, value: unknown, key: IDBValidKey): void {
+  const serialized = JSON.stringify(value)
+  if (serialized === undefined) throw new Error('No se puede guardar un valor local vacío.')
+  store.put(JSON.parse(serialized), key)
 }
 
 function assertExecutionOpen(progress: WorkoutExecutionProgress): void {
@@ -585,8 +625,10 @@ function isReviewDraft(value: unknown): value is WorkoutExecutionReviewDraft {
     (candidate.feeling === undefined || WorkoutFeelingSchema.safeParse(candidate.feeling).success) &&
     (candidate.completionType === undefined ||
       WorkoutCompletionTypeSchema.safeParse(candidate.completionType).success) &&
-    (candidate.observations === undefined || typeof candidate.observations === 'string') &&
-    (candidate.closureReason === undefined || typeof candidate.closureReason === 'string')
+    (candidate.observations === undefined ||
+      (typeof candidate.observations === 'string' && candidate.observations.length <= 1000)) &&
+    (candidate.closureReason === undefined ||
+      (typeof candidate.closureReason === 'string' && candidate.closureReason.length <= 240))
   )
 }
 
@@ -608,23 +650,52 @@ function isStoredCorrection(value: unknown): value is CorrectResultOperation {
   )
 }
 
-function isStoredResult(value: unknown): value is StoredWorkoutResult {
-  if (!value || typeof value !== 'object') return false
+function parseStoredResult(value: unknown): StoredWorkoutResult {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw invalidProgress('un resultado no es un objeto')
   const item = value as Partial<StoredWorkoutResult>
-  return (
-    Boolean(item.result && typeof item.result === 'object') &&
-    ['pending', 'syncing', 'synced', 'conflict'].includes(String(item.status))
+  const result = WorkoutResultSchema.safeParse(item.result)
+  if (
+    !result.success ||
+    !['pending', 'syncing', 'synced', 'conflict'].includes(String(item.status)) ||
+    (item.error !== undefined && typeof item.error !== 'string')
   )
+    throw invalidProgress('un resultado guardado no coincide con el contrato')
+  return {
+    result: result.data,
+    status: item.status as StoredWorkoutResult['status'],
+    ...(item.error ? { error: item.error } : {}),
+  }
 }
 
 function isDraft(value: unknown): value is WorkoutSeriesDraft {
   if (!value || typeof value !== 'object') return false
   const draft = value as Partial<WorkoutSeriesDraft>
   return (
+    (draft.type === undefined || ['sets', 'circuit', 'intervals'].includes(draft.type)) &&
     typeof draft.blockKey === 'string' &&
     typeof draft.plannedExerciseKey === 'string' &&
     (draft.actualExerciseKey === undefined || typeof draft.actualExerciseKey === 'string') &&
-    Boolean(draft.fields && typeof draft.fields === 'object')
+    (draft.round === undefined ||
+      (Boolean(draft.round) &&
+        ['planned', 'additional', 'amrap'].includes(draft.round.kind) &&
+        Number.isInteger(draft.round.roundIndex) &&
+        draft.round.roundIndex > 0 &&
+        (draft.round.kind !== 'additional' || typeof draft.round.key === 'string'))) &&
+    (draft.cycleIndex === undefined || (Number.isInteger(draft.cycleIndex) && draft.cycleIndex > 0)) &&
+    (draft.phaseKey === undefined || typeof draft.phaseKey === 'string') &&
+    Boolean(draft.fields && typeof draft.fields === 'object' && !Array.isArray(draft.fields)) &&
+    Object.entries(draft.fields ?? {}).every(
+      ([key, fieldValue]) =>
+        ['reps', 'weightKg', 'durationSeconds', 'distanceMeters', 'rpe', 'calories'].includes(key) &&
+        typeof fieldValue === 'string',
+    ) &&
+    (draft.unit === undefined ||
+      (typeof draft.unit === 'object' &&
+        (draft.unit.kind === 'planned' || draft.unit.kind === 'additional') &&
+        Number.isInteger(draft.unit.setIndex) &&
+        draft.unit.setIndex > 0 &&
+        (draft.unit.kind !== 'additional' || typeof draft.unit.key === 'string')))
   )
 }
 
@@ -634,8 +705,70 @@ function isTemporal(value: unknown): value is WorkoutExecutionTemporalState {
   return (
     (candidate.status === 'in_progress' || candidate.status === 'paused') &&
     Array.isArray(candidate.pauses) &&
-    (candidate.cursor === undefined || typeof candidate.cursor === 'object') &&
-    (candidate.timer === undefined || typeof candidate.timer === 'object')
+    candidate.pauses.every((pause) => WorkoutPauseSchema.safeParse(pause).success) &&
+    (candidate.cursor === undefined || isCursor(candidate.cursor)) &&
+    (candidate.timer === undefined || isTimer(candidate.timer)) &&
+    (candidate.requiresWorkConfirmation === undefined ||
+      typeof candidate.requiresWorkConfirmation === 'boolean') &&
+    (candidate.workSecondsDraft === undefined ||
+      (Number.isInteger(candidate.workSecondsDraft) && candidate.workSecondsDraft > 0)) &&
+    (candidate.awaitManualAdvance === undefined || typeof candidate.awaitManualAdvance === 'boolean') &&
+    (candidate.amrapFinished === undefined || typeof candidate.amrapFinished === 'boolean') &&
+    (candidate.setAwaitingMetrics === undefined || typeof candidate.setAwaitingMetrics === 'boolean')
+  )
+}
+
+function assertTemporal(value: unknown): asserts value is WorkoutExecutionTemporalState {
+  if (!isTemporal(value)) throw new Error('El estado temporal no coincide con el formato local esperado.')
+}
+
+function isCursor(value: unknown): value is WorkoutExecutionCursor {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const cursor = value as Partial<WorkoutExecutionCursor>
+  if (cursor.type === 'sets')
+    return (
+      typeof cursor.blockKey === 'string' &&
+      typeof cursor.plannedExerciseKey === 'string' &&
+      Number.isInteger(cursor.setIndex) &&
+      (cursor.setIndex ?? 0) > 0 &&
+      (cursor.additionalKey === undefined || typeof cursor.additionalKey === 'string')
+    )
+  if (cursor.type === 'circuit')
+    return (
+      typeof cursor.blockKey === 'string' &&
+      typeof cursor.plannedExerciseKey === 'string' &&
+      Number.isInteger(cursor.roundIndex) &&
+      (cursor.roundIndex ?? 0) > 0
+    )
+  return (
+    cursor.type === 'intervals' &&
+    typeof cursor.blockKey === 'string' &&
+    Number.isInteger(cursor.cycleIndex) &&
+    (cursor.cycleIndex ?? 0) > 0 &&
+    typeof cursor.phaseKey === 'string'
+  )
+}
+
+function isTimer(value: unknown): value is WorkoutTimerState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const timer = value as Partial<WorkoutTimerState>
+  return (
+    (timer.kind === 'rest' || timer.kind === 'work' || timer.kind === 'amrap') &&
+    typeof timer.blockKey === 'string' &&
+    typeof timer.startedAt === 'string' &&
+    Number.isFinite(Date.parse(timer.startedAt)) &&
+    Number.isInteger(timer.durationSeconds) &&
+    (timer.durationSeconds ?? 0) > 0 &&
+    Number.isFinite(timer.elapsedBeforeSegmentSeconds) &&
+    (timer.elapsedBeforeSegmentSeconds ?? -1) >= 0 &&
+    (timer.cycleIndex === undefined || (Number.isInteger(timer.cycleIndex) && timer.cycleIndex > 0)) &&
+    (timer.phaseKey === undefined || typeof timer.phaseKey === 'string')
+  )
+}
+
+function invalidProgress(reason: string): Error {
+  return new Error(
+    `El progreso local está dañado (${reason}). Los datos se conservaron; vuelve a intentarlo o solicita asistencia.`,
   )
 }
 
