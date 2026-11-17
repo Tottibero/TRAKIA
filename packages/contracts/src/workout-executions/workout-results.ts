@@ -26,6 +26,7 @@ const ResultFields = {
   plannedExerciseKey: StableKeySchema,
   actualExerciseKey: StableKeySchema.optional(),
   status: ResultStatusSchema,
+  activeSeconds: PositiveMeasurementSchema.optional(),
   actualMetrics: ActualMetricsSchema.optional(),
 }
 
@@ -65,6 +66,13 @@ const SetResultSchema = z
         message: 'Skipped work has no exercise actually used',
       })
     }
+    if (result.status === 'skipped' && result.activeSeconds !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['activeSeconds'],
+        message: 'Skipped sets cannot contain active time',
+      })
+    }
   })
 
 const CircuitRoundSchema = z.discriminatedUnion('kind', [
@@ -98,6 +106,13 @@ const CircuitResultSchema = z
         code: 'custom',
         path: ['actualExerciseKey'],
         message: 'Skipped work has no exercise actually used',
+      })
+    }
+    if (result.status === 'skipped' && result.activeSeconds !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['activeSeconds'],
+        message: 'Skipped circuit work cannot contain active time',
       })
     }
   })

@@ -1,23 +1,45 @@
-import { computed, onBeforeUnmount, onMounted, readonly, shallowRef, type Ref } from 'vue'
-import type { WorkoutExecutionStartRequest } from '@trakia/contracts'
+import { computed, onBeforeUnmount, onMounted, readonly, shallowRef, watch, type Ref } from 'vue'
+import { useQueryClient } from '@tanstack/vue-query'
+import type { WorkoutExecution, WorkoutExecutionStartRequest } from '@trakia/contracts'
 import { ApiError, ApiNetworkError } from '@/shared/api/http'
 import { getOpenWorkoutExecution, startWorkoutExecution } from './api/execution'
+import { invalidateTrainingPlanExecutionQueries } from './execution-query-invalidation.js'
+import { resolveWorkoutStartState } from './workout-start-state.js'
 
 export function useWorkoutExecutionStart(
   planId: Ref<string | undefined>,
   sessionId: Ref<string | undefined>,
+  sessionExecution: Ref<WorkoutExecution | null>,
 ) {
+  const queryClient = useQueryClient()
   const isOnline = shallowRef(typeof navigator === 'undefined' ? false : navigator.onLine)
   const isLoading = shallowRef(true)
   const isStarting = shallowRef(false)
-  const activeExecution = shallowRef<Awaited<ReturnType<typeof startWorkoutExecution>> | null>(null)
+  const activeExecution = shallowRef<WorkoutExecution | null>(null)
+  const activeRequestId = shallowRef<string | undefined>(undefined)
+  const closedExecution = shallowRef<WorkoutExecution | null>(null)
   const errorMessage = shallowRef<string | null>(null)
   const statusMessage = shallowRef<string | null>(null)
   let recovering = false
   let pendingRequest: WorkoutExecutionStartRequest | null = null
 
   const canStart = computed(() =>
-    Boolean(isOnline.value && !isLoading.value && !isStarting.value && !activeExecution.value),
+    Boolean(
+      isOnline.value &&
+      !isLoading.value &&
+      !isStarting.value &&
+      !activeExecution.value &&
+      !closedExecution.value &&
+      !errorMessage.value,
+    ),
+  )
+  const presentationState = computed(() =>
+    resolveWorkoutStartState({
+      isLoading: isLoading.value,
+      errorMessage: errorMessage.value,
+      closedExecution: closedExecution.value,
+      activeExecution: activeExecution.value,
+    }),
   )
 
   const updateOnline = () => {
@@ -25,18 +47,49 @@ export function useWorkoutExecutionStart(
     if (isOnline.value) void recover()
   }
 
+  function applySessionExecution(execution: WorkoutExecution) {
+    if (execution.status === 'completed') {
+      closedExecution.value = execution
+      activeExecution.value = null
+      activeRequestId.value = undefined
+      return
+    }
+    closedExecution.value = null
+    activeExecution.value = execution
+    activeRequestId.value = undefined
+  }
+
+  watch(sessionExecution, (execution) => {
+    if (execution) applySessionExecution(execution)
+  })
+
   async function recover() {
     if (recovering) return
     recovering = true
+    isLoading.value = true
     errorMessage.value = null
     try {
-      const response = await getOpenWorkoutExecution()
-      activeExecution.value = response.state === 'open' ? response.execution : null
-      statusMessage.value = activeExecution.value
-        ? 'Ejecución confirmada. Puedes recuperarla desde cualquier sesión autenticada.'
-        : null
+      if (!sessionId.value) throw new Error('Falta identificar la sesión planificada.')
+      if (sessionExecution.value) {
+        applySessionExecution(sessionExecution.value)
+        statusMessage.value = activeExecution.value
+          ? 'Ejecución confirmada. Puedes recuperarla desde cualquier sesión autenticada.'
+          : null
+      } else {
+        const response = await getOpenWorkoutExecution()
+        if (response.state === 'open' || response.state === 'current_device') {
+          activeExecution.value = response.execution.execution
+          activeRequestId.value = response.execution.requestId
+        } else {
+          activeExecution.value = null
+          activeRequestId.value = undefined
+        }
+        statusMessage.value = activeExecution.value
+          ? 'Ejecución confirmada. Puedes recuperarla desde cualquier sesión autenticada.'
+          : null
+      }
     } catch {
-      errorMessage.value = 'No se pudo consultar la ejecución abierta. Revisa la conexión y reintenta.'
+      errorMessage.value = 'No se pudo comprobar el estado de la sesión. Revisa la conexión y reintenta.'
     } finally {
       isLoading.value = false
       recovering = false
@@ -44,7 +97,7 @@ export function useWorkoutExecutionStart(
   }
 
   async function start() {
-    if (!planId.value || !sessionId.value || !isOnline.value || activeExecution.value) return
+    if (!planId.value || !sessionId.value || !canStart.value) return
     isStarting.value = true
     errorMessage.value = null
     statusMessage.value = null
@@ -55,9 +108,12 @@ export function useWorkoutExecutionStart(
     }
     try {
       const response = await startWorkoutExecution(pendingRequest)
-      activeExecution.value = response
+      activeExecution.value = response.execution
+      activeRequestId.value = response.requestId
+      closedExecution.value = null
       pendingRequest = null
       statusMessage.value = 'Inicio confirmado por el servidor.'
+      void invalidateTrainingPlanExecutionQueries(queryClient)
     } catch (error) {
       errorMessage.value = startErrorMessage(error)
       if (error instanceof ApiError && error.code === 'OPEN_EXECUTION_EXISTS') await recover()
@@ -78,11 +134,14 @@ export function useWorkoutExecutionStart(
 
   return {
     activeExecution: readonly(activeExecution),
+    activeRequestId: readonly(activeRequestId),
     canStart,
+    closedExecution: readonly(closedExecution),
     errorMessage: readonly(errorMessage),
     isLoading: readonly(isLoading),
     isOnline: readonly(isOnline),
     isStarting: readonly(isStarting),
+    presentationState,
     recover,
     start,
     statusMessage: readonly(statusMessage),

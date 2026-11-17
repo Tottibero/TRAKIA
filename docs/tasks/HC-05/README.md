@@ -14,8 +14,12 @@
 | [HC-05-09-03](HC-05-09-03.md) | Completada | Recorrido online y 23 pruebas PostgreSQL satisfactorias; aceptación del propietario registrada. |
 | [HC-05-09-03a](HC-05-09-03a.md) | Completada | Vista PWA online, seis pruebas de interfaz, 23 pruebas PostgreSQL, `pnpm check` y arquitectura satisfactorios; smoke aceptado: press banca, 7 reps, 40 kg, RPE 7. Recuperación tras recarga no confirmada manualmente. |
 | [HC-05-09-03b](HC-05-09-03b.md) | Completada | Cierre online, `pnpm check`, integración HTTP en `trakia_test`, auditoría y prueba manual aceptados; press banca conservó 7 repeticiones, 40 kg y RPE 7. |
+| [HC-05-09-04](HC-05-09-04.md) | Pendiente | Especificación de trabajo efectivo, descanso, pausas, recuperación online y desglose de implementación; sin cambios de software. |
+| [HC-05-09-04a](HC-05-09-04a.md) | En revisión | Continuación manual, cierre online y recuperación tras recarga verificados; smoke manual de la corrección pendiente. |
+| [HC-05-09-04a-UX](HC-05-09-04a-UX.md) | En revisión | Estado y resumen anidados en lecturas de calendario/detalle, con consulta de ejecución por lote; `pnpm check`, integración PostgreSQL y arquitectura satisfactorias, smoke manual pendiente. |
+| [HC-05-09-04a-UX-02](HC-05-09-04a-UX-02.md) | En revisión | Objetivos del snapshot y override por serie durante el cronómetro de fuerza; `pnpm check` y arquitectura satisfactorios, comprobación manual responsive pendiente. |
 
-Las fichas HC-05-01–08 conservan las decisiones y prioridades implementadas históricamente. Para HC-05-09, el orden es: recorrido vertical online mínimo (09-03), primera serie desde PWA (09-03a), cierre online (09-03b), pausas/reanudación (09-04), temporizadores y modalidades temporizadas (09-05), y retirada segura del almacenamiento heredado en fichas posteriores.
+Las fichas HC-05-01–08 conservan las decisiones y prioridades implementadas históricamente. Para HC-05-09, el recorrido vertical online mínimo (09-03), la primera serie desde PWA (09-03a) y el cierre online (09-03b) están completados. HC-05-09-04 especifica ahora los tiempos online en tareas incrementales; la integración posterior de circuitos, HIIT y AMRAP y la retirada segura del almacenamiento heredado quedan para fichas posteriores.
 
 Diseño: [ejecutor-diseno.md](ejecutor-diseno.md).
 

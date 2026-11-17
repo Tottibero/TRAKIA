@@ -3,6 +3,7 @@ import type {
   CloseExecutionOperation,
   CorrectResultOperation,
   WorkoutExecutionSnapshot,
+  WorkoutExecutionActiveTimer,
   WorkoutResult,
   WorkoutStatus,
   WorkoutCompletionType,
@@ -34,6 +35,8 @@ export class WorkoutExecutionRecord {
   @Column({ name: 'session_key', type: 'varchar' }) sessionKey!: string
   @Column({ type: 'jsonb', nullable: true }) snapshot!: WorkoutExecutionSnapshot | null
   @Column({ type: 'jsonb', default: () => "'[]'::jsonb" }) results!: WorkoutResult[]
+  @Column({ name: 'active_timer', type: 'jsonb', nullable: true })
+  activeTimer!: WorkoutExecutionActiveTimer | null
   @Column({ name: 'close_operation', type: 'jsonb', nullable: true })
   closeOperation!: CloseExecutionOperation | null
   @Column({ name: 'correction_operations', type: 'jsonb', default: () => "'[]'::jsonb" })

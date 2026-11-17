@@ -6,6 +6,7 @@ import {
   WorkoutExecutionRequestConflictError,
   WorkoutExecutionResultConflictError,
   WorkoutExecutionResultInvalidError,
+  WorkoutExecutionResultMetricsConflictError,
   WorkoutExecutionSessionProtectedError,
   WorkoutExecutionStartService,
 } from '../dist/modules/workouts/workout-execution-start.service.js'
@@ -53,6 +54,7 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
         ) ?? null
       )
     },
+    find: async () => rows,
     create: (value) => ({ ...value }),
     save: async (row) => {
       const index = rows.findIndex((candidate) => candidate.id === row.id)
@@ -68,8 +70,18 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
     getRepository: () => repository,
     query: async (...args) => {
       calls.push(['query', ...args])
-      if (String(args[0]).includes('clock_timestamp'))
-        return [{ finishedAt: new Date(rows[0].startedAt.getTime() + 60_000) }]
+      if (String(args[0]).includes('clock_timestamp')) {
+        if (String(args[0]).includes('AS "startedAt"'))
+          return [{ startedAt: new Date('2026-11-16T10:00:00.000Z') }]
+        const activeTimer = rows[0].activeTimer
+        return [
+          {
+            finishedAt: activeTimer
+              ? new Date(Date.parse(activeTimer.startedAt) + 12_500)
+              : new Date(rows[0].startedAt.getTime() + 60_000),
+          },
+        ]
+      }
       return []
     },
   }
@@ -150,6 +162,28 @@ test('replaying the same request returns the stored execution without inserting 
   assert.equal(rows.length, 1)
 })
 
+test('closed session lookup returns one completed execution per requested session', async () => {
+  const { rows, service } = createHarness()
+  const started = await service.start(userId, request)
+  const record = rows[0]
+  record.status = 'completed'
+  record.finishedAt = new Date('2026-11-16T10:01:00.000Z')
+  rows.push({ ...record, id: '4d61cda2-148a-4aca-bfef-3f3fb827fe5e' })
+
+  const closed = await service.findClosedSessions(userId, [sessionId])
+
+  assert.deepEqual(closed, [
+    {
+      sessionId,
+      execution: {
+        ...started.execution,
+        status: 'completed',
+        finishedAt: '2026-11-16T10:01:00.000Z',
+      },
+    },
+  ])
+})
+
 test('reusing requestId for different start details is a conflict', async () => {
   const { service } = createHarness()
   await service.start(userId, request)
@@ -181,6 +215,143 @@ test('open execution recovery is scoped to its authenticated account and does no
     state: 'none',
     execution: null,
   })
+})
+
+test('account-owned request recovery returns a closed execution without a device id', async () => {
+  const { service } = createHarness()
+  const started = await service.start(userId, request)
+  await service.closeOnlineExecution(userId, started.execution.id, { completionType: 'planned' })
+
+  const recovered = await service.findByRequest(userId, undefined, request.requestId)
+  assert.equal(recovered.execution.id, started.execution.id)
+  assert.equal(recovered.execution.status, 'completed')
+})
+
+test('work timer start, completion, and identical retries persist server-measured activeSeconds', async () => {
+  const { rows, service } = createHarness()
+  const started = await service.start(userId, request)
+  const timerRequest = {
+    resultId: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+    blockKey: 'main',
+    plannedExerciseKey: 'squat',
+    unit: { kind: 'planned', setIndex: 1 },
+  }
+
+  const timer = await service.startWorkTimer(userId, started.execution.id, timerRequest)
+  assert.equal(timer.replayed, false)
+  assert.equal(timer.activeTimer.startedAt, '2026-11-16T10:00:00.000Z')
+  assert.deepEqual(await service.startWorkTimer(userId, started.execution.id, timerRequest), {
+    ...timer,
+    replayed: true,
+  })
+  assert.deepEqual((await service.findOpen(userId)).execution.execution.activeTimer, timer.activeTimer)
+
+  const resultRequest = {
+    result: {
+      type: 'sets',
+      id: timerRequest.resultId,
+      blockKey: 'main',
+      plannedExerciseKey: 'squat',
+      unit: { kind: 'planned', setIndex: 1 },
+      actualExerciseKey: 'back-squat',
+      status: 'performed',
+    },
+  }
+  const result = await service.recordResult(userId, started.execution.id, resultRequest)
+  assert.equal(result.result.activeSeconds, 12.5)
+  assert.equal(result.replayed, false)
+  assert.deepEqual(await service.recordResult(userId, started.execution.id, resultRequest), {
+    ...result,
+    replayed: true,
+  })
+  assert.equal(rows[0].activeTimer, null)
+  assert.equal(rows[0].results.length, 1)
+
+  const recovered = await service.findOpen(userId)
+  assert.equal(recovered.execution.execution.results[0].activeSeconds, 12.5)
+  assert.equal(recovered.execution.execution.activeTimer, undefined)
+})
+
+test('work timers advance only to the next planned strength set across one exercise', async () => {
+  const { service } = createHarness()
+  const started = await service.start(userId, request)
+  const firstResultId = '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5'
+  const firstTimer = {
+    resultId: firstResultId,
+    blockKey: 'main',
+    plannedExerciseKey: 'squat',
+    unit: { kind: 'planned', setIndex: 1 },
+  }
+  await service.startWorkTimer(userId, started.execution.id, firstTimer)
+  await service.recordResult(userId, started.execution.id, {
+    result: {
+      type: 'sets',
+      id: firstResultId,
+      blockKey: 'main',
+      plannedExerciseKey: 'squat',
+      unit: firstTimer.unit,
+      actualExerciseKey: 'back-squat',
+      status: 'performed',
+    },
+  })
+
+  const thirdTimer = {
+    ...firstTimer,
+    resultId: '918a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+    unit: { kind: 'planned', setIndex: 3 },
+  }
+  await assert.rejects(
+    service.startWorkTimer(userId, started.execution.id, thirdTimer),
+    WorkoutExecutionResultInvalidError,
+  )
+
+  const secondTimer = {
+    ...firstTimer,
+    resultId: '218a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+    unit: { kind: 'planned', setIndex: 2 },
+  }
+  assert.equal(
+    (await service.startWorkTimer(userId, started.execution.id, secondTimer)).activeTimer.resultId,
+    secondTimer.resultId,
+  )
+})
+
+test('confirmed timed result metrics can be saved afterwards and replayed without overwrite', async () => {
+  const { rows, service } = createHarness()
+  const started = await service.start(userId, request)
+  const result = {
+    type: 'sets',
+    id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+    blockKey: 'main',
+    plannedExerciseKey: 'squat',
+    unit: { kind: 'planned', setIndex: 1 },
+    actualExerciseKey: 'back-squat',
+    status: 'performed',
+  }
+  const timerInput = {
+    resultId: result.id,
+    blockKey: result.blockKey,
+    plannedExerciseKey: result.plannedExerciseKey,
+    unit: result.unit,
+  }
+  await service.startWorkTimer(userId, started.execution.id, timerInput)
+  await service.recordResult(userId, started.execution.id, { result })
+
+  const input = { actualMetrics: { reps: 8, weightKg: 40 } }
+  const saved = await service.recordResultMetrics(userId, started.execution.id, result.id, input)
+  assert.equal(saved.replayed, false)
+  assert.deepEqual(saved.result.actualMetrics, input.actualMetrics)
+  assert.deepEqual(await service.recordResultMetrics(userId, started.execution.id, result.id, input), {
+    ...saved,
+    replayed: true,
+  })
+  await assert.rejects(
+    service.recordResultMetrics(userId, started.execution.id, result.id, {
+      actualMetrics: { reps: 9 },
+    }),
+    WorkoutExecutionResultMetricsConflictError,
+  )
+  assert.deepEqual(rows[0].results[0].actualMetrics, input.actualMetrics)
 })
 
 test('recordResult persists once and returns the stored result for an identical retry', async () => {
@@ -563,7 +734,7 @@ test('close execution conflicts on result identity, workout unit, owner device a
   await assert.rejects(service.closeExecution('other-user', execution.id, operation), /could not be found/)
 })
 
-test('online result recording rejects modalities outside the first strength-set slice', async () => {
+test('online result recording rejects unsupported modalities and unplanned strength units', async () => {
   const plannedSession = {
     ...session,
     blocks: [

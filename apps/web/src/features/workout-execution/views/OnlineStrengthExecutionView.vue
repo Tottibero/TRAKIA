@@ -1,219 +1,228 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, shallowRef } from 'vue'
-import { useRouter } from 'vue-router'
+import { onBeforeUnmount, onMounted } from 'vue'
+import { useQueryClient } from '@tanstack/vue-query'
+import { RouterLink } from 'vue-router'
 import type { ActualMetrics } from '@trakia/contracts'
-import ConfirmWorkoutFinishDialog from '../components/ConfirmWorkoutFinishDialog.vue'
 import {
   closeWorkoutExecution,
   getOpenWorkoutExecution,
+  getWorkoutExecutionStartByRequest,
   recordWorkoutExecutionResult,
+  recordWorkoutExecutionResultMetrics,
+  startWorkoutExecutionWorkTimer,
 } from '../api/execution'
+import { invalidateTrainingPlanExecutionQueries } from '../execution-query-invalidation.js'
+import WorkoutPlannedTargets from '../components/WorkoutPlannedTargets.vue'
 import { createOnlineStrengthFlow } from '../online-strength-flow'
 
-const props = defineProps<{ executionId: string }>()
-const router = useRouter()
-const isFinishDialogOpen = shallowRef(false)
-const flow = createOnlineStrengthFlow(props.executionId, {
-  getOpen: getOpenWorkoutExecution,
-  recordResult: recordWorkoutExecutionResult,
-  closeExecution: closeWorkoutExecution,
-})
+const props = defineProps<{ executionId: string; requestId?: string }>()
+const queryClient = useQueryClient()
+const flow = createOnlineStrengthFlow(
+  props.executionId,
+  {
+    getOpen: getOpenWorkoutExecution,
+    getByRequest: getWorkoutExecutionStartByRequest,
+    startWorkTimer: startWorkoutExecutionWorkTimer,
+    recordResult: recordWorkoutExecutionResult,
+    recordMetrics: recordWorkoutExecutionResultMetrics,
+    closeExecution: closeWorkoutExecution,
+    onExecutionChanged: () => {
+      void invalidateTrainingPlanExecutionQueries(queryClient)
+    },
+  },
+  props.requestId,
+)
+
+let timerInterval: number | undefined
 
 function updateOnline() {
   flow.setOnline(navigator.onLine)
-}
-
-function resultSummary(metrics: ActualMetrics | undefined) {
-  if (!metrics) return 'Sin métricas'
-  return flow.metricFields.value
-    .flatMap(({ field, unit }) => {
-      const value = metrics[field]
-      return value === undefined ? [] : [`${value}${unit ? ` ${unit}` : ''}`]
-    })
-    .join(' · ')
 }
 
 function metricId(field: keyof ActualMetrics) {
   return `online-strength-${field}`
 }
 
-function openFinishDialog() {
-  if (!flow.isClosing.value && !flow.isSaving.value && flow.isOnline.value) isFinishDialogOpen.value = true
-}
-
-async function confirmFinish() {
-  if (await flow.finish()) isFinishDialogOpen.value = false
-}
-
 onMounted(() => {
   window.addEventListener('online', updateOnline)
   window.addEventListener('offline', updateOnline)
   flow.setOnline(navigator.onLine)
+  timerInterval = window.setInterval(() => flow.tick(), 1000)
   void flow.recover()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('online', updateOnline)
   window.removeEventListener('offline', updateOnline)
+  if (timerInterval !== undefined) window.clearInterval(timerInterval)
 })
 </script>
 
 <template>
-  <main class="min-h-dvh bg-[#10110f] px-4 pb-12 pt-4 text-stone-100 sm:px-8 sm:pt-6">
-    <div class="mx-auto max-w-2xl">
-      <header class="flex items-center justify-between gap-4 border-b border-white/10 pb-4">
-        <RouterLink
-          class="inline-flex min-h-11 items-center text-sm font-extrabold tracking-[0.22em] text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lime-300"
-          :to="{ name: 'home' }"
-          aria-label="TRAKIA, volver a la planificación"
-          >TRAKIA</RouterLink
+  <main class="min-h-dvh bg-[#10110f] px-4 py-8 text-stone-100 sm:px-8 sm:py-12">
+    <div class="mx-auto max-w-md">
+      <p
+        v-if="flow.isLoading.value"
+        class="text-center text-sm text-stone-300"
+        role="status"
+        aria-live="polite"
+      >
+        Cargando serie…
+      </p>
+
+      <section v-else-if="flow.execution.value && flow.plannedUnit.value" class="pt-4">
+        <h1 class="text-center text-2xl font-semibold tracking-tight sm:text-3xl">
+          {{ flow.plannedUnit.value.exercise.name }}
+        </h1>
+        <p class="mt-2 text-center text-sm font-medium text-stone-300">
+          Serie {{ flow.plannedUnit.value.setIndex }} de {{ flow.plannedUnit.value.appearance.sets }}
+        </p>
+
+        <WorkoutPlannedTargets :targets="flow.plannedTargets.value" />
+
+        <p
+          class="mt-7 text-center font-mono text-7xl font-semibold leading-none tabular-nums tracking-[-0.04em] text-lime-200 sm:mt-10 sm:text-8xl"
+          role="timer"
+          aria-label="Tiempo efectivo de trabajo"
+          aria-live="off"
         >
-        <span v-if="!flow.isOnline.value" class="text-sm text-amber-200" role="status"> Sin conexión </span>
-      </header>
-
-      <section class="py-8" aria-labelledby="online-strength-title">
-        <p class="text-sm font-medium text-lime-200">Registro online</p>
-        <h1 id="online-strength-title" class="mt-2 text-3xl font-semibold tracking-tight">Primera serie</h1>
-        <p class="mt-3 max-w-prose text-sm leading-6 text-stone-300">
-          La serie queda registrada cuando el servidor la confirma.
-        </p>
-
-        <p v-if="flow.isLoading.value" class="mt-8 text-sm text-stone-300" role="status" aria-live="polite">
-          Recuperando la ejecución…
-        </p>
-
-        <div v-else-if="flow.errorMessage.value && !flow.execution.value" class="mt-8" role="alert">
-          <p class="text-sm leading-6 text-rose-200">{{ flow.errorMessage.value }}</p>
-          <button
-            class="mt-4 inline-flex min-h-12 items-center justify-center rounded-md border border-white/20 px-4 text-sm font-semibold text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
-            type="button"
-            :disabled="flow.isLoading.value"
-            @click="flow.recover"
-          >
-            Reintentar recuperación
-          </button>
-        </div>
-
-        <div v-else-if="flow.execution.value && flow.plannedUnit.value" class="mt-8">
-          <h2
-            v-if="flow.isClosed.value"
-            class="text-xl font-semibold text-lime-200"
-            role="status"
-            aria-live="polite"
-          >
-            Entrenamiento finalizado
-          </h2>
-          <div class="border-b border-white/10 pb-5">
-            <p class="text-xs font-medium uppercase tracking-[0.12em] text-stone-400">
-              {{ flow.plannedUnit.value.block.key }} · Serie 1
-            </p>
-            <h2 class="mt-2 text-2xl font-semibold tracking-tight">
-              {{ flow.plannedUnit.value.exercise.name }}
-            </h2>
-          </div>
-
-          <div v-if="flow.confirmedResult.value" class="pt-5" role="status" aria-live="polite">
-            <p class="text-base font-semibold text-lime-200">Serie confirmada</p>
-            <p class="mt-2 text-sm text-stone-200">
-              {{ resultSummary(flow.confirmedResult.value.actualMetrics) }}
-            </p>
-            <p class="mt-4 text-sm leading-6 text-stone-400">
-              Puedes volver a esta pantalla más tarde para recuperar el resultado confirmado.
-            </p>
-          </div>
-
-          <form v-else-if="!flow.isClosed.value" class="space-y-5 pt-5" @submit.prevent="flow.save">
-            <p v-if="flow.formError.value" class="text-sm text-rose-200" role="alert">
-              {{ flow.formError.value }}
-            </p>
-            <fieldset :disabled="flow.isSaving.value || flow.hasPendingResult.value">
-              <legend class="mb-4 text-sm font-medium text-stone-300">Métricas reales</legend>
-              <div class="grid gap-4 sm:grid-cols-2">
-                <div v-for="metric in flow.metricFields.value" :key="metric.field">
-                  <label class="block text-sm font-medium text-stone-200" :for="metricId(metric.field)">
-                    {{ metric.label }}<span v-if="metric.unit"> ({{ metric.unit }})</span>
-                  </label>
-                  <input
-                    :id="metricId(metric.field)"
-                    class="mt-2 min-h-12 w-full rounded-md border border-white/20 bg-[#191a17] px-3 text-base text-white outline-none focus-visible:border-lime-300 focus-visible:ring-2 focus-visible:ring-lime-300/40 disabled:opacity-70"
-                    type="number"
-                    min="0.01"
-                    step="any"
-                    inputmode="decimal"
-                    :value="flow.fields[metric.field] ?? ''"
-                    :aria-invalid="Boolean(flow.validationErrors[metric.field])"
-                    :aria-describedby="
-                      flow.validationErrors[metric.field] ? `${metricId(metric.field)}-error` : undefined
-                    "
-                    @input="flow.setMetric(metric.field, ($event.target as HTMLInputElement).value)"
-                  />
-                  <p
-                    v-if="flow.validationErrors[metric.field]"
-                    :id="`${metricId(metric.field)}-error`"
-                    class="mt-2 text-sm text-rose-200"
-                  >
-                    {{ flow.validationErrors[metric.field] }}
-                  </p>
-                </div>
-              </div>
-            </fieldset>
-
-            <p v-if="flow.errorMessage.value" class="text-sm leading-6 text-rose-200" role="alert">
-              {{ flow.errorMessage.value }}
-            </p>
-            <p v-if="!flow.isOnline.value" class="text-sm text-amber-200" role="status">
-              Conéctate para guardar. Tus valores siguen en esta pantalla.
-            </p>
-            <button
-              class="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-3 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:bg-stone-700 disabled:text-white sm:w-auto"
-              type="submit"
-              :disabled="!flow.canSave.value"
-            >
-              {{
-                flow.isSaving.value
-                  ? 'Guardando…'
-                  : flow.hasPendingResult.value
-                    ? 'Reintentar guardado'
-                    : 'Registrar serie'
-              }}
-            </button>
-          </form>
-          <button
-            v-if="!flow.isClosed.value"
-            class="mt-8 inline-flex min-h-12 items-center justify-center rounded-md border border-white/20 px-4 text-sm font-semibold text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:cursor-not-allowed disabled:opacity-60"
-            type="button"
-            :disabled="flow.isClosing.value || flow.isSaving.value || !flow.isOnline.value"
-            @click="openFinishDialog"
-          >
-            {{ flow.isClosing.value ? 'Finalizando…' : 'Finalizar entrenamiento' }}
-          </button>
-        </div>
-
-        <p v-else-if="!flow.errorMessage.value" class="mt-8 text-sm leading-6 text-amber-200" role="status">
-          Esta sesión no empieza con una serie de fuerza compatible con la prueba manual.
+          {{ flow.timerDisplay.value }}
         </p>
 
         <p
-          v-if="flow.saveMessage.value && !flow.confirmedResult.value"
-          class="mt-5 text-sm text-lime-200"
-          role="status"
+          v-if="flow.errorMessage.value"
+          class="mt-6 text-center text-sm leading-6 text-rose-200"
+          role="alert"
         >
-          {{ flow.saveMessage.value }}
+          {{ flow.errorMessage.value }}
         </p>
+
+        <section v-if="flow.isClosed.value" class="mt-10 text-center" aria-labelledby="closed-title">
+          <h2 id="closed-title" class="text-lg font-semibold text-lime-200" role="status">
+            Entrenamiento finalizado
+          </h2>
+          <RouterLink
+            class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-md border border-white/20 px-5 py-4 text-base font-semibold text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200"
+            :to="{ name: 'home' }"
+          >
+            Volver a planificación
+          </RouterLink>
+        </section>
+
         <button
-          class="mt-8 inline-flex min-h-11 items-center text-sm font-medium text-stone-300 underline decoration-white/30 underline-offset-4 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-lime-300"
+          v-else-if="!flow.confirmedResult.value"
+          class="mt-10 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
           type="button"
-          @click="router.push({ name: 'home' })"
+          :disabled="
+            flow.isStarting.value || flow.isFinishing.value || (!flow.canStart.value && !flow.canFinish.value)
+          "
+          @click="flow.canFinish.value ? flow.finish() : flow.start()"
         >
-          Volver a planificación
+          {{
+            flow.isStarting.value
+              ? 'Iniciando…'
+              : flow.isFinishing.value
+                ? 'Confirmando…'
+                : flow.hasPendingFinish.value
+                  ? 'Reintentar'
+                  : flow.canFinish.value
+                    ? 'Terminar serie'
+                    : 'Iniciar serie'
+          }}
         </button>
+
+        <form
+          v-if="
+            !flow.isClosed.value &&
+            !flow.activeTimer.value &&
+            flow.confirmedResult.value &&
+            !flow.confirmedResult.value.actualMetrics
+          "
+          class="mt-10 space-y-5"
+          @submit.prevent="flow.save"
+        >
+          <p v-if="flow.formError.value" class="text-sm leading-6 text-rose-200" role="alert">
+            {{ flow.formError.value }}
+          </p>
+          <fieldset :disabled="flow.isSaving.value || flow.hasPendingMetrics.value">
+            <legend class="sr-only">Métricas de la serie</legend>
+            <div class="grid grid-cols-3 gap-3">
+              <div v-for="metric in flow.metricFields.value" :key="metric.field">
+                <label class="block text-sm font-medium text-stone-200" :for="metricId(metric.field)">
+                  {{ metric.label }}<span v-if="metric.unit"> ({{ metric.unit }})</span>
+                </label>
+                <input
+                  :id="metricId(metric.field)"
+                  class="mt-2 min-h-12 w-full rounded-md border border-white/20 bg-[#191a17] px-3 text-base text-white outline-none focus-visible:border-lime-300 focus-visible:ring-2 focus-visible:ring-lime-300/40 disabled:opacity-70"
+                  type="number"
+                  min="0.01"
+                  step="any"
+                  inputmode="decimal"
+                  :value="flow.fields[metric.field] ?? ''"
+                  :aria-invalid="Boolean(flow.validationErrors[metric.field])"
+                  :aria-describedby="
+                    flow.validationErrors[metric.field] ? `${metricId(metric.field)}-error` : undefined
+                  "
+                  @input="flow.setMetric(metric.field, ($event.target as HTMLInputElement).value)"
+                />
+                <p
+                  v-if="flow.validationErrors[metric.field]"
+                  :id="`${metricId(metric.field)}-error`"
+                  class="mt-2 text-sm text-rose-200"
+                >
+                  {{ flow.validationErrors[metric.field] }}
+                </p>
+              </div>
+            </div>
+          </fieldset>
+
+          <button
+            class="inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+            type="submit"
+            :disabled="!flow.canSave.value"
+          >
+            {{
+              flow.isSaving.value
+                ? 'Guardando…'
+                : flow.hasPendingMetrics.value
+                  ? 'Reintentar'
+                  : 'Guardar resultado'
+            }}
+          </button>
+        </form>
+
+        <section v-else-if="flow.confirmedResult.value?.actualMetrics && !flow.isClosed.value" class="mt-8">
+          <p class="text-center text-sm font-medium text-lime-200" role="status" aria-live="polite">
+            Resultado guardado
+          </p>
+          <button
+            class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            :disabled="!flow.canContinue.value"
+            @click="flow.continueOrClose"
+          >
+            {{
+              flow.isClosing.value
+                ? 'Finalizando…'
+                : flow.isContinuing.value
+                  ? 'Continuando…'
+                  : flow.continuationLabel.value
+            }}
+          </button>
+        </section>
       </section>
+
+      <div v-else-if="flow.errorMessage.value" class="pt-8 text-center">
+        <p class="text-sm leading-6 text-rose-200" role="alert">{{ flow.errorMessage.value }}</p>
+        <button
+          class="mt-5 inline-flex min-h-12 items-center justify-center rounded-md border border-white/20 px-5 text-sm font-semibold text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          :disabled="flow.isLoading.value || !flow.isOnline.value"
+          @click="flow.recover"
+        >
+          Reintentar
+        </button>
+      </div>
     </div>
-    <ConfirmWorkoutFinishDialog
-      v-model="isFinishDialogOpen"
-      :is-saving="flow.isClosing.value"
-      :error-message="flow.closeErrorMessage.value"
-      @confirm="confirmFinish"
-    />
   </main>
 </template>

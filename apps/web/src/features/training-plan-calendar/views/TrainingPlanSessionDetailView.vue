@@ -167,6 +167,8 @@ const initialErrorMessage = computed(() =>
         <WorkoutStartAction
           :plan-id="sessionQuery.data.value.plan.id"
           :session-id="sessionQuery.data.value.session.id"
+          :execution="sessionQuery.data.value.session.execution"
+          :show-summary="route.query.view === 'summary'"
         />
       </template>
     </div>

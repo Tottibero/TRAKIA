@@ -122,6 +122,26 @@ describe('WorkoutExecutionSchema', () => {
     expect(WorkoutExecutionSchema.safeParse(execution()).success).toBe(true)
   })
 
+  it('accepts a server-timestamped active work timer and keeps it distinct from result time', () => {
+    const timer = {
+      kind: 'work',
+      resultId: 'e41e34c7-04d1-4e9c-8f6b-00fd73722b7d',
+      blockKey: 'strength',
+      plannedExerciseKey: 'squat',
+      unit: { kind: 'planned', setIndex: 1 },
+      startedAt: '2026-11-13T09:15:00Z',
+    }
+    expect(WorkoutExecutionSchema.safeParse(execution({ activeTimer: timer })).success).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(execution({ activeTimer: { ...timer, kind: 'rest' } })).success,
+    ).toBe(false)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({ status: 'completed', finishedAt: '2026-11-13T10:00:00Z', activeTimer: timer }),
+      ).success,
+    ).toBe(false)
+  })
+
   it('accepts a paused execution with one open pause', () => {
     expect(
       WorkoutExecutionSchema.safeParse(
@@ -239,6 +259,18 @@ describe('WorkoutExecutionSchema', () => {
 
   it('accepts a performed planned set with actual metrics', () => {
     expect(resultArray([performedSet()]).success).toBe(true)
+  })
+
+  it('stores active work seconds separately from the exercise duration metric', () => {
+    const result = WorkoutResultSchema.parse(
+      performedSet({ activeSeconds: 42.5, actualMetrics: { durationSeconds: 12.25 } }),
+    )
+    expect(result).toMatchObject({ activeSeconds: 42.5, actualMetrics: { durationSeconds: 12.25 } })
+    expect(resultArray([performedSet({ activeSeconds: 0 })]).success).toBe(false)
+    expect(
+      resultArray([performedSet({ status: 'skipped', actualExerciseKey: undefined, activeSeconds: 5 })])
+        .success,
+    ).toBe(false)
   })
 
   it('accepts an additional set with its own identity', () => {

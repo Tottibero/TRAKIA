@@ -7,11 +7,16 @@ import {
   type CorrectResultOperation,
   type WorkoutExecution,
   type WorkoutExecutionSnapshot,
+  type WorkoutExecutionActiveTimer,
   type WorkoutExecutionStartRequest,
   type WorkoutExecutionStartResponse,
+  type WorkoutExecutionClosedSessionsResponse,
   type WorkoutExecutionOpenResponse,
   type WorkoutExecutionResultRequest,
   type WorkoutExecutionResultResponse,
+  type WorkoutExecutionWorkTimerStartRequest,
+  type WorkoutExecutionWorkTimerStartResponse,
+  type WorkoutExecutionResultMetricsRequest,
   type WorkoutExecutionCloseRequest,
   type WorkoutExecutionCloseResponse,
   type WorkoutSyncResponse,
@@ -24,7 +29,7 @@ import {
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm'
-import { DataSource, EntityManager, QueryFailedError, Repository } from 'typeorm'
+import { DataSource, EntityManager, In, QueryFailedError, Repository } from 'typeorm'
 import { ExerciseCatalogService } from '../exercises/exercises.module.js'
 import { TrainingPlanService } from '../training-plans/training-plans.module.js'
 import { WorkoutExecutionRecord } from './workout-execution.entity.js'
@@ -107,6 +112,13 @@ export class WorkoutExecutionResultInvalidError extends Error {
   }
 }
 
+export class WorkoutExecutionResultMetricsConflictError extends Error {
+  constructor() {
+    super('The result already has different confirmed metrics.')
+    this.name = 'WorkoutExecutionResultMetricsConflictError'
+  }
+}
+
 @Injectable()
 export class WorkoutExecutionStartService {
   constructor(
@@ -165,6 +177,7 @@ export class WorkoutExecutionStartService {
           sessionKey: session.sessionKey,
           snapshot,
           correctionOperations: [],
+          activeTimer: null,
           status: 'in_progress',
           startedAt: new Date(),
           finishedAt: null,
@@ -189,14 +202,92 @@ export class WorkoutExecutionStartService {
     return { state: 'open', execution: toStartResponse(record) }
   }
 
+  async findForSessions(userId: string, sessionIds: string[]): Promise<Map<string, WorkoutExecution>> {
+    if (sessionIds.length === 0) return new Map()
+    const records = await this.executions.find({
+      where: { userId, sessionId: In(sessionIds) },
+      order: { startedAt: 'DESC', id: 'DESC' },
+    })
+    const bySession = new Map<string, WorkoutExecution>()
+    for (const record of records) {
+      if (!record.sessionId || !record.snapshot || bySession.has(record.sessionId)) continue
+      bySession.set(record.sessionId, toExecution(record))
+    }
+    return bySession
+  }
+
+  async findClosedSessions(
+    userId: string,
+    sessionIds: string[],
+  ): Promise<WorkoutExecutionClosedSessionsResponse> {
+    const records = await this.executions.find({
+      where: { userId, sessionId: In(sessionIds), status: 'completed' },
+      order: { finishedAt: 'DESC' },
+    })
+    const seenSessions = new Set<string>()
+    return records.flatMap((record) => {
+      if (!record.sessionId || seenSessions.has(record.sessionId)) return []
+      seenSessions.add(record.sessionId)
+      return [{ sessionId: record.sessionId, execution: toExecution(record) }]
+    })
+  }
+
+  async startWorkTimer(
+    userId: string,
+    executionId: string,
+    input: WorkoutExecutionWorkTimerStartRequest,
+  ): Promise<WorkoutExecutionWorkTimerStartResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkoutExecutionRecord)
+      const record = await repository.findOne({
+        where: { id: executionId, userId },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
+      if (!isNextOnlineStrengthUnit(record.snapshot, record.results ?? [], input))
+        throw new WorkoutExecutionResultInvalidError()
+
+      if (record.activeTimer) {
+        if (sameWorkTimerIdentity(record.activeTimer, input))
+          return { activeTimer: record.activeTimer, replayed: true }
+        throw new WorkoutExecutionResultConflictError()
+      }
+
+      const results = record.results ?? []
+      if (
+        results.some(({ id }) => id === input.resultId) ||
+        results.some(
+          (result) =>
+            result.type === 'sets' &&
+            result.blockKey === input.blockKey &&
+            result.plannedExerciseKey === input.plannedExerciseKey &&
+            result.unit.kind === 'planned' &&
+            result.unit.setIndex === input.unit.setIndex,
+        )
+      )
+        throw new WorkoutExecutionResultConflictError()
+
+      const [{ startedAt }] = await manager.query('SELECT clock_timestamp() AS "startedAt"')
+      const activeTimer: WorkoutExecutionActiveTimer = {
+        kind: 'work',
+        ...input,
+        startedAt: new Date(startedAt).toISOString(),
+      }
+      record.activeTimer = activeTimer
+      await repository.save(record)
+      return { activeTimer, replayed: false }
+    })
+  }
+
   async findByRequest(
     userId: string,
-    deviceId: string,
+    deviceId: string | undefined,
     requestId: string,
   ): Promise<WorkoutExecutionStartResponse> {
     const record = await this.executions.findOneBy({ userId, requestId })
     if (!record) throw new WorkoutExecutionSessionNotFoundError()
-    assertOwnerDevice(record, deviceId)
+    if (record.deviceId !== null) assertOwnerDevice(record, deviceId ?? '')
     return toStartResponse(record)
   }
 
@@ -215,25 +306,90 @@ export class WorkoutExecutionStartService {
       if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
 
       const result = input.result
+      if (result.activeSeconds !== undefined) throw new WorkoutExecutionResultInvalidError()
       if (!isOnlineStrengthSet(record.snapshot, result)) throw new WorkoutExecutionResultInvalidError()
       const results = record.results ?? []
       const existing = results.find((candidate) => candidate.id === result.id)
       if (existing) {
-        if (!isDeepStrictEqual(existing, result)) throw new WorkoutExecutionResultConflictError()
+        const comparableExisting =
+          existing.activeSeconds !== undefined ? withoutTimedResultFields(existing) : existing
+        if (!isDeepStrictEqual(comparableExisting, result)) throw new WorkoutExecutionResultConflictError()
         return { result: existing, replayed: true }
       }
       if (results.some((candidate) => sameWorkoutUnit(candidate, result)))
         throw new WorkoutExecutionResultConflictError()
 
+      let confirmedResult: WorkoutResult = result
+      if (record.activeTimer) {
+        if (!sameWorkTimerResult(record.activeTimer, result)) throw new WorkoutExecutionResultConflictError()
+        if (result.actualMetrics !== undefined) throw new WorkoutExecutionResultInvalidError()
+        const [{ finishedAt }] = await manager.query('SELECT clock_timestamp() AS "finishedAt"')
+        const activeSeconds =
+          (new Date(finishedAt).getTime() - Date.parse(record.activeTimer.startedAt)) / 1000
+        if (!Number.isFinite(activeSeconds) || activeSeconds <= 0)
+          throw new WorkoutExecutionResultInvalidError()
+        confirmedResult = { ...result, activeSeconds }
+      }
+
       try {
-        WorkoutExecutionSchema.parse({ ...toExecution(record), results: [...results, result] })
+        WorkoutExecutionSchema.parse({
+          ...toExecution(record),
+          activeTimer: undefined,
+          results: [...results, confirmedResult],
+        })
       } catch {
         throw new WorkoutExecutionResultInvalidError()
       }
 
-      record.results = [...results, result]
+      record.results = [...results, confirmedResult]
+      record.activeTimer = null
       await repository.save(record)
-      return { result, replayed: false }
+      return { result: confirmedResult, replayed: false }
+    })
+  }
+
+  async recordResultMetrics(
+    userId: string,
+    executionId: string,
+    resultId: string,
+    input: WorkoutExecutionResultMetricsRequest,
+  ): Promise<WorkoutExecutionResultResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkoutExecutionRecord)
+      const record = await repository.findOne({
+        where: { id: executionId, userId },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
+      const results = [...(record.results ?? [])]
+      const index = results.findIndex(({ id }) => id === resultId)
+      if (index < 0) throw new WorkoutExecutionSessionNotFoundError()
+      const current = results[index]!
+      if (
+        current.type !== 'sets' ||
+        current.status !== 'performed' ||
+        current.activeSeconds === undefined ||
+        !current.actualExerciseKey
+      )
+        throw new WorkoutExecutionResultInvalidError()
+      if (current.actualMetrics) {
+        if (!isDeepStrictEqual(current.actualMetrics, input.actualMetrics))
+          throw new WorkoutExecutionResultMetricsConflictError()
+        return { result: current, replayed: true }
+      }
+      if (Object.keys(input.actualMetrics).length === 0) throw new WorkoutExecutionResultInvalidError()
+
+      const updated: WorkoutResult = { ...current, actualMetrics: input.actualMetrics }
+      results[index] = updated
+      try {
+        WorkoutExecutionSchema.parse({ ...toExecution(record), results })
+      } catch {
+        throw new WorkoutExecutionResultInvalidError()
+      }
+      record.results = results
+      await repository.save(record)
+      return { result: updated, replayed: false }
     })
   }
 
@@ -516,10 +672,87 @@ function isOnlineStrengthSet(snapshot: WorkoutExecutionSnapshot | null, result: 
   const block = snapshot.session.blocks.find(({ key }) => key === result.blockKey)
   if (block?.type !== 'sets') return false
   const planned = block.exercises.find(({ key }) => key === result.plannedExerciseKey)
-  if (!planned) return false
+  if (!planned || planned.sets < result.unit.setIndex) return false
   return snapshot.exercises.some(
     ({ key, category }) => key === result.actualExerciseKey && category === 'strength',
   )
+}
+
+function isNextOnlineStrengthUnit(
+  snapshot: WorkoutExecutionSnapshot | null,
+  results: WorkoutResult[],
+  input: WorkoutExecutionWorkTimerStartRequest,
+): boolean {
+  if (!snapshot || input.unit.kind !== 'planned') return false
+  const allBlocksAreStrengthSets = snapshot.session.blocks.every(
+    (block) =>
+      block.type === 'sets' &&
+      block.exercises.every((appearance) =>
+        snapshot.exercises.some(
+          ({ key, category }) => key === appearance.exerciseKey && category === 'strength',
+        ),
+      ),
+  )
+  if (!allBlocksAreStrengthSets) return false
+
+  const units = snapshot.session.blocks.flatMap((block) =>
+    block.type === 'sets'
+      ? block.exercises.flatMap((appearance) =>
+          Array.from({ length: appearance.sets }, (_, index) => ({
+            blockKey: block.key,
+            plannedExerciseKey: appearance.key,
+            setIndex: index + 1,
+          })),
+        )
+      : [],
+  )
+  const next = units.find(
+    (unit) =>
+      !results.some(
+        (result) =>
+          result.type === 'sets' &&
+          result.blockKey === unit.blockKey &&
+          result.plannedExerciseKey === unit.plannedExerciseKey &&
+          result.unit.kind === 'planned' &&
+          result.unit.setIndex === unit.setIndex,
+      ),
+  )
+  return Boolean(
+    next &&
+    next.blockKey === input.blockKey &&
+    next.plannedExerciseKey === input.plannedExerciseKey &&
+    next.setIndex === input.unit.setIndex,
+  )
+}
+
+function sameWorkTimerIdentity(
+  timer: WorkoutExecutionActiveTimer,
+  input: WorkoutExecutionWorkTimerStartRequest,
+): boolean {
+  return (
+    timer.kind === 'work' &&
+    timer.resultId === input.resultId &&
+    timer.blockKey === input.blockKey &&
+    timer.plannedExerciseKey === input.plannedExerciseKey &&
+    timer.unit.kind === input.unit.kind &&
+    timer.unit.setIndex === input.unit.setIndex
+  )
+}
+
+function sameWorkTimerResult(timer: WorkoutExecutionActiveTimer, result: WorkoutResult): boolean {
+  return (
+    result.type === 'sets' &&
+    result.id === timer.resultId &&
+    result.blockKey === timer.blockKey &&
+    result.plannedExerciseKey === timer.plannedExerciseKey &&
+    result.unit.kind === timer.unit.kind &&
+    result.unit.setIndex === timer.unit.setIndex
+  )
+}
+
+function withoutTimedResultFields(result: WorkoutResult): WorkoutResult {
+  const { activeSeconds: _activeSeconds, actualMetrics: _actualMetrics, ...identity } = result
+  return identity as WorkoutResult
 }
 
 function exercisesForBlock(block: PlannedBlock): PlannedExercise[] {
@@ -547,6 +780,7 @@ function toExecution(record: WorkoutExecutionRecord): WorkoutExecution {
       ? { closureReason: record.closureReason }
       : {}),
     pauses: [],
+    ...(record.activeTimer ? { activeTimer: record.activeTimer } : {}),
     results: record.results ?? [],
     corrections: (record.correctionOperations ?? []).map(({ payload }) => payload.correction),
   }

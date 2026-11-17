@@ -52,6 +52,10 @@ test('workouts controller binds start and recovery to the authenticated user', a
       calls.push(['open', ...args])
       return { state: 'none', execution: null }
     },
+    findClosedSessions: async (...args) => {
+      calls.push(['closed-sessions', ...args])
+      return []
+    },
     findByRequest: async (...args) => {
       calls.push(['request', ...args])
       return { requestId: request.requestId, execution }
@@ -60,6 +64,7 @@ test('workouts controller binds start and recovery to the authenticated user', a
   const controller = new WorkoutsController(starts)
   await controller.start({ authUserId: 'authenticated-user' }, request)
   await controller.findOpen({ authUserId: 'authenticated-user' }, {})
+  await controller.findClosedSessions({ authUserId: 'authenticated-user' }, { sessionIds: request.sessionId })
   await assert.rejects(controller.findOpen({}, {}), { status: 401 })
   await assert.rejects(controller.start({}, request), { status: 401 })
   await controller.findByRequest(
@@ -67,11 +72,14 @@ test('workouts controller binds start and recovery to the authenticated user', a
     { requestId: request.requestId },
     { deviceId: 'e6374ec9-342a-4fce-88f1-a1e175bc95b5' },
   )
+  await controller.findByRequest({ authUserId: 'authenticated-user' }, { requestId: request.requestId }, {})
   assert.deepEqual(
     calls.map(([kind, userId]) => [kind, userId]),
     [
       ['start', 'authenticated-user'],
       ['open', 'authenticated-user'],
+      ['closed-sessions', 'authenticated-user'],
+      ['request', 'authenticated-user'],
       ['request', 'authenticated-user'],
     ],
   )
@@ -83,6 +91,7 @@ test('workouts controller rejects malformed inputs and classifies predictable co
       throw new WorkoutExecutionOpenExistsError()
     },
     findOpen: async () => ({ state: 'none', execution: null }),
+    findClosedSessions: async () => [],
     findByRequest: async () => {
       throw new WorkoutExecutionSessionNotFoundError()
     },
@@ -91,6 +100,9 @@ test('workouts controller rejects malformed inputs and classifies predictable co
     status: 400,
   })
   await assert.rejects(controller.start({ authUserId: 'user' }, request), { status: 409 })
+  await assert.rejects(controller.findClosedSessions({ authUserId: 'user' }, { sessionIds: 'not-a-uuid' }), {
+    status: 400,
+  })
   await assert.rejects(
     controller.findByRequest(
       { authUserId: 'user' },

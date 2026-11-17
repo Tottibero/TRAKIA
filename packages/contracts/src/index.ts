@@ -67,6 +67,7 @@ export {
   TrainingPlanCalendarDaySchema,
   TrainingPlanCalendarQuerySchema,
   TrainingPlanCalendarResponseSchema,
+  TrainingPlanCalendarExecutionSummarySchema,
   TrainingPlanCalendarRestSchema,
   TrainingPlanCalendarSessionSchema,
   TrainingPlanReadBlockSchema,
@@ -79,6 +80,7 @@ export type {
   TrainingPlanCalendarBlock,
   TrainingPlanCalendarQuery,
   TrainingPlanCalendarResponse,
+  TrainingPlanCalendarExecutionSummary,
   TrainingPlanReadBlock,
   TrainingPlanReadExercise,
   TrainingPlanReadHttpError,
@@ -88,6 +90,7 @@ export type {
 export {
   WorkoutCompletionTypeSchema,
   WorkoutExecutionSchema,
+  WorkoutExecutionActiveTimerSchema,
   WorkoutFeelingSchema,
   WorkoutExecutionSnapshotSchema,
   WorkoutExerciseSnapshotSchema,
@@ -107,10 +110,21 @@ export type {
   WorkoutExecution,
   WorkoutFeeling,
   WorkoutExecutionSnapshot,
+  WorkoutExecutionActiveTimer,
   WorkoutExerciseSnapshot,
   WorkoutPause,
   WorkoutStatus,
 } from './workout-executions/workout-execution.js'
+export {
+  WorkoutExecutionClosedSessionSchema,
+  WorkoutExecutionClosedSessionsQuerySchema,
+  WorkoutExecutionClosedSessionsResponseSchema,
+} from './workout-executions/workout-execution-closed-sessions.js'
+export type {
+  WorkoutExecutionClosedSession,
+  WorkoutExecutionClosedSessionsQuery,
+  WorkoutExecutionClosedSessionsResponse,
+} from './workout-executions/workout-execution-closed-sessions.js'
 export {
   WorkoutExecutionLegacyRequestQuerySchema,
   WorkoutExecutionOpenQuerySchema,
@@ -123,13 +137,21 @@ export {
 } from './workout-executions/workout-execution-start.js'
 export {
   WorkoutExecutionResultPathParamsSchema,
+  WorkoutExecutionResultMetricsPathParamsSchema,
   WorkoutExecutionResultRequestSchema,
   WorkoutExecutionResultResponseSchema,
+  WorkoutExecutionWorkTimerStartRequestSchema,
+  WorkoutExecutionWorkTimerStartResponseSchema,
+  WorkoutExecutionResultMetricsRequestSchema,
 } from './workout-executions/workout-execution-results.js'
 export type {
   WorkoutExecutionResultPathParams,
+  WorkoutExecutionResultMetricsPathParams,
   WorkoutExecutionResultRequest,
   WorkoutExecutionResultResponse,
+  WorkoutExecutionWorkTimerStartRequest,
+  WorkoutExecutionWorkTimerStartResponse,
+  WorkoutExecutionResultMetricsRequest,
 } from './workout-executions/workout-execution-results.js'
 export type {
   WorkoutExecutionOpenQuery,

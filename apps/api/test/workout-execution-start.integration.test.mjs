@@ -12,6 +12,7 @@ import { AddWorkoutExecutionCloseOperation1795219200000 } from '../dist/database
 import { AddWorkoutExecutionCorrectionOperations1795305600000 } from '../dist/database/migrations/1795305600000-AddWorkoutExecutionCorrectionOperations.js'
 import { AllowAccountOwnedWorkoutExecutions1795392000000 } from '../dist/database/migrations/1795392000000-AllowAccountOwnedWorkoutExecutions.js'
 import { AddWorkoutExecutionFinalDetails1795478400000 } from '../dist/database/migrations/1795478400000-AddWorkoutExecutionFinalDetails.js'
+import { AddWorkoutExecutionActiveTimer1795564800000 } from '../dist/database/migrations/1795564800000-AddWorkoutExecutionActiveTimer.js'
 import { CreateUsers1794441600000 } from '../dist/database/migrations/1794441600000-CreateUsers.js'
 import { ExerciseCatalogService } from '../dist/modules/exercises/exercise-catalog.service.js'
 import { Exercise } from '../dist/modules/exercises/exercise.entity.js'
@@ -66,6 +67,7 @@ test('account-owned online workout execution persists and recovers a strength se
     await new AddWorkoutExecutionCorrectionOperations1795305600000().up(runner)
     await new AllowAccountOwnedWorkoutExecutions1795392000000().up(runner)
     await new AddWorkoutExecutionFinalDetails1795478400000().up(runner)
+    await new AddWorkoutExecutionActiveTimer1795564800000().up(runner)
 
     const [{ id: userId }] = await runner.query(
       `INSERT INTO users (email, password_hash) VALUES ($1, 'test-hash') RETURNING id`,

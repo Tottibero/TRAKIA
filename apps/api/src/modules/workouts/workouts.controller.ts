@@ -9,12 +9,15 @@ import {
   NotFoundException,
   Param,
   Post,
+  Put,
   Query,
   Req,
   UnauthorizedException,
 } from '@nestjs/common'
 import {
   WorkoutExecutionOpenQuerySchema,
+  WorkoutExecutionClosedSessionsQuerySchema,
+  WorkoutExecutionClosedSessionsResponseSchema,
   WorkoutExecutionLegacyRequestQuerySchema,
   WorkoutExecutionOpenResponseSchema,
   WorkoutExecutionRequestPathParamsSchema,
@@ -23,7 +26,11 @@ import {
   WorkoutExecutionStartResponseSchema,
   WorkoutExecutionResultRequestSchema,
   WorkoutExecutionResultPathParamsSchema,
+  WorkoutExecutionResultMetricsPathParamsSchema,
   WorkoutExecutionResultResponseSchema,
+  WorkoutExecutionResultMetricsRequestSchema,
+  WorkoutExecutionWorkTimerStartRequestSchema,
+  WorkoutExecutionWorkTimerStartResponseSchema,
   WorkoutExecutionCloseRequestSchema,
   WorkoutExecutionCloseResponseSchema,
   WorkoutSyncOperationSchema,
@@ -41,6 +48,7 @@ import {
   WorkoutExecutionClosedError,
   WorkoutExecutionResultConflictError,
   WorkoutExecutionResultInvalidError,
+  WorkoutExecutionResultMetricsConflictError,
   WorkoutExecutionCloseConflictError,
 } from './workout-execution-start.service.js'
 
@@ -72,6 +80,20 @@ export class WorkoutsController {
     const userId = authenticatedUserId(request)
     try {
       return WorkoutExecutionOpenResponseSchema.parse(await this.starts.findOpen(userId))
+    } catch (error) {
+      throw toHttpException(error)
+    }
+  }
+
+  @Get('closed-sessions')
+  async findClosedSessions(@Req() request: AuthenticatedWorkoutRequest, @Query() query: unknown) {
+    const parsed = WorkoutExecutionClosedSessionsQuerySchema.safeParse(query)
+    if (!parsed.success) throw invalidRequest()
+    const userId = authenticatedUserId(request)
+    try {
+      return WorkoutExecutionClosedSessionsResponseSchema.parse(
+        await this.starts.findClosedSessions(userId, parsed.data.sessionIds),
+      )
     } catch (error) {
       throw toHttpException(error)
     }
@@ -110,6 +132,46 @@ export class WorkoutsController {
     try {
       return WorkoutExecutionResultResponseSchema.parse(
         await this.starts.recordResult(userId, path.data.executionId, input.data),
+      )
+    } catch (error) {
+      throw toHttpException(error)
+    }
+  }
+
+  @Post(':executionId/timers/work/start')
+  @HttpCode(200)
+  async startWorkTimer(
+    @Req() request: AuthenticatedWorkoutRequest,
+    @Param() params: unknown,
+    @Body() body: unknown,
+  ) {
+    const input = WorkoutExecutionWorkTimerStartRequestSchema.safeParse(body)
+    const path = WorkoutExecutionResultPathParamsSchema.safeParse(params)
+    if (!input.success || !path.success) throw invalidRequest()
+    const userId = authenticatedUserId(request)
+    try {
+      return WorkoutExecutionWorkTimerStartResponseSchema.parse(
+        await this.starts.startWorkTimer(userId, path.data.executionId, input.data),
+      )
+    } catch (error) {
+      throw toHttpException(error)
+    }
+  }
+
+  @Put(':executionId/results/:resultId/metrics')
+  @HttpCode(200)
+  async recordResultMetrics(
+    @Req() request: AuthenticatedWorkoutRequest,
+    @Param() params: unknown,
+    @Body() body: unknown,
+  ) {
+    const input = WorkoutExecutionResultMetricsRequestSchema.safeParse(body)
+    const path = WorkoutExecutionResultMetricsPathParamsSchema.safeParse(params)
+    if (!input.success || !path.success) throw invalidRequest()
+    const userId = authenticatedUserId(request)
+    try {
+      return WorkoutExecutionResultResponseSchema.parse(
+        await this.starts.recordResultMetrics(userId, path.data.executionId, path.data.resultId, input.data),
       )
     } catch (error) {
       throw toHttpException(error)
@@ -251,6 +313,15 @@ function toHttpException(error: unknown): HttpException {
   if (error instanceof WorkoutExecutionResultConflictError) {
     return new HttpException(
       WorkoutExecutionStartErrorSchema.parse({ code: 'RESULT_CONFLICT', message: error.message }),
+      409,
+    )
+  }
+  if (error instanceof WorkoutExecutionResultMetricsConflictError) {
+    return new HttpException(
+      WorkoutExecutionStartErrorSchema.parse({
+        code: 'RESULT_METRICS_CONFLICT',
+        message: error.message,
+      }),
       409,
     )
   }

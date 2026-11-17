@@ -36,7 +36,7 @@ async function availablePort() {
   return address.port
 }
 
-test('authenticated workout execution HTTP flow confirms PostgreSQL results and account isolation', async () => {
+test('authenticated workout execution HTTP flow confirms one-set closure and account isolation', async () => {
   const integrationUrl = getIntegrationDatabaseUrl()
   assert.equal(decodeURIComponent(integrationUrl.pathname.slice(1)), 'trakia_test')
   const env = getIntegrationProcessEnvironment()
@@ -111,7 +111,7 @@ test('authenticated workout execution HTTP flow confirms PostgreSQL results and 
             type: 'sets',
             key: 'bench-block',
             restBetweenSetsSeconds: 60,
-            exercises: [{ key: 'bench-press', exerciseKey: benchKey, sets: 3 }],
+            exercises: [{ key: 'bench-press', exerciseKey: benchKey, sets: key === 'monday' ? 1 : 3 }],
           },
         ],
       })),
@@ -166,8 +166,48 @@ test('authenticated workout execution HTTP flow confirms PostgreSQL results and 
       unit: { kind: 'planned', setIndex: 1 },
       actualExerciseKey: benchKey,
       status: 'performed',
-      actualMetrics: { weightKg: 40, reps: 10, rpe: 7 },
     }
+    const timerUrl = `${url}/workouts/executions/${started.execution.id}/timers/work/start`
+    const timerRequest = {
+      resultId: result.id,
+      blockKey: result.blockKey,
+      plannedExerciseKey: result.plannedExerciseKey,
+      unit: result.unit,
+    }
+    const timerResponse = await fetch(timerUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(timerRequest),
+    })
+    assert.equal(timerResponse.status, 200)
+    const timer = await timerResponse.json()
+    responseBodies.push({ status: timerResponse.status, body: timer })
+    assert.equal(timer.activeTimer.kind, 'work')
+    assert.equal(timer.activeTimer.resultId, result.id)
+    assert.equal(timer.replayed, false)
+
+    const timerReplay = await fetch(timerUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(timerRequest),
+    })
+    assert.equal(timerReplay.status, 200)
+    assert.equal((await timerReplay.json()).activeTimer.startedAt, timer.activeTimer.startedAt)
+    const timerRow = await database.query('SELECT active_timer FROM workout_executions WHERE id = $1', [
+      started.execution.id,
+    ])
+    assert.deepEqual(timerRow[0].active_timer, timer.activeTimer)
+    const timerRecovery = await fetch(`${url}/workouts/executions/open`, { headers: { cookie } })
+    assert.equal(timerRecovery.status, 200)
+    const timerRecoveryBody = await timerRecovery.json()
+    assert.deepEqual(timerRecoveryBody.execution.execution.activeTimer, timer.activeTimer)
+    const timerConflict = await fetch(timerUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...timerRequest, resultId: randomUUID() }),
+    })
+    assert.equal(timerConflict.status, 409)
+
     const resultUrl = `${url}/workouts/executions/${started.execution.id}/results`
     const resultResponse = await fetch(resultUrl, {
       method: 'POST',
@@ -177,12 +217,47 @@ test('authenticated workout execution HTTP flow confirms PostgreSQL results and 
     assert.equal(resultResponse.status, 200)
     const resultBody = await resultResponse.json()
     responseBodies.push({ status: resultResponse.status, body: resultBody })
-    assert.deepEqual(resultBody, { result, replayed: false })
+    assert.equal(resultBody.result.id, result.id)
+    assert.ok(resultBody.result.activeSeconds > 0)
+    assert.equal(resultBody.replayed, false)
+    const confirmedResult = resultBody.result
 
-    const persistedRows = await database.query('SELECT results FROM workout_executions WHERE id = $1', [
-      started.execution.id,
-    ])
-    assert.deepEqual(persistedRows[0].results, [result])
+    const metricInput = { actualMetrics: { weightKg: 40, reps: 10, rpe: 7 } }
+    const metricsUrl = `${url}/workouts/executions/${started.execution.id}/results/${result.id}/metrics`
+    const metricsResponse = await fetch(metricsUrl, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(metricInput),
+    })
+    assert.equal(metricsResponse.status, 200)
+    const metricsBody = await metricsResponse.json()
+    responseBodies.push({ status: metricsResponse.status, body: metricsBody })
+    assert.deepEqual(metricsBody, {
+      result: { ...confirmedResult, actualMetrics: metricInput.actualMetrics },
+      replayed: false,
+    })
+    const savedResult = metricsBody.result
+
+    const metricsReplay = await fetch(metricsUrl, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(metricInput),
+    })
+    assert.equal(metricsReplay.status, 200)
+    assert.equal((await metricsReplay.json()).replayed, true)
+    const metricsConflict = await fetch(metricsUrl, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ actualMetrics: { reps: 11 } }),
+    })
+    assert.equal(metricsConflict.status, 409)
+
+    const persistedRows = await database.query(
+      'SELECT results, active_timer FROM workout_executions WHERE id = $1',
+      [started.execution.id],
+    )
+    assert.deepEqual(persistedRows[0].results, [savedResult])
+    assert.equal(persistedRows[0].active_timer, null)
 
     const resultReplay = await fetch(resultUrl, {
       method: 'POST',
@@ -192,7 +267,7 @@ test('authenticated workout execution HTTP flow confirms PostgreSQL results and 
     assert.equal(resultReplay.status, 200)
     const replayBody = await resultReplay.json()
     responseBodies.push({ status: resultReplay.status, body: replayBody })
-    assert.deepEqual(replayBody, { result, replayed: true })
+    assert.deepEqual(replayBody, { result: savedResult, replayed: true })
     const contradictoryResult = await fetch(resultUrl, {
       method: 'POST',
       headers,
@@ -220,7 +295,7 @@ test('authenticated workout execution HTTP flow confirms PostgreSQL results and 
     responseBodies.push({ status: recoveredResponse.status, body: recovered })
     assert.equal(recovered.state, 'open')
     assert.equal(recovered.execution.execution.id, started.execution.id)
-    assert.deepEqual(recovered.execution.execution.results, [result])
+    assert.deepEqual(recovered.execution.execution.results, [savedResult])
     const otherAccount = await fetch(`${url}/workouts/executions/open`, { headers: { cookie: otherCookie } })
     assert.deepEqual(await otherAccount.json(), { state: 'none', execution: null })
     const requestWithDevice = await fetch(`${url}/workouts/executions/open?deviceId=${randomUUID()}`, {
@@ -229,7 +304,7 @@ test('authenticated workout execution HTTP flow confirms PostgreSQL results and 
     assert.equal(requestWithDevice.status, 400)
 
     const closeUrl = `${url}/workouts/executions/${started.execution.id}/close`
-    const closeRequest = { completionType: 'early', closureReason: 'Prueba de cierre online.' }
+    const closeRequest = { completionType: 'planned' }
     const closedResponse = await fetch(closeUrl, {
       method: 'POST',
       headers,
@@ -241,9 +316,39 @@ test('authenticated workout execution HTTP flow confirms PostgreSQL results and 
     assert.equal(closed.result, 'closed')
     assert.equal(closed.execution.status, 'completed')
     assert.ok(closed.execution.finishedAt)
-    assert.deepEqual(closed.execution.results, [result])
-    assert.equal(closed.execution.completionType, 'early')
-    assert.equal(closed.execution.closureReason, closeRequest.closureReason)
+    assert.deepEqual(closed.execution.results, [savedResult])
+    assert.equal(closed.execution.completionType, 'planned')
+
+    const closedSessionsParams = new URLSearchParams()
+    closedSessionsParams.append('sessionIds', sessionIds.monday)
+    closedSessionsParams.append('sessionIds', sessionIds.tuesday)
+    const closedSessionsUrl = `${url}/workouts/executions/closed-sessions?${closedSessionsParams}`
+    assert.equal((await fetch(closedSessionsUrl)).status, 401)
+    const closedSessionsResponse = await fetch(closedSessionsUrl, { headers })
+    assert.equal(closedSessionsResponse.status, 200)
+    const closedSessions = await closedSessionsResponse.json()
+    assert.equal(closedSessions.length, 1)
+    assert.equal(closedSessions[0].sessionId, sessionIds.monday)
+    assert.deepEqual(closedSessions[0].execution.results, [savedResult])
+    const foreignClosedSessions = await fetch(closedSessionsUrl, { headers: { cookie: otherCookie } })
+    assert.deepEqual(await foreignClosedSessions.json(), [])
+    const duplicateSessionParams = new URLSearchParams()
+    duplicateSessionParams.append('sessionIds', sessionIds.monday)
+    duplicateSessionParams.append('sessionIds', sessionIds.monday)
+    const duplicateSessions = await fetch(
+      `${url}/workouts/executions/closed-sessions?${duplicateSessionParams}`,
+      { headers },
+    )
+    assert.equal(duplicateSessions.status, 400)
+
+    const closedRecoveryResponse = await fetch(`${url}/workouts/executions/requests/${request.requestId}`, {
+      headers: { cookie },
+    })
+    assert.equal(closedRecoveryResponse.status, 200)
+    const closedRecovery = await closedRecoveryResponse.json()
+    assert.equal(closedRecovery.execution.id, started.execution.id)
+    assert.equal(closedRecovery.execution.status, 'completed')
+    assert.deepEqual(closedRecovery.execution.results, [savedResult])
 
     const closedReplayResponse = await fetch(closeUrl, {
       method: 'POST',
@@ -259,7 +364,7 @@ test('authenticated workout execution HTTP flow confirms PostgreSQL results and 
     const contradictoryClose = await fetch(closeUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ completionType: 'planned' }),
+      body: JSON.stringify({ completionType: 'early', closureReason: 'Cierre contradictorio.' }),
     })
     assert.equal(contradictoryClose.status, 409)
     const foreignClose = await fetch(closeUrl, {
@@ -274,9 +379,9 @@ test('authenticated workout execution HTTP flow confirms PostgreSQL results and 
       [started.execution.id],
     )
     assert.ok(closeRows[0].finished_at)
-    assert.deepEqual(closeRows[0].results, [result])
-    assert.equal(closeRows[0].completion_type, 'early')
-    assert.equal(closeRows[0].closure_reason, closeRequest.closureReason)
+    assert.deepEqual(closeRows[0].results, [savedResult])
+    assert.equal(closeRows[0].completion_type, 'planned')
+    assert.equal(closeRows[0].closure_reason, null)
 
     const afterCloseOpen = await fetch(`${url}/workouts/executions/open`, { headers: { cookie } })
     assert.deepEqual(await afterCloseOpen.json(), { state: 'none', execution: null })
@@ -287,6 +392,11 @@ test('authenticated workout execution HTTP flow confirms PostgreSQL results and 
     })
     assert.equal(nextSessionStart.status, 200)
     assert.equal((await nextSessionStart.json()).execution.status, 'in_progress')
+    const closedAfterNextStart = await fetch(closedSessionsUrl, { headers })
+    assert.deepEqual(
+      (await closedAfterNextStart.json()).map(({ sessionId: closedSessionId }) => closedSessionId),
+      [sessionIds.monday],
+    )
 
     console.log(
       `WORKOUT_ONLINE_HTTP_EVIDENCE ${JSON.stringify({

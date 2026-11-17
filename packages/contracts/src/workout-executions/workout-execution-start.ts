@@ -10,12 +10,13 @@ export const WorkoutExecutionStartResponseSchema = z
   .object({ requestId: z.uuid(), execution: WorkoutExecutionSchema, deviceId: z.uuid().optional() })
   .strict()
   .superRefine(({ execution }, context) => {
-    if (execution.status !== 'in_progress')
+    if (execution.status !== 'in_progress' && execution.status !== 'completed') {
       context.addIssue({
         code: 'custom',
         path: ['execution', 'status'],
-        message: 'A newly started execution must be in progress',
+        message: 'Execution recovery supports open and completed executions',
       })
+    }
   })
 export type WorkoutExecutionStartResponse = z.infer<typeof WorkoutExecutionStartResponseSchema>
 
@@ -26,7 +27,7 @@ export const WorkoutExecutionOpenQuerySchema = z.object({}).strict()
 export type WorkoutExecutionOpenQuery = z.infer<typeof WorkoutExecutionOpenQuerySchema>
 
 /** Transitional query for retrieving a start created by the legacy device flow. */
-export const WorkoutExecutionLegacyRequestQuerySchema = z.object({ deviceId: z.uuid() }).strict()
+export const WorkoutExecutionLegacyRequestQuerySchema = z.object({ deviceId: z.uuid().optional() }).strict()
 
 export const WorkoutExecutionOpenResponseSchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('none'), execution: z.null() }).strict(),
@@ -48,6 +49,7 @@ export const WorkoutExecutionStartErrorCodeSchema = z.enum([
   'RESULT_CONFLICT',
   'EXECUTION_CLOSED',
   'RESULT_INVALID',
+  'RESULT_METRICS_CONFLICT',
   'INTERNAL_ERROR',
 ])
 export type WorkoutExecutionStartErrorCode = z.infer<typeof WorkoutExecutionStartErrorCodeSchema>

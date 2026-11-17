@@ -5,6 +5,9 @@ import {
   WorkoutExecutionStartResponseSchema,
   WorkoutExecutionResultRequestSchema,
   WorkoutExecutionResultResponseSchema,
+  WorkoutExecutionWorkTimerStartRequestSchema,
+  WorkoutExecutionWorkTimerStartResponseSchema,
+  WorkoutExecutionResultMetricsRequestSchema,
   WorkoutSyncOperationSchema,
   WorkoutSyncResponseSchema,
   WorkoutExecutionCloseRequestSchema,
@@ -18,6 +21,8 @@ import {
   type CorrectResultOperation,
   type WorkoutSyncResponse,
   type WorkoutExecutionCloseRequest,
+  type WorkoutExecutionWorkTimerStartRequest,
+  type WorkoutExecutionResultMetricsRequest,
 } from '@trakia/contracts'
 import { apiRequest } from '@/shared/api/http'
 
@@ -42,10 +47,11 @@ export async function getOpenWorkoutExecution(): Promise<WorkoutExecutionOpenRes
 
 export async function getWorkoutExecutionStartByRequest(
   requestId: string,
-  deviceId: string,
+  deviceId?: string,
 ): Promise<WorkoutExecutionStartResponse> {
+  const query = deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : ''
   const response = await apiRequest<unknown>(
-    `/workouts/executions/requests/${encodeURIComponent(requestId)}?deviceId=${encodeURIComponent(deviceId)}`,
+    `/workouts/executions/requests/${encodeURIComponent(requestId)}${query}`,
   )
   return WorkoutExecutionStartResponseSchema.parse(response)
 }
@@ -61,6 +67,31 @@ export async function recordWorkoutExecutionResult(
       method: 'POST',
       body: JSON.stringify(request),
     },
+  )
+  return WorkoutExecutionResultResponseSchema.parse(response)
+}
+
+export async function startWorkoutExecutionWorkTimer(
+  executionId: string,
+  input: WorkoutExecutionWorkTimerStartRequest,
+) {
+  const request = WorkoutExecutionWorkTimerStartRequestSchema.parse(input)
+  const response = await apiRequest<unknown>(
+    `/workouts/executions/${encodeURIComponent(executionId)}/timers/work/start`,
+    { method: 'POST', body: JSON.stringify(request) },
+  )
+  return WorkoutExecutionWorkTimerStartResponseSchema.parse(response)
+}
+
+export async function recordWorkoutExecutionResultMetrics(
+  executionId: string,
+  resultId: string,
+  input: WorkoutExecutionResultMetricsRequest,
+) {
+  const request = WorkoutExecutionResultMetricsRequestSchema.parse(input)
+  const response = await apiRequest<unknown>(
+    `/workouts/executions/${encodeURIComponent(executionId)}/results/${encodeURIComponent(resultId)}/metrics`,
+    { method: 'PUT', body: JSON.stringify(request) },
   )
   return WorkoutExecutionResultResponseSchema.parse(response)
 }
