@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   WorkoutExecutionOpenQuerySchema,
   WorkoutExecutionOpenResponseSchema,
+  WorkoutExecutionLegacyRequestQuerySchema,
   WorkoutExecutionRequestPathParamsSchema,
   WorkoutExecutionStartRequestSchema,
   WorkoutExecutionStartResponseSchema,
@@ -53,7 +54,7 @@ describe('workout execution start HTTP contracts', () => {
     ).toBe(true)
   })
 
-  it('accepts only a confirmed in-progress execution in the start response', () => {
+  it('accepts the existing execution snapshot returned by start-request recovery', () => {
     expect(
       WorkoutExecutionStartResponseSchema.parse({
         requestId: request.requestId,
@@ -61,15 +62,16 @@ describe('workout execution start HTTP contracts', () => {
       }).execution.id,
     ).toBe(execution.id)
     expect(
-      WorkoutExecutionStartResponseSchema.safeParse({
+      WorkoutExecutionStartResponseSchema.parse({
         requestId: request.requestId,
         execution: { ...execution, status: 'completed', finishedAt: execution.startedAt },
-      }).success,
-    ).toBe(false)
+      }).execution.status,
+    ).toBe('completed')
   })
 
   it('validates open execution queries, nullable responses and predictable errors', () => {
     expect(WorkoutExecutionOpenQuerySchema.parse({})).toEqual({})
+    expect(WorkoutExecutionLegacyRequestQuerySchema.parse({})).toEqual({})
     expect(WorkoutExecutionRequestPathParamsSchema.parse({ requestId: request.requestId }).requestId).toBe(
       request.requestId,
     )

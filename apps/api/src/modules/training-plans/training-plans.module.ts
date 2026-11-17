@@ -10,7 +10,6 @@ import {
 } from './training-plan.entity.js'
 import { TrainingPlanService } from './training-plan.service.js'
 import { TrainingPlanReadService } from './training-plan-read.service.js'
-import { TrainingPlansController } from './training-plans.controller.js'
 
 export {
   TrainingPlanKeyConflictError,
@@ -21,7 +20,6 @@ export {
 export { TrainingPlanReadService, TrainingPlanSessionNotFoundError } from './training-plan-read.service.js'
 
 @Module({
-  controllers: [TrainingPlansController],
   imports: [
     TypeOrmModule.forFeature([
       TrainingPlan,

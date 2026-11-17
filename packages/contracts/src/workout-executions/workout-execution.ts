@@ -82,6 +82,18 @@ export const WorkoutExecutionSnapshotSchema = z
   })
 export type WorkoutExecutionSnapshot = z.infer<typeof WorkoutExecutionSnapshotSchema>
 
+export const WorkoutExecutionActiveTimerSchema = z
+  .object({
+    kind: z.literal('work'),
+    resultId: z.uuid(),
+    blockKey: StableKeySchema,
+    plannedExerciseKey: StableKeySchema,
+    unit: z.object({ kind: z.literal('planned'), setIndex: z.number().int().positive() }).strict(),
+    startedAt: ResultTimestampSchema,
+  })
+  .strict()
+export type WorkoutExecutionActiveTimer = z.infer<typeof WorkoutExecutionActiveTimerSchema>
+
 const WorkoutExecutionFields = {
   id: z.uuid(),
   planKey: StableKeySchema,
@@ -95,6 +107,7 @@ const WorkoutExecutionFields = {
   completionType: WorkoutCompletionTypeSchema.optional(),
   closureReason: ClosureReasonSchema.optional(),
   pauses: z.array(WorkoutPauseSchema),
+  activeTimer: WorkoutExecutionActiveTimerSchema.optional(),
   results: z.array(WorkoutResultSchema),
   corrections: z.array(WorkoutCorrectionSchema),
 }
@@ -130,6 +143,33 @@ export const WorkoutExecutionSchema = z
         code: 'custom',
         path: ['finishedAt'],
         message: 'Execution end cannot precede its start',
+      })
+    }
+    if (execution.status === 'completed' && execution.activeTimer !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['activeTimer'],
+        message: 'Completed executions cannot have an active timer',
+      })
+    }
+    if (
+      execution.activeTimer &&
+      execution.results.some((result) => {
+        const timer = execution.activeTimer!
+        return (
+          result.type === 'sets' &&
+          result.id === timer.resultId &&
+          result.blockKey === timer.blockKey &&
+          result.plannedExerciseKey === timer.plannedExerciseKey &&
+          result.unit.kind === 'planned' &&
+          result.unit.setIndex === timer.unit.setIndex
+        )
+      })
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['activeTimer'],
+        message: 'An active timer cannot reference a result that is already complete',
       })
     }
     if (execution.completionType !== 'early' && execution.closureReason !== undefined) {

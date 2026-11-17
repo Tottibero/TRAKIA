@@ -134,6 +134,7 @@ export class TrainingPlanReadService {
             sessionKey: entry.key,
             ...plan,
             blocks: sessionBlocks,
+            execution: null,
           })
         }
       }
@@ -169,7 +170,13 @@ export class TrainingPlanReadService {
           key: owner.planKey,
           name: owner.planName,
         },
-        session: { id: owner.sessionId, key: owner.sessionKey, date: owner.date, blocks },
+        session: {
+          id: owner.sessionId,
+          key: owner.sessionKey,
+          date: owner.date,
+          blocks,
+          execution: null,
+        },
       })
     })
   }

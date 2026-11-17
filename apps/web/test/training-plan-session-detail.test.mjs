@@ -97,6 +97,7 @@ test('detail contract accepts all block variants and rejects malformed path iden
       id: '18ca503b-bfe6-4413-ae21-51b1b6592d73',
       key: 'upper-body',
       date: '2026-11-14',
+      execution: null,
       blocks: [
         {
           type: 'sets',

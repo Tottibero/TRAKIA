@@ -166,6 +166,12 @@ test('weekly read service returns seven civil dates, multiple sessions, a cross-
   assert.equal(session.blocks[0].exercises[0].exercise.storedCatalogKey, null)
   assert.deepEqual(session.blocks[0].exercises[0].exercise.catalogKeys, ['squat', 'barbell-squat'])
   assert.equal(session.blocks[0].exercises[0].sets, 3)
+  assert.equal(session.execution, null)
+  assert.equal(week.days[0].entries[1].execution, null)
+  assert.equal(
+    calls.some(({ sql }) => sql.includes('FROM workout_executions')),
+    false,
+  )
   assert.equal(
     calls.some(({ sql }) => /UPDATE|INSERT|DELETE/i.test(sql)),
     false,
@@ -181,6 +187,40 @@ test('weekly read service rejects an invalid interval before querying PostgreSQL
   )
   await assert.rejects(service.findCalendar({ from: '2026-12-29', to: '2027-01-04' }))
   assert.equal(queried, false)
+})
+
+test('weekly read skips execution lookup when the week has no sessions', async () => {
+  const calls = []
+  const query = async (sql) => {
+    calls.push(sql)
+    if (sql.includes('SELECT EXISTS')) return [{ hasImportedPlans: true }]
+    if (sql.includes('FROM training_plan_entries e'))
+      return [
+        {
+          entryId: restEntryId,
+          planId,
+          origin: 'trakia-json-v1',
+          planKey: 'plan-a',
+          planName: 'Plan A',
+          type: 'rest',
+          key: 'rest-day',
+          date: '2026-12-28',
+        },
+      ]
+    if (sql.includes('SET TRANSACTION READ ONLY')) return []
+    throw new Error(`Unexpected SQL in test: ${sql}`)
+  }
+  const service = new TrainingPlanReadService(
+    { query, transaction: async (_isolation, callback) => callback({ query }) },
+    { findSummariesByIds: async () => [] },
+  )
+
+  const week = await service.findCalendar({ from: '2026-12-28', to: '2027-01-03' })
+  assert.equal(week.days[0].entries[0].type, 'rest')
+  assert.equal(
+    calls.some((sql) => sql.includes('FROM workout_executions')),
+    false,
+  )
 })
 
 test('detail read service returns not found for a session that does not belong to the requested plan', async () => {

@@ -404,6 +404,28 @@ onBeforeUnmount(() => {
                         </svg>
                       </RouterLink>
                     </h3>
+                    <p
+                      v-if="entry.execution?.status === 'completed'"
+                      class="mt-2 text-sm font-semibold text-lime-200"
+                      role="status"
+                    >
+                      Finalizada
+                    </p>
+                    <RouterLink
+                      v-if="entry.execution?.status === 'completed'"
+                      class="mt-2 inline-flex min-h-11 items-center rounded-sm pr-3 text-sm font-medium text-lime-100 underline decoration-lime-100/40 underline-offset-4 transition hover:text-lime-200 hover:decoration-lime-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+                      :to="{
+                        name: 'training-plan-session-detail',
+                        params: { planId: entry.planId, sessionId: entry.sessionId },
+                        query: {
+                          week: weekStart,
+                          expanded: serializeExpandedDates(expandedDates),
+                          view: 'summary',
+                        },
+                      }"
+                    >
+                      Ver resumen
+                    </RouterLink>
                     <div class="mt-3 grid gap-3 sm:grid-cols-2">
                       <section
                         v-for="(block, blockIndex) in entry.blocks"

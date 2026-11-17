@@ -55,5 +55,9 @@
 | [HC-05-09-03](tasks/HC-05/HC-05-09-03.md) | Completada | Recorrido online verificado en `trakia_test`, incluido press banca, recuperación, reintentos, aislamiento y rollback; aceptación del propietario. |
 | [HC-05-09-03a](tasks/HC-05/HC-05-09-03a.md) | Completada | Recorrido PWA aceptado: press banca, 7 reps, 40 kg, RPE 7; seis pruebas de interfaz, 23 pruebas PostgreSQL, `pnpm check` y arquitectura satisfactorios. Recuperación tras recarga no confirmada manualmente. |
 | [HC-05-09-03b](tasks/HC-05/HC-05-09-03b.md) | Completada | Cierre online; `pnpm check` e integración HTTP en `trakia_test` satisfactorios, auditoría sin hallazgos y prueba manual aceptada con press banca (7 reps, 40 kg, RPE 7). |
+| [HC-05-09-04](tasks/HC-05/HC-05-09-04.md) | Pendiente | Especificación de tiempos online: `activeSeconds`, descanso, pausa, recuperación y tareas futuras; sin cambios de software. |
+| [HC-05-09-04a](tasks/HC-05/HC-05-09-04a.md) | En revisión | Continuación manual, cierre online y recuperación tras recarga verificados; smoke manual de la corrección pendiente. |
+| [HC-05-09-04a-UX](tasks/HC-05/HC-05-09-04a-UX.md) | En revisión | Estado/resumen anidado en calendario y detalle mediante consulta por lote; `pnpm check`, integración `trakia_test` y arquitectura pasan, smoke manual pendiente. |
+| [HC-05-09-04a-UX-02](tasks/HC-05/HC-05-09-04a-UX-02.md) | En revisión | Objetivos del snapshot y los overrides por serie durante el cronómetro de fuerza; `pnpm check` y arquitectura pasan, prueba manual responsive pendiente. |
 
 La aceptación actual de HC-01-02, HC-01-02c, HC-01-03a–HC-01-03g, HC-01-04 y HC-01-06 se registra por autorización explícita del propietario en la solicitud de cierre definitivo; no se atribuye a revisiones históricas. HC-01-01, HC-01-02b y HC-01-05a–HC-01-05e conservan sus cierres previamente documentados. Las pruebas automatizadas se distinguen de los recorridos manuales del propietario en las fichas correspondientes.

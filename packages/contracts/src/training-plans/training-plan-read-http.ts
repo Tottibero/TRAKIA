@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ExerciseMetricSchema } from '../exercises/exercise.js'
+import { WorkoutExecutionSchema, WorkoutStatusSchema } from '../workout-executions/workout-execution.js'
 import { ExerciseTargetsSchema, PlanDateSchema, TargetOverridesSchema } from './training-plan.js'
 
 const StableKeySchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
@@ -126,6 +127,21 @@ const CalendarEntryPlanFields = {
   planName: z.string().trim().min(1),
 }
 
+export const TrainingPlanCalendarExecutionSummarySchema = z
+  .object({
+    id: UuidSchema,
+    status: WorkoutStatusSchema,
+    summary: z
+      .object({
+        finishedAt: z.iso.datetime({ offset: true }).nullable(),
+        performedResults: z.number().int().nonnegative(),
+        activeSeconds: z.number().finite().nonnegative(),
+      })
+      .strict(),
+  })
+  .strict()
+export type TrainingPlanCalendarExecutionSummary = z.infer<typeof TrainingPlanCalendarExecutionSummarySchema>
+
 export const TrainingPlanCalendarRestSchema = z
   .object({
     type: z.literal('rest'),
@@ -142,6 +158,7 @@ export const TrainingPlanCalendarSessionSchema = z
     sessionKey: StableKeySchema,
     ...CalendarEntryPlanFields,
     blocks: z.array(TrainingPlanCalendarBlockSchema).min(1),
+    execution: TrainingPlanCalendarExecutionSummarySchema.nullable(),
   })
   .strict()
 
@@ -300,6 +317,7 @@ export const TrainingPlanSessionDetailSchema = z
         key: StableKeySchema,
         date: PlanDateSchema,
         blocks: z.array(TrainingPlanReadBlockSchema).min(1),
+        execution: WorkoutExecutionSchema.nullable(),
       })
       .strict(),
   })

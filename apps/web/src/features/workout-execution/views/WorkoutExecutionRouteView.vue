@@ -7,9 +7,14 @@ import WorkoutExecutionView from './WorkoutExecutionView.vue'
 const route = useRoute()
 const isOnlineStrengthFlow = computed(() => route.query.flow === 'online-strength')
 const executionId = computed(() => String(route.params.executionId ?? ''))
+const requestId = computed(() => String(route.query.requestId ?? ''))
 </script>
 
 <template>
-  <OnlineStrengthExecutionView v-if="isOnlineStrengthFlow" :execution-id="executionId" />
+  <OnlineStrengthExecutionView
+    v-if="isOnlineStrengthFlow"
+    :execution-id="executionId"
+    :request-id="requestId"
+  />
   <WorkoutExecutionView v-else />
 </template>

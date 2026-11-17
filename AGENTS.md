@@ -70,6 +70,16 @@
 - Opera los comandos Docker Compose únicamente sobre el proyecto TRAKIA (`compose.yaml`, nombre `trakia`).
 - Inicia el entorno solo cuando el usuario lo solicite; no configures arranque automático.
 - Antes de iniciar, reconstruir o detener, consulta `docker compose ps` y limita las acciones a los recursos de TRAKIA.
+- Cuando se cree un endpoint nuevo en NestJS, comprueba que el contenedor API carga y registra la ruta y verifícala con una petición HTTP. Una respuesta `401` por falta de autenticación confirma que una ruta protegida existe; `404` no. Si hace falta, reinicia o reconstruye únicamente `api`, siguiendo la skill `trakia-docker`; no reinicies Docker por cambios en la lógica de un endpoint existente. No declares completado el endpoint hasta verificar su registro.
 - Para apagar, usa `docker compose down` sin `-v`; el volumen PostgreSQL debe conservarse.
 - No detengas servicios de otros proyectos ni ejecutes `docker system prune`, `docker volume prune` u otra limpieza global.
 - No elimines el volumen PostgreSQL salvo autorización expresa.
+
+## Migraciones PostgreSQL
+
+- Toda tarea que añada migraciones debe aplicarlas primero en `trakia_test` mediante el procedimiento de integración existente y también en `trakia_dev` si son aditivas y no destructivas. Antes de ejecutar cada migración, comprueba con el mismo DataSource/comando que la ejecutará que `SELECT current_database()` devuelve exactamente la base autorizada. Revisa qué migraciones están pendientes.
+- Confirma después que las migraciones figuran como aplicadas. Registra en la ficha HC la base efectiva y las migraciones aplicadas.
+- Para `trakia_dev`, comprueba el estado de Compose del proyecto TRAKIA y ejecuta las migraciones versionadas de forma explícita (`db:migration:run`). No habilites `synchronize`/`dropSchema`, no reviertas migraciones ni limpies datos como parte de este paso.
+- Mantén las pruebas de integración restringidas a `trakia_test`; nunca las apuntes a `trakia_dev`. No ejecutes migraciones en producción.
+- Las migraciones destructivas o que modifiquen datos existentes requieren autorización expresa antes de ejecutarse.
+- Si una base autorizada no está disponible o el destino efectivo no coincide, no ejecutes la migración ni cambies de base para sortear la comprobación; informa del bloqueo concreto.
