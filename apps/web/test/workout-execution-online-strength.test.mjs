@@ -485,6 +485,58 @@ test('start waits for server confirmation and restores elapsed time from its tim
   assert.equal(flow.timerDisplay.value, '01:05')
 })
 
+test('pause and resume update the sports state only after server confirmation', async () => {
+  const active = execution([], workTimer())
+  const pausedAt = new Date(Date.parse(startedAt) + 30_000).toISOString()
+  let failPause = true
+  let failResume = true
+  let resumeInput
+  const flow = createOnlineStrengthFlow(
+    executionId,
+    dependencies({
+      getOpen: async () => openResponse(active),
+      pauseExecution: async () => {
+        if (failPause) throw new Error('HTTP 503')
+        return {
+          execution: { ...active, status: 'paused', pauses: [{ startedAt: pausedAt }] },
+          replayed: false,
+        }
+      },
+      resumeExecution: async (_id, input) => {
+        resumeInput = input
+        if (failResume) throw new Error('HTTP 503')
+        return {
+          execution: {
+            ...active,
+            pauses: [
+              { startedAt: pausedAt, finishedAt: new Date(Date.parse(pausedAt) + 5_000).toISOString() },
+            ],
+          },
+          replayed: false,
+        }
+      },
+    }),
+  )
+  flow.setOnline(true)
+  await flow.recover()
+  assert.equal(await flow.pause(), false)
+  assert.equal(flow.execution.value.status, 'in_progress')
+  assert.equal(flow.isPaused.value, false)
+
+  failPause = false
+  assert.equal(await flow.pause(), true)
+  assert.equal(flow.execution.value.status, 'paused')
+  assert.equal(flow.canFinish.value, false)
+  assert.equal(flow.timerDisplay.value, '00:30')
+  assert.equal(await flow.resume(), false)
+  assert.equal(flow.execution.value.status, 'paused')
+  assert.equal(flow.isPaused.value, true)
+  failResume = false
+  assert.equal(await flow.resume(), true)
+  assert.deepEqual(resumeInput, { pauseStartedAt: pausedAt })
+  assert.equal(flow.execution.value.status, 'in_progress')
+})
+
 test('failed timer start retries with the same identity and never shows an active timer early', async () => {
   const requests = []
   const flow = createOnlineStrengthFlow(

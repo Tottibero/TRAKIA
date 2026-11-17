@@ -5,6 +5,9 @@ import {
   WorkoutExecutionStartResponseSchema,
   WorkoutExecutionResultRequestSchema,
   WorkoutExecutionResultResponseSchema,
+  WorkoutExecutionPauseResponseSchema,
+  WorkoutExecutionPauseRequestSchema,
+  WorkoutExecutionResumeRequestSchema,
   WorkoutExecutionWorkTimerStartRequestSchema,
   WorkoutExecutionWorkTimerStartResponseSchema,
   WorkoutExecutionResultMetricsRequestSchema,
@@ -21,6 +24,7 @@ import {
   type CorrectResultOperation,
   type WorkoutSyncResponse,
   type WorkoutExecutionCloseRequest,
+  type WorkoutExecutionResumeRequest,
   type WorkoutExecutionWorkTimerStartRequest,
   type WorkoutExecutionResultMetricsRequest,
 } from '@trakia/contracts'
@@ -81,6 +85,24 @@ export async function startWorkoutExecutionWorkTimer(
     { method: 'POST', body: JSON.stringify(request) },
   )
   return WorkoutExecutionWorkTimerStartResponseSchema.parse(response)
+}
+
+export async function pauseWorkoutExecution(executionId: string) {
+  const request = WorkoutExecutionPauseRequestSchema.parse({})
+  const response = await apiRequest<unknown>(
+    `/workouts/executions/${encodeURIComponent(executionId)}/pause`,
+    { method: 'POST', body: JSON.stringify(request) },
+  )
+  return WorkoutExecutionPauseResponseSchema.parse(response)
+}
+
+export async function resumeWorkoutExecution(executionId: string, input: WorkoutExecutionResumeRequest) {
+  const request = WorkoutExecutionResumeRequestSchema.parse(input)
+  const response = await apiRequest<unknown>(
+    `/workouts/executions/${encodeURIComponent(executionId)}/resume`,
+    { method: 'POST', body: JSON.stringify(request) },
+  )
+  return WorkoutExecutionPauseResponseSchema.parse(response)
 }
 
 export async function recordWorkoutExecutionResultMetrics(

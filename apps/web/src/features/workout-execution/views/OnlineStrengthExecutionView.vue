@@ -10,6 +10,8 @@ import {
   recordWorkoutExecutionResult,
   recordWorkoutExecutionResultMetrics,
   startWorkoutExecutionWorkTimer,
+  pauseWorkoutExecution,
+  resumeWorkoutExecution,
 } from '../api/execution'
 import { invalidateTrainingPlanExecutionQueries } from '../execution-query-invalidation.js'
 import WorkoutPlannedTargets from '../components/WorkoutPlannedTargets.vue'
@@ -23,6 +25,8 @@ const flow = createOnlineStrengthFlow(
     getOpen: getOpenWorkoutExecution,
     getByRequest: getWorkoutExecutionStartByRequest,
     startWorkTimer: startWorkoutExecutionWorkTimer,
+    pauseExecution: pauseWorkoutExecution,
+    resumeExecution: resumeWorkoutExecution,
     recordResult: recordWorkoutExecutionResult,
     recordMetrics: recordWorkoutExecutionResultMetrics,
     closeExecution: closeWorkoutExecution,
@@ -81,7 +85,16 @@ onBeforeUnmount(() => {
         <WorkoutPlannedTargets :targets="flow.plannedTargets.value" />
 
         <p
-          v-if="flow.activeTimer.value?.kind === 'rest'"
+          v-if="flow.isPaused.value"
+          class="mt-7 text-center text-sm font-semibold text-amber-200"
+          role="status"
+          aria-live="polite"
+        >
+          Pausado
+        </p>
+
+        <p
+          v-else-if="flow.activeTimer.value?.kind === 'rest'"
           class="mt-7 text-center text-sm font-semibold text-lime-200"
         >
           Descanso
@@ -99,6 +112,26 @@ onBeforeUnmount(() => {
         >
           {{ flow.timerDisplay.value }}
         </p>
+
+        <button
+          v-if="flow.isPaused.value"
+          class="mt-6 inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/25 px-5 py-3 text-base font-semibold text-stone-100 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          :disabled="flow.isPausing.value || !flow.isOnline.value"
+          @click="flow.resume"
+        >
+          {{ flow.isPausing.value ? 'Reanudando…' : 'Reanudar' }}
+        </button>
+
+        <button
+          v-else-if="!flow.isClosed.value"
+          class="mt-6 inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/25 px-5 py-3 text-base font-semibold text-stone-100 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          :disabled="flow.isPausing.value || !flow.isOnline.value || flow.isLoading.value"
+          @click="flow.pause"
+        >
+          {{ flow.isPausing.value ? 'Pausando…' : 'Pausar' }}
+        </button>
 
         <p
           v-if="flow.errorMessage.value"
@@ -121,7 +154,7 @@ onBeforeUnmount(() => {
         </section>
 
         <button
-          v-else-if="!flow.confirmedResult.value"
+          v-else-if="!flow.confirmedResult.value && !flow.isPaused.value"
           class="mt-10 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
           type="button"
           :disabled="
@@ -145,6 +178,7 @@ onBeforeUnmount(() => {
         <form
           v-if="
             !flow.isClosed.value &&
+            !flow.isPaused.value &&
             flow.activeTimer.value?.kind !== 'work' &&
             flow.confirmedResult.value &&
             !flow.confirmedResult.value.actualMetrics
@@ -202,7 +236,12 @@ onBeforeUnmount(() => {
           </button>
         </form>
 
-        <section v-else-if="flow.confirmedResult.value?.actualMetrics && !flow.isClosed.value" class="mt-8">
+        <section
+          v-else-if="
+            flow.confirmedResult.value?.actualMetrics && !flow.isClosed.value && !flow.isPaused.value
+          "
+          class="mt-8"
+        >
           <p class="text-center text-sm font-medium text-lime-200" role="status" aria-live="polite">
             Resultado guardado
           </p>

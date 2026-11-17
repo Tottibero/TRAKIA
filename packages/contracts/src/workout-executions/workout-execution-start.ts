@@ -10,11 +10,15 @@ export const WorkoutExecutionStartResponseSchema = z
   .object({ requestId: z.uuid(), execution: WorkoutExecutionSchema, deviceId: z.uuid().optional() })
   .strict()
   .superRefine(({ execution }, context) => {
-    if (execution.status !== 'in_progress' && execution.status !== 'completed') {
+    if (
+      execution.status !== 'in_progress' &&
+      execution.status !== 'paused' &&
+      execution.status !== 'completed'
+    ) {
       context.addIssue({
         code: 'custom',
         path: ['execution', 'status'],
-        message: 'Execution recovery supports open and completed executions',
+        message: 'Execution recovery supports open, paused and completed executions',
       })
     }
   })
@@ -50,6 +54,7 @@ export const WorkoutExecutionStartErrorCodeSchema = z.enum([
   'EXECUTION_CLOSED',
   'RESULT_INVALID',
   'REST_NOT_FINISHED',
+  'TIMER_PRECONDITION_FAILED',
   'RESULT_METRICS_CONFLICT',
   'INTERNAL_ERROR',
 ])

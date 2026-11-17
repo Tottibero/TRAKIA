@@ -101,6 +101,17 @@ export {
   WorkoutExecutionCloseRequestSchema,
   WorkoutExecutionCloseResponseSchema,
 } from './workout-executions/workout-execution-close.js'
+export {
+  WorkoutExecutionPausePathParamsSchema,
+  WorkoutExecutionPauseRequestSchema,
+  WorkoutExecutionResumeRequestSchema,
+  WorkoutExecutionPauseResponseSchema,
+} from './workout-executions/workout-execution-pause.js'
+export type {
+  WorkoutExecutionPauseRequest,
+  WorkoutExecutionResumeRequest,
+  WorkoutExecutionPauseResponse,
+} from './workout-executions/workout-execution-pause.js'
 export type {
   WorkoutExecutionCloseRequest,
   WorkoutExecutionCloseResponse,
