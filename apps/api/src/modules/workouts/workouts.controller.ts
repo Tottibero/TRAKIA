@@ -33,6 +33,10 @@ import {
   WorkoutExecutionWorkTimerStartResponseSchema,
   WorkoutExecutionCloseRequestSchema,
   WorkoutExecutionCloseResponseSchema,
+  WorkoutExecutionPausePathParamsSchema,
+  WorkoutExecutionPauseRequestSchema,
+  WorkoutExecutionPauseResponseSchema,
+  WorkoutExecutionResumeRequestSchema,
   WorkoutSyncOperationSchema,
   WorkoutSyncResponseSchema,
 } from '@trakia/contracts'
@@ -51,6 +55,7 @@ import {
   WorkoutExecutionResultMetricsConflictError,
   WorkoutExecutionRestNotFinishedError,
   WorkoutExecutionCloseConflictError,
+  WorkoutExecutionPauseConflictError,
 } from './workout-execution-start.service.js'
 
 interface AuthenticatedWorkoutRequest {
@@ -179,6 +184,46 @@ export class WorkoutsController {
     }
   }
 
+  @Post(':executionId/pause')
+  @HttpCode(200)
+  async pauseExecution(
+    @Req() request: AuthenticatedWorkoutRequest,
+    @Param() params: unknown,
+    @Body() body: unknown,
+  ) {
+    const path = WorkoutExecutionPausePathParamsSchema.safeParse(params)
+    const input = WorkoutExecutionPauseRequestSchema.safeParse(body)
+    if (!path.success || !input.success) throw invalidRequest()
+    const userId = authenticatedUserId(request)
+    try {
+      return WorkoutExecutionPauseResponseSchema.parse(
+        await this.starts.pauseExecution(userId, path.data.executionId),
+      )
+    } catch (error) {
+      throw toHttpException(error)
+    }
+  }
+
+  @Post(':executionId/resume')
+  @HttpCode(200)
+  async resumeExecution(
+    @Req() request: AuthenticatedWorkoutRequest,
+    @Param() params: unknown,
+    @Body() body: unknown,
+  ) {
+    const path = WorkoutExecutionPausePathParamsSchema.safeParse(params)
+    const input = WorkoutExecutionResumeRequestSchema.safeParse(body)
+    if (!path.success || !input.success) throw invalidRequest()
+    const userId = authenticatedUserId(request)
+    try {
+      return WorkoutExecutionPauseResponseSchema.parse(
+        await this.starts.resumeExecution(userId, path.data.executionId, input.data),
+      )
+    } catch (error) {
+      throw toHttpException(error)
+    }
+  }
+
   @Post(':executionId/close')
   @HttpCode(200)
   async closeExecution(
@@ -267,6 +312,12 @@ function toHttpException(error: unknown): HttpException {
   if (error instanceof WorkoutExecutionCloseConflictError) {
     return new HttpException(
       WorkoutExecutionStartErrorSchema.parse({ code: 'EXECUTION_CLOSED', message: error.message }),
+      409,
+    )
+  }
+  if (error instanceof WorkoutExecutionPauseConflictError) {
+    return new HttpException(
+      WorkoutExecutionStartErrorSchema.parse({ code: 'TIMER_PRECONDITION_FAILED', message: error.message }),
       409,
     )
   }

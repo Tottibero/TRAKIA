@@ -17,6 +17,8 @@ import {
   type WorkoutExecutionWorkTimerStartRequest,
   type WorkoutExecutionWorkTimerStartResponse,
   type WorkoutExecutionResultMetricsRequest,
+  type WorkoutExecutionPauseResponse,
+  type WorkoutExecutionResumeRequest,
   type WorkoutExecutionCloseRequest,
   type WorkoutExecutionCloseResponse,
   type WorkoutSyncResponse,
@@ -123,6 +125,13 @@ export class WorkoutExecutionResultMetricsConflictError extends Error {
   constructor() {
     super('The result already has different confirmed metrics.')
     this.name = 'WorkoutExecutionResultMetricsConflictError'
+  }
+}
+
+export class WorkoutExecutionPauseConflictError extends Error {
+  constructor() {
+    super('The workout execution pause state has changed.')
+    this.name = 'WorkoutExecutionPauseConflictError'
   }
 }
 
@@ -239,6 +248,63 @@ export class WorkoutExecutionStartService {
     })
   }
 
+  async pauseExecution(userId: string, executionId: string): Promise<WorkoutExecutionPauseResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkoutExecutionRecord)
+      const record = await repository.findOne({
+        where: { id: executionId, userId },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.status === 'paused') return { execution: toExecution(record), replayed: true }
+      if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
+
+      const [{ pausedAt }] = await manager.query('SELECT clock_timestamp() AS "pausedAt"')
+      record.pauses = [...(record.pauses ?? []), { startedAt: new Date(pausedAt).toISOString() }]
+      record.status = 'paused'
+      await repository.save(record)
+      return { execution: toExecution(record), replayed: false }
+    })
+  }
+
+  async resumeExecution(
+    userId: string,
+    executionId: string,
+    input: WorkoutExecutionResumeRequest,
+  ): Promise<WorkoutExecutionPauseResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkoutExecutionRecord)
+      const record = await repository.findOne({
+        where: { id: executionId, userId },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      const pauses = record.pauses ?? []
+      const current = pauses.at(-1)
+      if (
+        record.status === 'in_progress' &&
+        current?.startedAt === input.pauseStartedAt &&
+        current.finishedAt
+      )
+        return { execution: toExecution(record), replayed: true }
+      if (
+        record.status !== 'paused' ||
+        !current ||
+        current.finishedAt ||
+        current.startedAt !== input.pauseStartedAt
+      )
+        throw new WorkoutExecutionPauseConflictError()
+
+      const [{ resumedAt }] = await manager.query('SELECT clock_timestamp() AS "resumedAt"')
+      record.pauses = pauses.map((pause, index) =>
+        index === pauses.length - 1 ? { ...pause, finishedAt: new Date(resumedAt).toISOString() } : pause,
+      )
+      record.status = 'in_progress'
+      await repository.save(record)
+      return { execution: toExecution(record), replayed: false }
+    })
+  }
+
   async startWorkTimer(
     userId: string,
     executionId: string,
@@ -268,7 +334,10 @@ export class WorkoutExecutionStartService {
         const restSeconds = plannedRestSeconds(record.snapshot, record.activeTimer)
         if (restSeconds === null) throw new WorkoutExecutionResultInvalidError()
         const [{ confirmedAt }] = await manager.query('SELECT clock_timestamp() AS "confirmedAt"')
-        if (effectiveElapsedSeconds(record.activeTimer.startedAt, [], confirmedAt) < restSeconds)
+        if (
+          effectiveElapsedSeconds(record.activeTimer.startedAt, record.pauses ?? [], confirmedAt) <
+          restSeconds
+        )
           throw new WorkoutExecutionRestNotFinishedError()
         startedAt = confirmedAt
       } else {
@@ -354,8 +423,11 @@ export class WorkoutExecutionStartService {
         const [{ timestamp }] = await manager.query('SELECT clock_timestamp() AS "timestamp"')
         finishedAt = timestamp
         if (!finishedAt) throw new WorkoutExecutionResultInvalidError()
-        const activeSeconds =
-          (new Date(finishedAt).getTime() - Date.parse(record.activeTimer.startedAt)) / 1000
+        const activeSeconds = effectiveElapsedSeconds(
+          record.activeTimer.startedAt,
+          record.pauses ?? [],
+          finishedAt,
+        )
         if (!Number.isFinite(activeSeconds) || activeSeconds <= 0)
           throw new WorkoutExecutionResultInvalidError()
         confirmedResult = { ...result, activeSeconds }
@@ -871,7 +943,7 @@ function toExecution(record: WorkoutExecutionRecord): WorkoutExecution {
     ...(record.closureReason !== null && record.closureReason !== undefined
       ? { closureReason: record.closureReason }
       : {}),
-    pauses: [],
+    pauses: record.pauses ?? [],
     ...(record.activeTimer ? { activeTimer: record.activeTimer } : {}),
     results: record.results ?? [],
     corrections: (record.correctionOperations ?? []).map(({ payload }) => payload.correction),

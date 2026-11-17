@@ -4,6 +4,7 @@ import type {
   CorrectResultOperation,
   WorkoutExecutionSnapshot,
   WorkoutExecutionActiveTimer,
+  WorkoutPause,
   WorkoutResult,
   WorkoutStatus,
   WorkoutCompletionType,
@@ -37,6 +38,7 @@ export class WorkoutExecutionRecord {
   @Column({ type: 'jsonb', default: () => "'[]'::jsonb" }) results!: WorkoutResult[]
   @Column({ name: 'active_timer', type: 'jsonb', nullable: true })
   activeTimer!: WorkoutExecutionActiveTimer | null
+  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" }) pauses!: WorkoutPause[]
   @Column({ name: 'close_operation', type: 'jsonb', nullable: true })
   closeOperation!: CloseExecutionOperation | null
   @Column({ name: 'correction_operations', type: 'jsonb', default: () => "'[]'::jsonb" })

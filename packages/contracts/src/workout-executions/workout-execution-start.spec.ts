@@ -67,6 +67,12 @@ describe('workout execution start HTTP contracts', () => {
         execution: { ...execution, status: 'completed', finishedAt: execution.startedAt },
       }).execution.status,
     ).toBe('completed')
+    expect(
+      WorkoutExecutionStartResponseSchema.parse({
+        requestId: request.requestId,
+        execution: { ...execution, status: 'paused', pauses: [{ startedAt: execution.startedAt }] },
+      }).execution.status,
+    ).toBe('paused')
   })
 
   it('validates open execution queries, nullable responses and predictable errors', () => {

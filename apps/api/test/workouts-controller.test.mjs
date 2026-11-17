@@ -154,6 +154,47 @@ test('workouts controller authenticates and validates result recording inputs', 
   })
 })
 
+test('pause and resume controller operations validate input and bind to the authenticated account', async () => {
+  const calls = []
+  const pauseStartedAt = '2026-11-16T10:00:00.000Z'
+  const controller = new WorkoutsController({
+    pauseExecution: async (...args) => {
+      calls.push(['pause', ...args])
+      return {
+        execution: { ...execution, status: 'paused', pauses: [{ startedAt: pauseStartedAt }] },
+        replayed: false,
+      }
+    },
+    resumeExecution: async (...args) => {
+      calls.push(['resume', ...args])
+      return {
+        execution: {
+          ...execution,
+          pauses: [{ startedAt: pauseStartedAt, finishedAt: '2026-11-16T10:01:00.000Z' }],
+        },
+        replayed: false,
+      }
+    },
+  })
+  await controller.pauseExecution({ authUserId: 'account-1' }, { executionId: execution.id }, {})
+  await controller.resumeExecution(
+    { authUserId: 'account-1' },
+    { executionId: execution.id },
+    { pauseStartedAt },
+  )
+  assert.deepEqual(calls, [
+    ['pause', 'account-1', execution.id],
+    ['resume', 'account-1', execution.id, { pauseStartedAt }],
+  ])
+  await assert.rejects(controller.resumeExecution({}, { executionId: execution.id }, { pauseStartedAt }), {
+    status: 401,
+  })
+  await assert.rejects(
+    controller.resumeExecution({ authUserId: 'account-1' }, { executionId: execution.id }, {}),
+    { status: 400 },
+  )
+})
+
 test('the results controller validates shared result shapes before domain-scope checks', async () => {
   const calls = []
   const controller = new WorkoutsController({

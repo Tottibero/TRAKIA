@@ -155,6 +155,22 @@ describe('WorkoutExecutionSchema', () => {
     ).toBe(true)
   })
 
+  it('validates pause transitions and requires the pause identity to resume', async () => {
+    const {
+      WorkoutExecutionPauseRequestSchema,
+      WorkoutExecutionResumeRequestSchema,
+      WorkoutExecutionPauseResponseSchema,
+    } = await import('./workout-execution-pause.js')
+    expect(WorkoutExecutionPauseRequestSchema.safeParse({}).success).toBe(true)
+    expect(
+      WorkoutExecutionResumeRequestSchema.safeParse({ pauseStartedAt: '2026-11-16T10:00:00Z' }).success,
+    ).toBe(true)
+    expect(WorkoutExecutionResumeRequestSchema.safeParse({ pauseStartedAt: 'invalid' }).success).toBe(false)
+    expect(
+      WorkoutExecutionPauseResponseSchema.safeParse({ execution: execution(), replayed: false }).success,
+    ).toBe(true)
+  })
+
   it('accepts a completed execution with finishedAt', () => {
     expect(
       WorkoutExecutionSchema.safeParse(

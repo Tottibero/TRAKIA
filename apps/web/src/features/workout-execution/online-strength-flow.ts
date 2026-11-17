@@ -14,6 +14,7 @@ import {
   type WorkoutExecutionResultResponse,
   type WorkoutExecutionWorkTimerStartRequest,
   type WorkoutExecutionWorkTimerStartResponse,
+  type WorkoutExecutionPauseResponse,
   type WorkoutResult,
 } from '@trakia/contracts'
 import {
@@ -68,6 +69,11 @@ export function createOnlineStrengthFlow(
       executionId: string,
       input: WorkoutExecutionWorkTimerStartRequest,
     ) => Promise<WorkoutExecutionWorkTimerStartResponse>
+    pauseExecution: (executionId: string) => Promise<WorkoutExecutionPauseResponse>
+    resumeExecution: (
+      executionId: string,
+      input: { pauseStartedAt: string },
+    ) => Promise<WorkoutExecutionPauseResponse>
     recordResult: (
       executionId: string,
       input: WorkoutExecutionResultRequest,
@@ -92,6 +98,7 @@ export function createOnlineStrengthFlow(
   const validationErrors = reactive<Partial<Record<keyof ActualMetrics, string>>>({})
   const isLoading = ref(true)
   const isStarting = ref(false)
+  const isPausing = ref(false)
   const isFinishing = ref(false)
   const isSaving = ref(false)
   const isContinuing = ref(false)
@@ -129,12 +136,13 @@ export function createOnlineStrengthFlow(
     )
   })
   const activeTimer = computed(() => execution.value?.activeTimer ?? null)
+  const isPaused = computed(() => execution.value?.status === 'paused')
   const nextUnit = computed(() =>
     execution.value ? findNextPlannedUnit(strengthUnits.value, execution.value.results) : null,
   )
   const elapsedSeconds = computed(() => {
     if (activeTimer.value?.kind === 'work') {
-      return Math.max(0, Math.floor((clockNow.value - Date.parse(activeTimer.value.startedAt)) / 1000))
+      return elapsedWithPauses(activeTimer.value.startedAt, execution.value?.pauses ?? [], clockNow.value)
     }
     return confirmedResult.value?.activeSeconds ?? 0
   })
@@ -143,7 +151,7 @@ export function createOnlineStrengthFlow(
     if (timer?.kind !== 'rest') return 0
     const unit = strengthUnits.value.find((candidate) => sameTimerUnit(timer, candidate))
     if (!unit) return 0
-    const elapsed = Math.floor((clockNow.value - Date.parse(timer.startedAt)) / 1000)
+    const elapsed = elapsedWithPauses(timer.startedAt, execution.value?.pauses ?? [], clockNow.value)
     return Math.max(0, unit.block.restBetweenSetsSeconds - elapsed)
   })
   const isRestFinished = computed(
@@ -156,6 +164,7 @@ export function createOnlineStrengthFlow(
     () =>
       Boolean(nextUnit.value) &&
       activeTimer.value?.kind === 'rest' &&
+      !isPaused.value &&
       isRestFinished.value &&
       Boolean(confirmedResult.value?.actualMetrics) &&
       isOnline.value &&
@@ -170,6 +179,7 @@ export function createOnlineStrengthFlow(
         !confirmedResult.value &&
         !activeTimer.value &&
         !isClosed.value &&
+        !isPaused.value &&
         isOnline.value &&
         !isLoading.value &&
         !isStarting.value &&
@@ -178,6 +188,7 @@ export function createOnlineStrengthFlow(
   const canFinish = computed(
     () =>
       activeTimer.value?.kind === 'work' &&
+      !isPaused.value &&
       isOnline.value &&
       !isLoading.value &&
       !isStarting.value &&
@@ -186,6 +197,7 @@ export function createOnlineStrengthFlow(
   const canSave = computed(
     () =>
       Boolean(confirmedResult.value?.activeSeconds) &&
+      !isPaused.value &&
       !confirmedResult.value?.actualMetrics &&
       isOnline.value &&
       !isLoading.value &&
@@ -194,6 +206,7 @@ export function createOnlineStrengthFlow(
   const canContinue = computed(
     () =>
       Boolean(confirmedResult.value?.actualMetrics) &&
+      !isPaused.value &&
       !activeTimer.value &&
       !isClosed.value &&
       isOnline.value &&
@@ -218,6 +231,49 @@ export function createOnlineStrengthFlow(
     isOnline.value = online
     if (!online) errorMessage.value = 'Sin conexión. No se ha confirmado la operación.'
     else if (errorMessage.value?.startsWith('Sin conexión.')) errorMessage.value = null
+  }
+
+  async function pause() {
+    if (!execution.value || isPaused.value || isClosed.value || !isOnline.value || isPausing.value)
+      return false
+    errorMessage.value = null
+    isPausing.value = true
+    try {
+      const response = await dependencies.pauseExecution(executionId)
+      if (response.execution.id !== executionId || response.execution.status !== 'paused')
+        throw new Error('La API no confirmó la pausa.')
+      execution.value = response.execution
+      dependencies.onExecutionChanged?.()
+      tick()
+      return true
+    } catch (error) {
+      errorMessage.value = errorMessageFor(error, 'No se pudo pausar el entrenamiento. Reintenta.')
+      return false
+    } finally {
+      isPausing.value = false
+    }
+  }
+
+  async function resume() {
+    const pauseStartedAt = execution.value?.pauses.at(-1)?.startedAt
+    if (!execution.value || !isPaused.value || !pauseStartedAt || !isOnline.value || isPausing.value)
+      return false
+    errorMessage.value = null
+    isPausing.value = true
+    try {
+      const response = await dependencies.resumeExecution(executionId, { pauseStartedAt })
+      if (response.execution.id !== executionId || response.execution.status !== 'in_progress')
+        throw new Error('La API no confirmó la reanudación.')
+      execution.value = response.execution
+      dependencies.onExecutionChanged?.()
+      tick()
+      return true
+    } catch (error) {
+      errorMessage.value = errorMessageFor(error, 'No se pudo reanudar el entrenamiento. Reintenta.')
+      return false
+    } finally {
+      isPausing.value = false
+    }
   }
 
   function setMetric(field: keyof ActualMetrics, value: string) {
@@ -500,6 +556,8 @@ export function createOnlineStrengthFlow(
     isFinishing,
     isLoading,
     isOnline,
+    isPaused,
+    isPausing,
     isSaving,
     isRestFinished,
     isStarting,
@@ -507,6 +565,8 @@ export function createOnlineStrengthFlow(
     plannedUnit,
     plannedTargets,
     recover,
+    pause,
+    resume,
     save,
     setMetric,
     setOnline,
@@ -611,6 +671,16 @@ function formatElapsed(seconds: number): string {
   const minutes = Math.floor(value / 60)
   const remainder = value % 60
   return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+}
+
+function elapsedWithPauses(startedAt: string, pauses: WorkoutExecution['pauses'], now: number): number {
+  const start = Date.parse(startedAt)
+  const pausedMilliseconds = pauses.reduce((total, pause) => {
+    const pauseStart = Math.max(start, Date.parse(pause.startedAt))
+    const pauseEnd = Math.min(now, pause.finishedAt ? Date.parse(pause.finishedAt) : now)
+    return total + Math.max(0, pauseEnd - pauseStart)
+  }, 0)
+  return Math.max(0, Math.floor((now - start - pausedMilliseconds) / 1000))
 }
 
 function errorMessageFor(error: unknown, fallback: string): string {

@@ -123,6 +123,9 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
     const sessionIds = Object.fromEntries(sessions.map(({ id, key }) => [key, id]))
     const request = { requestId: randomUUID(), planId: plan.id, sessionId: sessionIds.monday }
     const cookie = `${cookieName()}=${encodeURIComponent(tokenService.issue(userIds[0], 0))}`
+    const secondDeviceCookie = `${cookieName()}=${encodeURIComponent(
+      tokenService.issue(userIds[0], 0, Math.floor(Date.now() / 1000) + 1),
+    )}`
     const otherCookie = `${cookieName()}=${encodeURIComponent(tokenService.issue(userIds[1], 0))}`
     const headers = { cookie, 'content-type': 'application/json' }
 
@@ -208,6 +211,69 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
     })
     assert.equal(timerConflict.status, 409)
 
+    const pauseUrl = `${url}/workouts/executions/${started.execution.id}/pause`
+    const [pauseResponse, pauseDoubleTapResponse] = await Promise.all([
+      fetch(pauseUrl, { method: 'POST', headers, body: '{}' }),
+      fetch(pauseUrl, { method: 'POST', headers, body: '{}' }),
+    ])
+    assert.equal(pauseResponse.status, 200)
+    assert.equal(pauseDoubleTapResponse.status, 200)
+    const pauseBody = await pauseResponse.json()
+    const pauseDoubleTapBody = await pauseDoubleTapResponse.json()
+    responseBodies.push({ status: pauseResponse.status, body: pauseBody })
+    assert.equal(pauseBody.execution.status, 'paused')
+    assert.equal(pauseBody.execution.pauses.length, 1)
+    assert.deepEqual([pauseBody.replayed, pauseDoubleTapBody.replayed].sort(), [false, true])
+    assert.equal(pauseDoubleTapBody.execution.pauses.length, 1)
+    const pauseReplayResponse = await fetch(pauseUrl, { method: 'POST', headers, body: '{}' })
+    assert.equal(pauseReplayResponse.status, 200)
+    const pauseReplay = await pauseReplayResponse.json()
+    assert.equal(pauseReplay.replayed, true)
+    assert.equal(pauseReplay.execution.pauses.length, 1)
+    const pauseRecoveryResponse = await fetch(`${url}/workouts/executions/open`, {
+      headers: { cookie: secondDeviceCookie },
+    })
+    assert.equal(pauseRecoveryResponse.status, 200)
+    const pauseRecovery = await pauseRecoveryResponse.json()
+    assert.equal(pauseRecovery.execution.execution.status, 'paused')
+    assert.deepEqual(pauseRecovery.execution.execution.pauses, pauseBody.execution.pauses)
+    const blockedPausedStart = await fetch(timerUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(timerRequest),
+    })
+    assert.equal(blockedPausedStart.status, 409)
+
+    const simulatedStartedAt = new Date(Date.now() - 20_000).toISOString()
+    const simulatedPauseAt = new Date(Date.now() - 10_000).toISOString()
+    const simulatedExecutionStartedAt = new Date(Date.now() - 60_000).toISOString()
+    await database.query(
+      `UPDATE workout_executions SET started_at = $4, active_timer = jsonb_set(active_timer, '{startedAt}', to_jsonb($2::text)), pauses = jsonb_set(pauses, '{0,startedAt}', to_jsonb($3::text)) WHERE id = $1`,
+      [started.execution.id, simulatedStartedAt, simulatedPauseAt, simulatedExecutionStartedAt],
+    )
+    const resumeInput = { pauseStartedAt: simulatedPauseAt }
+    const resumeUrl = `${url}/workouts/executions/${started.execution.id}/resume`
+    const resumeResponse = await fetch(resumeUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(resumeInput),
+    })
+    assert.equal(resumeResponse.status, 200)
+    const resumeBody = await resumeResponse.json()
+    responseBodies.push({ status: resumeResponse.status, body: resumeBody })
+    assert.equal(resumeBody.execution.status, 'in_progress')
+    assert.ok(resumeBody.execution.pauses[0].finishedAt)
+    const resumeReplayResponse = await fetch(resumeUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(resumeInput),
+    })
+    assert.equal(resumeReplayResponse.status, 200)
+    assert.equal((await resumeReplayResponse.json()).replayed, true)
+    const resumedRecovery = await fetch(`${url}/workouts/executions/open`, { headers: { cookie } })
+    assert.equal(resumedRecovery.status, 200)
+    assert.equal((await resumedRecovery.json()).execution.execution.status, 'in_progress')
+
     const resultUrl = `${url}/workouts/executions/${started.execution.id}/results`
     const resultResponse = await fetch(resultUrl, {
       method: 'POST',
@@ -219,6 +285,7 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
     responseBodies.push({ status: resultResponse.status, body: resultBody })
     assert.equal(resultBody.result.id, result.id)
     assert.ok(resultBody.result.activeSeconds > 0)
+    assert.ok(resultBody.result.activeSeconds >= 9 && resultBody.result.activeSeconds < 12)
     assert.equal(resultBody.replayed, false)
     const confirmedResult = resultBody.result
 
@@ -494,7 +561,41 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
     )
     assert.equal(afterEarlyStart[0].active_timer.startedAt, restStartedAt)
 
-    const expiredAt = new Date(Date.now() - 21_000).toISOString()
+    const restPauseResponse = await fetch(`${url}/workouts/executions/${secondExecutionId}/pause`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    })
+    assert.equal(restPauseResponse.status, 200)
+    const restPause = await restPauseResponse.json()
+    assert.equal(restPause.execution.activeTimer.kind, 'rest')
+    const simulatedRestStartedAt = new Date(Date.now() - 25_000).toISOString()
+    const simulatedRestPauseAt = new Date(Date.now() - 10_000).toISOString()
+    const simulatedRestExecutionStartedAt = new Date(Date.now() - 60_000).toISOString()
+    await database.query(
+      `UPDATE workout_executions SET started_at = $4, active_timer = jsonb_set(active_timer, '{startedAt}', to_jsonb($2::text)), pauses = jsonb_set(pauses, '{0,startedAt}', to_jsonb($3::text)) WHERE id = $1`,
+      [secondExecutionId, simulatedRestStartedAt, simulatedRestPauseAt, simulatedRestExecutionStartedAt],
+    )
+    const restResumeResponse = await fetch(`${url}/workouts/executions/${secondExecutionId}/resume`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ pauseStartedAt: simulatedRestPauseAt }),
+    })
+    assert.equal(restResumeResponse.status, 200)
+    const restStartAfterResume = await fetch(secondTimerUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(nextWorkRequest),
+    })
+    assert.equal(restStartAfterResume.status, 409)
+    assert.equal((await restStartAfterResume.json()).code, 'REST_NOT_FINISHED')
+    const restPauseRow = await database.query('SELECT pauses FROM workout_executions WHERE id = $1', [
+      secondExecutionId,
+    ])
+    assert.equal(restPauseRow[0].pauses.length, 1)
+    assert.ok(restPauseRow[0].pauses[0].finishedAt)
+
+    const expiredAt = new Date(Date.now() - 40_000).toISOString()
     await database.query(
       `UPDATE workout_executions SET active_timer = jsonb_set(active_timer, '{startedAt}', to_jsonb($2::text)) WHERE id = $1`,
       [secondExecutionId, expiredAt],
