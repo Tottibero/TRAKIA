@@ -138,17 +138,42 @@ export function createOnlineStrengthFlow(
     }
     return confirmedResult.value?.activeSeconds ?? 0
   })
-  const timerDisplay = computed(() => formatElapsed(elapsedSeconds.value))
-  const canStart = computed(
+  const restRemainingSeconds = computed(() => {
+    const timer = activeTimer.value
+    if (timer?.kind !== 'rest') return 0
+    const unit = strengthUnits.value.find((candidate) => sameTimerUnit(timer, candidate))
+    if (!unit) return 0
+    const elapsed = Math.floor((clockNow.value - Date.parse(timer.startedAt)) / 1000)
+    return Math.max(0, unit.block.restBetweenSetsSeconds - elapsed)
+  })
+  const isRestFinished = computed(
+    () => activeTimer.value?.kind === 'rest' && restRemainingSeconds.value === 0,
+  )
+  const timerDisplay = computed(() =>
+    formatElapsed(activeTimer.value?.kind === 'rest' ? restRemainingSeconds.value : elapsedSeconds.value),
+  )
+  const canStartNext = computed(
     () =>
-      Boolean(plannedUnit.value) &&
-      !confirmedResult.value &&
-      !activeTimer.value &&
-      !isClosed.value &&
+      Boolean(nextUnit.value) &&
+      activeTimer.value?.kind === 'rest' &&
+      isRestFinished.value &&
+      Boolean(confirmedResult.value?.actualMetrics) &&
       isOnline.value &&
       !isLoading.value &&
       !isStarting.value &&
       !isFinishing.value,
+  )
+  const canStart = computed(() =>
+    activeTimer.value?.kind === 'rest'
+      ? canStartNext.value
+      : Boolean(plannedUnit.value) &&
+        !confirmedResult.value &&
+        !activeTimer.value &&
+        !isClosed.value &&
+        isOnline.value &&
+        !isLoading.value &&
+        !isStarting.value &&
+        !isFinishing.value,
   )
   const canFinish = computed(
     () =>
@@ -222,10 +247,10 @@ export function createOnlineStrengthFlow(
       if (!hasOnlySupportedStrengthUnits(execution.value, units))
         throw new Error('Esta sesión no tiene un recorrido de fuerza compatible.')
 
-      if (activeTimer.value?.kind === 'work') {
+      if (activeTimer.value?.kind === 'work' || activeTimer.value?.kind === 'rest') {
         currentUnit.value = units.find((unit) => sameTimerUnit(activeTimer.value!, unit)) ?? null
         if (!currentUnit.value) throw new Error('No se encontró la serie activa en la planificación.')
-        pendingStart = timerRequest(activeTimer.value)
+        pendingStart = activeTimer.value.kind === 'work' ? timerRequest(activeTimer.value) : null
       } else {
         const incompleteMetricsUnit = [...units].reverse().find((unit) => {
           const result = resultForUnit(execution.value!, unit)
@@ -260,20 +285,30 @@ export function createOnlineStrengthFlow(
   }
 
   async function start() {
-    const unit = plannedUnit.value
-    if (!unit || !canStart.value) return false
+    const continuingFromRest = activeTimer.value?.kind === 'rest'
+    const targetUnit =
+      continuingFromRest && nextUnit.value ? findUnit(strengthUnits.value, nextUnit.value) : plannedUnit.value
+    if (!targetUnit || (continuingFromRest ? !canStartNext.value : !canStart.value)) return false
     errorMessage.value = null
     const startRequest = (pendingStart ??= {
       resultId: (dependencies.createResultId ?? (() => crypto.randomUUID()))(),
-      blockKey: unit.blockKey,
-      plannedExerciseKey: unit.appearance.key,
-      unit: { kind: 'planned', setIndex: unit.setIndex },
+      blockKey: targetUnit.blockKey,
+      plannedExerciseKey: targetUnit.appearance.key,
+      unit: { kind: 'planned', setIndex: targetUnit.setIndex },
     })
     isStarting.value = true
     try {
       const confirmation = await dependencies.startWorkTimer(executionId, startRequest)
       if (confirmation.activeTimer.resultId !== startRequest.resultId)
         throw new Error('La API no confirmó el inicio de esta serie.')
+      if (continuingFromRest) {
+        currentUnit.value = targetUnit
+        clearFields()
+        pendingResult = null
+        pendingMetrics = null
+        hasPendingFinish.value = false
+        hasPendingMetrics.value = false
+      }
       execution.value = { ...execution.value!, activeTimer: confirmation.activeTimer }
       pendingStart = timerRequest(confirmation.activeTimer)
       dependencies.onExecutionChanged?.()
@@ -418,7 +453,7 @@ export function createOnlineStrengthFlow(
     if (!execution.value) return
     execution.value = {
       ...execution.value,
-      activeTimer: undefined,
+      activeTimer: confirmation.activeTimer,
       results: [
         ...execution.value.results.filter(({ id }) => id !== confirmation.result.id),
         confirmation.result,
@@ -449,6 +484,7 @@ export function createOnlineStrengthFlow(
     canContinue,
     canFinish,
     canSave,
+    canStartNext,
     canStart,
     confirmedResult,
     continuationLabel,
@@ -465,6 +501,7 @@ export function createOnlineStrengthFlow(
     isLoading,
     isOnline,
     isSaving,
+    isRestFinished,
     isStarting,
     metricFields,
     plannedUnit,
@@ -478,6 +515,7 @@ export function createOnlineStrengthFlow(
     continueOrClose,
     tick,
     timerDisplay,
+    restRemainingSeconds,
     validationErrors,
   }
 }
@@ -550,7 +588,7 @@ function findUnit(units: OnlineStrengthUnit[], planned: PlannedSetUnit): OnlineS
 
 function sameTimerUnit(timer: NonNullable<WorkoutExecution['activeTimer']>, unit: OnlineStrengthUnit) {
   return (
-    timer.kind === 'work' &&
+    (timer.kind === 'work' || timer.kind === 'rest') &&
     timer.blockKey === unit.blockKey &&
     timer.plannedExerciseKey === unit.appearance.key &&
     sameSetIdentity(timer.unit, unit.unit)

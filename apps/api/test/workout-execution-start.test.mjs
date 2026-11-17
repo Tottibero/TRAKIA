@@ -7,6 +7,7 @@ import {
   WorkoutExecutionResultConflictError,
   WorkoutExecutionResultInvalidError,
   WorkoutExecutionResultMetricsConflictError,
+  WorkoutExecutionRestNotFinishedError,
   WorkoutExecutionSessionProtectedError,
   WorkoutExecutionStartService,
 } from '../dist/modules/workouts/workout-execution-start.service.js'
@@ -41,6 +42,7 @@ const session = {
 function createHarness({ protectedSession = false, initiallyOpen = false, plannedSession = session } = {}) {
   const calls = []
   const rows = []
+  let restElapsedMs = 90_000
   const repository = {
     findOneBy: async (where) =>
       rows.find((row) => Object.entries(where).every(([key, value]) => row[key] === value)) ?? null,
@@ -71,9 +73,20 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
     query: async (...args) => {
       calls.push(['query', ...args])
       if (String(args[0]).includes('clock_timestamp')) {
-        if (String(args[0]).includes('AS "startedAt"'))
-          return [{ startedAt: new Date('2026-11-16T10:00:00.000Z') }]
+        if (String(args[0]).includes('AS "confirmedAt"')) {
+          const activeTimer = rows[0]?.activeTimer
+          return [
+            {
+              confirmedAt:
+                activeTimer?.kind === 'rest'
+                  ? new Date(Date.parse(activeTimer.startedAt) + restElapsedMs)
+                  : new Date('2026-11-16T10:00:00.000Z'),
+            },
+          ]
+        }
         const activeTimer = rows[0].activeTimer
+        if (String(args[0]).includes('AS "timestamp"'))
+          return [{ timestamp: new Date(Date.parse(activeTimer.startedAt) + 12_500) }]
         return [
           {
             finishedAt: activeTimer
@@ -108,6 +121,9 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
   return {
     calls,
     rows,
+    setRestElapsedMs: (milliseconds) => {
+      restElapsedMs = milliseconds
+    },
     service: new WorkoutExecutionStartService(repository, dataSource, protection, plans, exercises),
   }
 }
@@ -260,16 +276,18 @@ test('work timer start, completion, and identical retries persist server-measure
   const result = await service.recordResult(userId, started.execution.id, resultRequest)
   assert.equal(result.result.activeSeconds, 12.5)
   assert.equal(result.replayed, false)
+  assert.equal(result.activeTimer.kind, 'rest')
+  assert.equal(result.activeTimer.startedAt, '2026-11-16T10:00:12.500Z')
   assert.deepEqual(await service.recordResult(userId, started.execution.id, resultRequest), {
     ...result,
     replayed: true,
   })
-  assert.equal(rows[0].activeTimer, null)
+  assert.deepEqual(rows[0].activeTimer, result.activeTimer)
   assert.equal(rows[0].results.length, 1)
 
   const recovered = await service.findOpen(userId)
   assert.equal(recovered.execution.execution.results[0].activeSeconds, 12.5)
-  assert.equal(recovered.execution.execution.activeTimer, undefined)
+  assert.deepEqual(recovered.execution.execution.activeTimer, result.activeTimer)
 })
 
 test('work timers advance only to the next planned strength set across one exercise', async () => {
@@ -294,6 +312,9 @@ test('work timers advance only to the next planned strength set across one exerc
       status: 'performed',
     },
   })
+  await service.recordResultMetrics(userId, started.execution.id, firstResultId, {
+    actualMetrics: { reps: 8, weightKg: 40 },
+  })
 
   const thirdTimer = {
     ...firstTimer,
@@ -314,6 +335,49 @@ test('work timers advance only to the next planned strength set across one exerc
     (await service.startWorkTimer(userId, started.execution.id, secondTimer)).activeTimer.resultId,
     secondTimer.resultId,
   )
+})
+
+test('next set waits for saved metrics and the complete rest interval without changing the rest anchor', async () => {
+  const { rows, service, setRestElapsedMs } = createHarness()
+  const started = await service.start(userId, request)
+  const first = {
+    type: 'sets',
+    id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+    blockKey: 'main',
+    plannedExerciseKey: 'squat',
+    unit: { kind: 'planned', setIndex: 1 },
+    actualExerciseKey: 'back-squat',
+    status: 'performed',
+  }
+  await service.startWorkTimer(userId, started.execution.id, { ...first, resultId: first.id })
+  const confirmed = await service.recordResult(userId, started.execution.id, { result: first })
+  const restAnchor = confirmed.activeTimer
+  const next = {
+    ...first,
+    id: '218a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
+    unit: { kind: 'planned', setIndex: 2 },
+  }
+  await assert.rejects(
+    service.startWorkTimer(userId, started.execution.id, { ...next, resultId: next.id }),
+    WorkoutExecutionResultInvalidError,
+  )
+  await service.recordResultMetrics(userId, started.execution.id, first.id, {
+    actualMetrics: { reps: 8, weightKg: 40 },
+  })
+  setRestElapsedMs(19_999)
+  await assert.rejects(
+    service.startWorkTimer(userId, started.execution.id, { ...next, resultId: next.id }),
+    WorkoutExecutionRestNotFinishedError,
+  )
+  assert.deepEqual(rows[0].activeTimer, restAnchor)
+  setRestElapsedMs(90_000)
+  const secondTimer = await service.startWorkTimer(userId, started.execution.id, {
+    ...next,
+    resultId: next.id,
+  })
+  assert.equal(secondTimer.activeTimer.kind, 'work')
+  assert.equal(secondTimer.activeTimer.resultId, next.id)
+  assert.equal(rows[0].activeTimer.startedAt, '2026-11-16T10:01:42.500Z')
 })
 
 test('confirmed timed result metrics can be saved afterwards and replayed without overwrite', async () => {

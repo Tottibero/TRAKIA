@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ActualMetricsSchema, WorkoutResultSchema } from './workout-results.js'
+import { WorkoutExecutionActiveTimerSchema } from './workout-execution.js'
 
 export const WorkoutExecutionResultRequestSchema = z
   .object({ result: WorkoutResultSchema })
@@ -26,7 +27,11 @@ export type WorkoutExecutionResultMetricsPathParams = z.infer<
 >
 
 export const WorkoutExecutionResultResponseSchema = z
-  .object({ result: WorkoutResultSchema, replayed: z.boolean() })
+  .object({
+    result: WorkoutResultSchema,
+    replayed: z.boolean(),
+    activeTimer: WorkoutExecutionActiveTimerSchema.optional(),
+  })
   .strict()
 export type WorkoutExecutionResultResponse = z.infer<typeof WorkoutExecutionResultResponseSchema>
 

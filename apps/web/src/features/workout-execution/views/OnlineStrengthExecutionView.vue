@@ -81,9 +81,20 @@ onBeforeUnmount(() => {
         <WorkoutPlannedTargets :targets="flow.plannedTargets.value" />
 
         <p
-          class="mt-7 text-center font-mono text-7xl font-semibold leading-none tabular-nums tracking-[-0.04em] text-lime-200 sm:mt-10 sm:text-8xl"
+          v-if="flow.activeTimer.value?.kind === 'rest'"
+          class="mt-7 text-center text-sm font-semibold text-lime-200"
+        >
+          Descanso
+        </p>
+
+        <p
+          class="mt-3 text-center font-mono text-7xl font-semibold leading-none tabular-nums tracking-[-0.04em] text-lime-200 sm:text-8xl"
           role="timer"
-          aria-label="Tiempo efectivo de trabajo"
+          :aria-label="
+            flow.activeTimer.value?.kind === 'rest'
+              ? 'Tiempo de descanso restante'
+              : 'Tiempo efectivo de trabajo'
+          "
           aria-live="off"
         >
           {{ flow.timerDisplay.value }}
@@ -134,7 +145,7 @@ onBeforeUnmount(() => {
         <form
           v-if="
             !flow.isClosed.value &&
-            !flow.activeTimer.value &&
+            flow.activeTimer.value?.kind !== 'work' &&
             flow.confirmedResult.value &&
             !flow.confirmedResult.value.actualMetrics
           "
@@ -196,6 +207,22 @@ onBeforeUnmount(() => {
             Resultado guardado
           </p>
           <button
+            v-if="flow.activeTimer.value?.kind === 'rest'"
+            class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            :disabled="!flow.canStartNext.value"
+            @click="flow.start"
+          >
+            {{
+              flow.isStarting.value
+                ? 'Iniciando…'
+                : flow.isRestFinished.value
+                  ? 'Iniciar serie'
+                  : 'Descanso en curso'
+            }}
+          </button>
+          <button
+            v-else
             class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="!flow.canContinue.value"

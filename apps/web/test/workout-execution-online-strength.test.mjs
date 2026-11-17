@@ -80,6 +80,10 @@ function workTimer(
   }
 }
 
+function restTimer(id = resultId, timestamp = startedAt, setIndex = 1) {
+  return { ...workTimer(id, timestamp, setIndex), kind: 'rest' }
+}
+
 function openResponse(value) {
   return { state: 'open', execution: { requestId: 'c97e0ae2-8655-46e2-8062-7a762c9a6923', execution: value } }
 }
@@ -175,7 +179,8 @@ test('the online route presents only the stopwatch and metrics flow without loca
     /Serie \{\{ flow\.plannedUnit\.value\.setIndex \}\} de \{\{ flow\.plannedUnit\.value\.appearance\.sets \}\}/,
   )
   assert.match(view, /WorkoutPlannedTargets/)
-  assert.match(view, /!flow\.activeTimer\.value/)
+  assert.match(view, /flow\.activeTimer\.value\?\.kind !== 'work'/)
+  assert.match(view, /flow\.isRestFinished\.value\s*\? 'Iniciar serie'/)
   assert.match(view, /flow\.continuationLabel\.value/)
   assert.match(flow, /Siguiente serie/)
   assert.match(flow, /Siguiente ejercicio/)
@@ -231,6 +236,130 @@ test('planned targets show every available metric from the confirmed snapshot an
   flow.setMetric('reps', '6')
   assert.equal(flow.fields.reps, '6')
   assert.deepEqual(flow.confirmedResult.value.actualMetrics, undefined)
+})
+
+test('finishing starts a confirmed rest, metrics save during it, and expiry waits for a manual second start', async () => {
+  const restStartedAt = new Date().toISOString()
+  const startRequests = []
+  let metricAttemptCount = 0
+  let resolveSecondStart
+  const result = setResult()
+  const plannedExecution = execution()
+  plannedExecution.snapshot.session.blocks[0].restBetweenSetsSeconds = 20
+  const flow = createOnlineStrengthFlow(
+    executionId,
+    dependencies({
+      getOpen: async () => openResponse(plannedExecution),
+      recordResult: async (_id, input) => ({
+        result: makeResult(input),
+        activeTimer: restTimer(input.result.id, restStartedAt),
+        replayed: false,
+      }),
+      recordMetrics: async (_id, id, input) => {
+        metricAttemptCount += 1
+        if (metricAttemptCount === 1) throw new Error('network unavailable')
+        return {
+          result: { ...result, activeSeconds: 65.5, actualMetrics: input.actualMetrics },
+          activeTimer: restTimer(id, restStartedAt),
+          replayed: false,
+        }
+      },
+      startWorkTimer: async (_id, input) => {
+        startRequests.push(input)
+        if (input.unit.setIndex === 2) {
+          return new Promise((resolve) => {
+            resolveSecondStart = () =>
+              resolve({
+                activeTimer: workTimer(input.resultId, new Date().toISOString(), 2),
+                replayed: false,
+              })
+          })
+        }
+        return {
+          activeTimer: workTimer(input.resultId, new Date().toISOString(), input.unit.setIndex),
+          replayed: false,
+        }
+      },
+    }),
+  )
+  flow.setOnline(true)
+  await flow.recover()
+  assert.equal(flow.plannedTargets.value.length, 0)
+  assert.equal(await flow.start(), true)
+  assert.equal(await flow.finish(), true)
+  assert.equal(flow.activeTimer.value.kind, 'rest')
+  assert.equal(flow.timerDisplay.value, '00:20')
+  assert.equal(flow.canStartNext.value, false)
+  assert.equal(startRequests.length, 1)
+  assert.equal(flow.confirmedResult.value.activeSeconds, 65.5)
+
+  flow.setMetric('reps', '10')
+  flow.setMetric('weightKg', '40')
+  flow.setMetric('rpe', '7')
+  assert.equal(await flow.save(), false)
+  assert.equal(flow.confirmedResult.value.actualMetrics, undefined)
+  assert.equal(flow.activeTimer.value.startedAt, restStartedAt)
+  flow.tick(Date.parse(restStartedAt) + 20_000)
+  assert.equal(flow.timerDisplay.value, '00:00')
+  assert.equal(flow.canStartNext.value, false)
+  assert.equal(flow.plannedUnit.value.setIndex, 1)
+  assert.equal(startRequests.length, 1)
+  assert.equal(await flow.save(), true)
+  assert.equal(metricAttemptCount, 2)
+  assert.deepEqual(flow.confirmedResult.value.actualMetrics, { reps: 10, weightKg: 40, rpe: 7 })
+  assert.equal(flow.canStartNext.value, true)
+  assert.equal(flow.activeTimer.value.startedAt, restStartedAt)
+  assert.equal(flow.timerDisplay.value, '00:00')
+  assert.equal(flow.canStartNext.value, true)
+  assert.equal(flow.plannedUnit.value.setIndex, 1)
+  assert.equal(startRequests.length, 1)
+  const startSecondPromise = flow.start()
+  assert.equal(flow.isStarting.value, true)
+  assert.equal(flow.plannedUnit.value.setIndex, 1)
+  assert.equal(flow.activeTimer.value.kind, 'rest')
+  assert.equal(await flow.start(), false)
+  resolveSecondStart()
+  assert.equal(await startSecondPromise, true)
+  assert.equal(flow.plannedUnit.value.setIndex, 2)
+  assert.equal(flow.activeTimer.value.kind, 'work')
+  assert.equal(startRequests.length, 2)
+  assert.equal(startRequests[1].unit.setIndex, 2)
+})
+
+test('rest recovery restores countdown and saved metrics without starting the next set', async () => {
+  const restStartedAt = new Date(Date.now() - 5_000).toISOString()
+  const first = savedSetResult()
+  const persisted = execution([first], restTimer(first.id, restStartedAt))
+  persisted.snapshot.session.blocks[0].restBetweenSetsSeconds = 20
+  const flow = createOnlineStrengthFlow(
+    executionId,
+    dependencies({ getOpen: async () => openResponse(persisted) }),
+  )
+  flow.setOnline(true)
+  await flow.recover()
+  assert.equal(flow.activeTimer.value.kind, 'rest')
+  assert.equal(flow.plannedUnit.value.setIndex, 1)
+  assert.equal(flow.timerDisplay.value, '00:15')
+  assert.equal(flow.canStartNext.value, false)
+  assert.equal(flow.confirmedResult.value.id, first.id)
+  assert.deepEqual(flow.fields, { reps: '10', weightKg: '40', rpe: '7' })
+
+  flow.tick(Date.parse(restStartedAt) + 20_000)
+  assert.equal(flow.timerDisplay.value, '00:00')
+  assert.equal(flow.plannedUnit.value.setIndex, 1)
+  assert.equal(flow.activeTimer.value.kind, 'rest')
+
+  const reloadedAfterRest = createOnlineStrengthFlow(
+    executionId,
+    dependencies({ getOpen: async () => openResponse(persisted) }),
+  )
+  reloadedAfterRest.setOnline(true)
+  await reloadedAfterRest.recover()
+  reloadedAfterRest.tick(Date.parse(restStartedAt) + 20_000)
+  assert.equal(reloadedAfterRest.timerDisplay.value, '00:00')
+  assert.equal(reloadedAfterRest.plannedUnit.value.setIndex, 1)
+  assert.equal(reloadedAfterRest.activeTimer.value.kind, 'rest')
+  assert.equal(reloadedAfterRest.canStartNext.value, true)
 })
 
 test('set-specific target overrides replace inherited values and explicit null removes a target', async () => {

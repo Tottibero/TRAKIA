@@ -133,8 +133,10 @@ describe('WorkoutExecutionSchema', () => {
     }
     expect(WorkoutExecutionSchema.safeParse(execution({ activeTimer: timer })).success).toBe(true)
     expect(
-      WorkoutExecutionSchema.safeParse(execution({ activeTimer: { ...timer, kind: 'rest' } })).success,
-    ).toBe(false)
+      WorkoutExecutionSchema.safeParse(
+        execution({ activeTimer: { ...timer, kind: 'rest' }, results: [performedSet()] }),
+      ).success,
+    ).toBe(true)
     expect(
       WorkoutExecutionSchema.safeParse(
         execution({ status: 'completed', finishedAt: '2026-11-13T10:00:00Z', activeTimer: timer }),

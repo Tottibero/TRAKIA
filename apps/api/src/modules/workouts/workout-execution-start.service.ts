@@ -112,6 +112,13 @@ export class WorkoutExecutionResultInvalidError extends Error {
   }
 }
 
+export class WorkoutExecutionRestNotFinishedError extends Error {
+  constructor() {
+    super('The planned rest period has not finished yet.')
+    this.name = 'WorkoutExecutionRestNotFinishedError'
+  }
+}
+
 export class WorkoutExecutionResultMetricsConflictError extends Error {
   constructor() {
     super('The result already has different confirmed metrics.')
@@ -248,10 +255,25 @@ export class WorkoutExecutionStartService {
       if (!isNextOnlineStrengthUnit(record.snapshot, record.results ?? [], input))
         throw new WorkoutExecutionResultInvalidError()
 
-      if (record.activeTimer) {
+      if (record.activeTimer?.kind === 'work') {
         if (sameWorkTimerIdentity(record.activeTimer, input))
           return { activeTimer: record.activeTimer, replayed: true }
         throw new WorkoutExecutionResultConflictError()
+      }
+
+      let startedAt: Date
+      if (record.activeTimer?.kind === 'rest') {
+        const previous = (record.results ?? []).find(({ id }) => id === record.activeTimer!.resultId)
+        if (!previous?.actualMetrics) throw new WorkoutExecutionResultInvalidError()
+        const restSeconds = plannedRestSeconds(record.snapshot, record.activeTimer)
+        if (restSeconds === null) throw new WorkoutExecutionResultInvalidError()
+        const [{ confirmedAt }] = await manager.query('SELECT clock_timestamp() AS "confirmedAt"')
+        if (effectiveElapsedSeconds(record.activeTimer.startedAt, [], confirmedAt) < restSeconds)
+          throw new WorkoutExecutionRestNotFinishedError()
+        startedAt = confirmedAt
+      } else {
+        const [{ confirmedAt }] = await manager.query('SELECT clock_timestamp() AS "confirmedAt"')
+        startedAt = confirmedAt
       }
 
       const results = record.results ?? []
@@ -268,7 +290,6 @@ export class WorkoutExecutionStartService {
       )
         throw new WorkoutExecutionResultConflictError()
 
-      const [{ startedAt }] = await manager.query('SELECT clock_timestamp() AS "startedAt"')
       const activeTimer: WorkoutExecutionActiveTimer = {
         kind: 'work',
         ...input,
@@ -314,16 +335,25 @@ export class WorkoutExecutionStartService {
         const comparableExisting =
           existing.activeSeconds !== undefined ? withoutTimedResultFields(existing) : existing
         if (!isDeepStrictEqual(comparableExisting, result)) throw new WorkoutExecutionResultConflictError()
-        return { result: existing, replayed: true }
+        return {
+          result: existing,
+          replayed: true,
+          ...(record.activeTimer ? { activeTimer: record.activeTimer } : {}),
+        }
       }
+      if (record.activeTimer?.kind === 'rest') throw new WorkoutExecutionResultConflictError()
       if (results.some((candidate) => sameWorkoutUnit(candidate, result)))
         throw new WorkoutExecutionResultConflictError()
 
       let confirmedResult: WorkoutResult = result
-      if (record.activeTimer) {
+      let finishedAt: Date | null = null
+      const completedWithWorkTimer = record.activeTimer?.kind === 'work'
+      if (record.activeTimer?.kind === 'work') {
         if (!sameWorkTimerResult(record.activeTimer, result)) throw new WorkoutExecutionResultConflictError()
         if (result.actualMetrics !== undefined) throw new WorkoutExecutionResultInvalidError()
-        const [{ finishedAt }] = await manager.query('SELECT clock_timestamp() AS "finishedAt"')
+        const [{ timestamp }] = await manager.query('SELECT clock_timestamp() AS "timestamp"')
+        finishedAt = timestamp
+        if (!finishedAt) throw new WorkoutExecutionResultInvalidError()
         const activeSeconds =
           (new Date(finishedAt).getTime() - Date.parse(record.activeTimer.startedAt)) / 1000
         if (!Number.isFinite(activeSeconds) || activeSeconds <= 0)
@@ -342,9 +372,28 @@ export class WorkoutExecutionStartService {
       }
 
       record.results = [...results, confirmedResult]
-      record.activeTimer = null
+      const restSource =
+        completedWithWorkTimer && confirmedResult.type === 'sets' && confirmedResult.unit.kind === 'planned'
+          ? confirmedResult
+          : null
+      const restSeconds = restSource ? plannedRestSeconds(record.snapshot, restSource) : null
+      record.activeTimer =
+        restSource && restSeconds
+          ? {
+              kind: 'rest',
+              resultId: restSource.id,
+              blockKey: restSource.blockKey,
+              plannedExerciseKey: restSource.plannedExerciseKey,
+              unit: { kind: 'planned', setIndex: restSource.unit.setIndex },
+              startedAt: new Date(finishedAt!).toISOString(),
+            }
+          : null
       await repository.save(record)
-      return { result: confirmedResult, replayed: false }
+      return {
+        result: confirmedResult,
+        replayed: false,
+        ...(record.activeTimer ? { activeTimer: record.activeTimer } : {}),
+      }
     })
   }
 
@@ -362,6 +411,8 @@ export class WorkoutExecutionStartService {
       })
       if (!record) throw new WorkoutExecutionSessionNotFoundError()
       if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
+      if (record.activeTimer?.kind === 'rest' && record.activeTimer.resultId !== resultId)
+        throw new WorkoutExecutionResultConflictError()
       const results = [...(record.results ?? [])]
       const index = results.findIndex(({ id }) => id === resultId)
       if (index < 0) throw new WorkoutExecutionSessionNotFoundError()
@@ -376,7 +427,11 @@ export class WorkoutExecutionStartService {
       if (current.actualMetrics) {
         if (!isDeepStrictEqual(current.actualMetrics, input.actualMetrics))
           throw new WorkoutExecutionResultMetricsConflictError()
-        return { result: current, replayed: true }
+        return {
+          result: current,
+          replayed: true,
+          ...(record.activeTimer ? { activeTimer: record.activeTimer } : {}),
+        }
       }
       if (Object.keys(input.actualMetrics).length === 0) throw new WorkoutExecutionResultInvalidError()
 
@@ -389,7 +444,11 @@ export class WorkoutExecutionStartService {
       }
       record.results = results
       await repository.save(record)
-      return { result: updated, replayed: false }
+      return {
+        result: updated,
+        replayed: false,
+        ...(record.activeTimer ? { activeTimer: record.activeTimer } : {}),
+      }
     })
   }
 
@@ -748,6 +807,39 @@ function sameWorkTimerResult(timer: WorkoutExecutionActiveTimer, result: Workout
     result.unit.kind === timer.unit.kind &&
     result.unit.setIndex === timer.unit.setIndex
   )
+}
+
+function plannedRestSeconds(
+  snapshot: WorkoutExecutionSnapshot | null,
+  source: WorkoutResult | WorkoutExecutionActiveTimer,
+): number | null {
+  if (!snapshot) return null
+  const identity = 'type' in source ? (source.type === 'sets' ? source : null) : source
+  if (!identity || identity.unit.kind !== 'planned') return null
+  const block = snapshot.session.blocks.find(
+    (candidate) => candidate.type === 'sets' && candidate.key === identity.blockKey,
+  )
+  const appearance =
+    block?.type === 'sets'
+      ? block.exercises.find(({ key }) => key === identity.plannedExerciseKey)
+      : undefined
+  if (!block || block.type !== 'sets' || !appearance || identity.unit.setIndex >= appearance.sets) return null
+  return block.restBetweenSetsSeconds
+}
+
+function effectiveElapsedSeconds(
+  startedAt: string,
+  pauses: Array<{ startedAt: string; finishedAt?: string }>,
+  now: Date,
+) {
+  const start = Date.parse(startedAt)
+  const end = now.getTime()
+  const pausedMilliseconds = pauses.reduce((total, pause) => {
+    const pauseStart = Math.max(start, Date.parse(pause.startedAt))
+    const pauseEnd = Math.min(end, pause.finishedAt ? Date.parse(pause.finishedAt) : end)
+    return total + Math.max(0, pauseEnd - pauseStart)
+  }, 0)
+  return Math.max(0, (end - start - pausedMilliseconds) / 1000)
 }
 
 function withoutTimedResultFields(result: WorkoutResult): WorkoutResult {
