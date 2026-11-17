@@ -36,7 +36,7 @@ async function availablePort() {
   return address.port
 }
 
-test('authenticated workout execution HTTP flow confirms one-set closure and account isolation', async () => {
+test('authenticated workout execution HTTP flow confirms one-set closure, two-set rest, and account isolation', async () => {
   const integrationUrl = getIntegrationDatabaseUrl()
   assert.equal(decodeURIComponent(integrationUrl.pathname.slice(1)), 'trakia_test')
   const env = getIntegrationProcessEnvironment()
@@ -110,8 +110,8 @@ test('authenticated workout execution HTTP flow confirms one-set closure and acc
           {
             type: 'sets',
             key: 'bench-block',
-            restBetweenSetsSeconds: 60,
-            exercises: [{ key: 'bench-press', exerciseKey: benchKey, sets: key === 'monday' ? 1 : 3 }],
+            restBetweenSetsSeconds: key === 'tuesday' ? 20 : 60,
+            exercises: [{ key: 'bench-press', exerciseKey: benchKey, sets: key === 'monday' ? 1 : 2 }],
           },
         ],
       })),
@@ -391,12 +391,177 @@ test('authenticated workout execution HTTP flow confirms one-set closure and acc
       body: JSON.stringify({ requestId: randomUUID(), planId: plan.id, sessionId: sessionIds.tuesday }),
     })
     assert.equal(nextSessionStart.status, 200)
-    assert.equal((await nextSessionStart.json()).execution.status, 'in_progress')
+    const secondExecution = await nextSessionStart.json()
+    assert.equal(secondExecution.execution.status, 'in_progress')
     const closedAfterNextStart = await fetch(closedSessionsUrl, { headers })
     assert.deepEqual(
       (await closedAfterNextStart.json()).map(({ sessionId: closedSessionId }) => closedSessionId),
       [sessionIds.monday],
     )
+
+    const secondExecutionId = secondExecution.execution.id
+    const secondTimerUrl = `${url}/workouts/executions/${secondExecutionId}/timers/work/start`
+    const firstSet = {
+      type: 'sets',
+      id: randomUUID(),
+      blockKey: 'bench-block',
+      plannedExerciseKey: 'bench-press',
+      unit: { kind: 'planned', setIndex: 1 },
+      actualExerciseKey: benchKey,
+      status: 'performed',
+    }
+    const firstWorkResponse = await fetch(secondTimerUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        resultId: firstSet.id,
+        blockKey: firstSet.blockKey,
+        plannedExerciseKey: firstSet.plannedExerciseKey,
+        unit: firstSet.unit,
+      }),
+    })
+    assert.equal(firstWorkResponse.status, 200)
+    await firstWorkResponse.json()
+    const firstFinishResponse = await fetch(`${url}/workouts/executions/${secondExecutionId}/results`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ result: firstSet }),
+    })
+    assert.equal(firstFinishResponse.status, 200)
+    const firstFinish = await firstFinishResponse.json()
+    assert.equal(firstFinish.activeTimer.kind, 'rest')
+    assert.equal(firstFinish.activeTimer.resultId, firstSet.id)
+    assert.ok(firstFinish.result.activeSeconds > 0)
+    const restStartedAt = firstFinish.activeTimer.startedAt
+    const firstFinishRow = await database.query(
+      'SELECT active_timer, results FROM workout_executions WHERE id = $1',
+      [secondExecutionId],
+    )
+    assert.equal(firstFinishRow[0].active_timer.kind, 'rest')
+    assert.equal(firstFinishRow[0].active_timer.startedAt, restStartedAt)
+    assert.deepEqual(firstFinishRow[0].results, [firstFinish.result])
+    const firstFinishReplayResponse = await fetch(`${url}/workouts/executions/${secondExecutionId}/results`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ result: firstSet }),
+    })
+    assert.equal(firstFinishReplayResponse.status, 200)
+    const firstFinishReplay = await firstFinishReplayResponse.json()
+    assert.equal(firstFinishReplay.replayed, true)
+    assert.equal(firstFinishReplay.activeTimer.startedAt, restStartedAt)
+    const firstMetrics = { actualMetrics: { weightKg: 40, reps: 10, rpe: 7 } }
+    const firstMetricsResponse = await fetch(
+      `${url}/workouts/executions/${secondExecutionId}/results/${firstSet.id}/metrics`,
+      { method: 'PUT', headers, body: JSON.stringify(firstMetrics) },
+    )
+    assert.equal(firstMetricsResponse.status, 200)
+    const firstMetricsBody = await firstMetricsResponse.json()
+    assert.equal(firstMetricsBody.activeTimer.startedAt, restStartedAt)
+    assert.equal(firstMetricsBody.result.activeSeconds, firstFinish.result.activeSeconds)
+    const firstResult = firstMetricsBody.result
+    const restRecoveryResponse = await fetch(`${url}/workouts/executions/open`, { headers: { cookie } })
+    assert.equal(restRecoveryResponse.status, 200)
+    const restRecovery = await restRecoveryResponse.json()
+    assert.equal(restRecovery.execution.execution.activeTimer.kind, 'rest')
+    assert.equal(restRecovery.execution.execution.activeTimer.startedAt, restStartedAt)
+    assert.equal(restRecovery.execution.execution.results[0].actualMetrics.reps, 10)
+    const firstMetricsReplayResponse = await fetch(
+      `${url}/workouts/executions/${secondExecutionId}/results/${firstSet.id}/metrics`,
+      { method: 'PUT', headers, body: JSON.stringify(firstMetrics) },
+    )
+    assert.equal(firstMetricsReplayResponse.status, 200)
+    const firstMetricsReplay = await firstMetricsReplayResponse.json()
+    assert.equal(firstMetricsReplay.replayed, true)
+    assert.equal(firstMetricsReplay.activeTimer.startedAt, restStartedAt)
+
+    const secondSet = { ...firstSet, id: randomUUID(), unit: { kind: 'planned', setIndex: 2 } }
+    const nextWorkRequest = {
+      resultId: secondSet.id,
+      blockKey: secondSet.blockKey,
+      plannedExerciseKey: secondSet.plannedExerciseKey,
+      unit: secondSet.unit,
+    }
+    const earlyStart = await fetch(secondTimerUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(nextWorkRequest),
+    })
+    assert.equal(earlyStart.status, 409)
+    assert.equal((await earlyStart.json()).code, 'REST_NOT_FINISHED')
+    const afterEarlyStart = await database.query(
+      'SELECT active_timer FROM workout_executions WHERE id = $1',
+      [secondExecutionId],
+    )
+    assert.equal(afterEarlyStart[0].active_timer.startedAt, restStartedAt)
+
+    const expiredAt = new Date(Date.now() - 21_000).toISOString()
+    await database.query(
+      `UPDATE workout_executions SET active_timer = jsonb_set(active_timer, '{startedAt}', to_jsonb($2::text)) WHERE id = $1`,
+      [secondExecutionId, expiredAt],
+    )
+    const expiredRestRecoveryResponse = await fetch(`${url}/workouts/executions/open`, {
+      headers: { cookie },
+    })
+    assert.equal(expiredRestRecoveryResponse.status, 200)
+    const expiredRestRecovery = await expiredRestRecoveryResponse.json()
+    assert.equal(expiredRestRecovery.execution.execution.activeTimer.kind, 'rest')
+    assert.equal(expiredRestRecovery.execution.execution.activeTimer.startedAt, expiredAt)
+    assert.equal(expiredRestRecovery.execution.execution.results[0].actualMetrics.reps, 10)
+    const expiredRestRow = await database.query(
+      'SELECT active_timer, results FROM workout_executions WHERE id = $1',
+      [secondExecutionId],
+    )
+    assert.equal(expiredRestRow[0].active_timer.kind, 'rest')
+    assert.equal(expiredRestRow[0].active_timer.startedAt, expiredAt)
+    const secondWorkResponse = await fetch(secondTimerUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(nextWorkRequest),
+    })
+    assert.equal(secondWorkResponse.status, 200)
+    const secondWork = await secondWorkResponse.json()
+    assert.equal(secondWork.activeTimer.kind, 'work')
+    assert.notEqual(secondWork.activeTimer.startedAt, restStartedAt)
+    const secondWorkRow = await database.query('SELECT active_timer FROM workout_executions WHERE id = $1', [
+      secondExecutionId,
+    ])
+    assert.deepEqual(secondWorkRow[0].active_timer, secondWork.activeTimer)
+    const secondWorkReplayResponse = await fetch(secondTimerUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(nextWorkRequest),
+    })
+    assert.equal(secondWorkReplayResponse.status, 200)
+    const secondWorkReplay = await secondWorkReplayResponse.json()
+    assert.equal(secondWorkReplay.replayed, true)
+    assert.equal(secondWorkReplay.activeTimer.startedAt, secondWork.activeTimer.startedAt)
+    const secondFinishResponse = await fetch(`${url}/workouts/executions/${secondExecutionId}/results`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ result: secondSet }),
+    })
+    assert.equal(secondFinishResponse.status, 200)
+    const secondFinish = await secondFinishResponse.json()
+    assert.equal(secondFinish.activeTimer, undefined)
+    const secondMetricsResponse = await fetch(
+      `${url}/workouts/executions/${secondExecutionId}/results/${secondSet.id}/metrics`,
+      { method: 'PUT', headers, body: JSON.stringify(firstMetrics) },
+    )
+    assert.equal(secondMetricsResponse.status, 200)
+    const secondResult = (await secondMetricsResponse.json()).result
+    assert.equal(secondResult.activeSeconds, secondFinish.result.activeSeconds)
+    assert.equal(firstResult.activeSeconds, firstFinish.result.activeSeconds)
+    assert.equal(firstResult.activeSeconds, firstMetricsBody.result.activeSeconds)
+
+    const secondCloseResponse = await fetch(`${url}/workouts/executions/${secondExecutionId}/close`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ completionType: 'planned' }),
+    })
+    assert.equal(secondCloseResponse.status, 200)
+    const secondClosed = await secondCloseResponse.json()
+    assert.equal(secondClosed.execution.status, 'completed')
+    assert.deepEqual(secondClosed.execution.results, [firstResult, secondResult])
 
     console.log(
       `WORKOUT_ONLINE_HTTP_EVIDENCE ${JSON.stringify({
@@ -414,6 +579,24 @@ test('authenticated workout execution HTTP flow confirms one-set closure and acc
         contradictoryClose: contradictoryClose.status,
         openAfterClose: afterCloseOpen.status,
         nextStart: nextSessionStart.status,
+        twoSetFlow: {
+          firstSetWorkStarted: firstWorkResponse.status,
+          firstSetFinishedIntoRest: firstFinish.status,
+          persistedRestAnchor: firstFinishRow[0].active_timer.startedAt,
+          firstSetActiveSeconds: firstFinish.result.activeSeconds,
+          metricsSavedDuringRest: firstMetricsResponse.status,
+          activeSecondsAfterMetrics: firstMetricsBody.result.activeSeconds,
+          restRecovery: restRecoveryResponse.status,
+          prematureSecondSetStart: earlyStart.status,
+          expiredRestRecovery: expiredRestRecoveryResponse.status,
+          expiredRestStillActive: expiredRestRow[0].active_timer.kind,
+          manualSecondSetStart: secondWorkResponse.status,
+          persistedSecondSetWorkAnchor: secondWorkRow[0].active_timer.startedAt,
+          secondSetFinished: secondFinishResponse.status,
+          secondSetActiveSeconds: secondFinish.result.activeSeconds,
+          onlineClose: secondCloseResponse.status,
+          preservedSetCount: secondClosed.execution.results.length,
+        },
       })}`,
     )
   } finally {

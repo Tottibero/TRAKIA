@@ -49,6 +49,7 @@ import {
   WorkoutExecutionResultConflictError,
   WorkoutExecutionResultInvalidError,
   WorkoutExecutionResultMetricsConflictError,
+  WorkoutExecutionRestNotFinishedError,
   WorkoutExecutionCloseConflictError,
 } from './workout-execution-start.service.js'
 
@@ -313,6 +314,12 @@ function toHttpException(error: unknown): HttpException {
   if (error instanceof WorkoutExecutionResultConflictError) {
     return new HttpException(
       WorkoutExecutionStartErrorSchema.parse({ code: 'RESULT_CONFLICT', message: error.message }),
+      409,
+    )
+  }
+  if (error instanceof WorkoutExecutionRestNotFinishedError) {
+    return new HttpException(
+      WorkoutExecutionStartErrorSchema.parse({ code: 'REST_NOT_FINISHED', message: error.message }),
       409,
     )
   }

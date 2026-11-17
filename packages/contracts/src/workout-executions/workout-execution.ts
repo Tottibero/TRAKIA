@@ -82,16 +82,18 @@ export const WorkoutExecutionSnapshotSchema = z
   })
 export type WorkoutExecutionSnapshot = z.infer<typeof WorkoutExecutionSnapshotSchema>
 
-export const WorkoutExecutionActiveTimerSchema = z
-  .object({
-    kind: z.literal('work'),
-    resultId: z.uuid(),
-    blockKey: StableKeySchema,
-    plannedExerciseKey: StableKeySchema,
-    unit: z.object({ kind: z.literal('planned'), setIndex: z.number().int().positive() }).strict(),
-    startedAt: ResultTimestampSchema,
-  })
-  .strict()
+const WorkoutExecutionTimerFields = {
+  resultId: z.uuid(),
+  blockKey: StableKeySchema,
+  plannedExerciseKey: StableKeySchema,
+  unit: z.object({ kind: z.literal('planned'), setIndex: z.number().int().positive() }).strict(),
+  startedAt: ResultTimestampSchema,
+}
+
+export const WorkoutExecutionActiveTimerSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('work'), ...WorkoutExecutionTimerFields }).strict(),
+  z.object({ kind: z.literal('rest'), ...WorkoutExecutionTimerFields }).strict(),
+])
 export type WorkoutExecutionActiveTimer = z.infer<typeof WorkoutExecutionActiveTimerSchema>
 
 const WorkoutExecutionFields = {
@@ -153,23 +155,39 @@ export const WorkoutExecutionSchema = z
       })
     }
     if (
-      execution.activeTimer &&
-      execution.results.some((result) => {
-        const timer = execution.activeTimer!
-        return (
+      execution.activeTimer?.kind === 'work' &&
+      execution.results.some(
+        (result) =>
           result.type === 'sets' &&
-          result.id === timer.resultId &&
-          result.blockKey === timer.blockKey &&
-          result.plannedExerciseKey === timer.plannedExerciseKey &&
+          result.id === execution.activeTimer!.resultId &&
+          result.blockKey === execution.activeTimer!.blockKey &&
+          result.plannedExerciseKey === execution.activeTimer!.plannedExerciseKey &&
           result.unit.kind === 'planned' &&
-          result.unit.setIndex === timer.unit.setIndex
-        )
-      })
+          result.unit.setIndex === execution.activeTimer!.unit.setIndex,
+      )
     ) {
       context.addIssue({
         code: 'custom',
         path: ['activeTimer'],
         message: 'An active timer cannot reference a result that is already complete',
+      })
+    }
+    if (
+      execution.activeTimer?.kind === 'rest' &&
+      !execution.results.some(
+        (result) =>
+          result.type === 'sets' &&
+          result.id === execution.activeTimer!.resultId &&
+          result.blockKey === execution.activeTimer!.blockKey &&
+          result.plannedExerciseKey === execution.activeTimer!.plannedExerciseKey &&
+          result.unit.kind === 'planned' &&
+          result.unit.setIndex === execution.activeTimer!.unit.setIndex,
+      )
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['activeTimer'],
+        message: 'A rest timer must reference its completed result',
       })
     }
     if (execution.completionType !== 'early' && execution.closureReason !== undefined) {

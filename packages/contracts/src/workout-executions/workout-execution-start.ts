@@ -49,6 +49,7 @@ export const WorkoutExecutionStartErrorCodeSchema = z.enum([
   'RESULT_CONFLICT',
   'EXECUTION_CLOSED',
   'RESULT_INVALID',
+  'REST_NOT_FINISHED',
   'RESULT_METRICS_CONFLICT',
   'INTERNAL_ERROR',
 ])

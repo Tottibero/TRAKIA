@@ -65,6 +65,24 @@ describe('workout execution result HTTP contracts', () => {
     ).toBe(false)
   })
 
+  it('returns a confirmed rest anchor with the physical result', () => {
+    const activeTimer = {
+      kind: 'rest',
+      resultId: request.result.id,
+      blockKey: 'main',
+      plannedExerciseKey: 'squat',
+      unit: { kind: 'planned', setIndex: 1 },
+      startedAt: '2026-11-16T10:00:00Z',
+    }
+    expect(
+      WorkoutExecutionResultResponseSchema.parse({
+        result: { ...request.result, actualMetrics: undefined },
+        replayed: false,
+        activeTimer,
+      }),
+    ).toMatchObject({ activeTimer, replayed: false })
+  })
+
   it('adds metrics in a separate nonempty request and rejects client-measured active time', () => {
     expect(
       WorkoutExecutionResultMetricsRequestSchema.parse({ actualMetrics: { reps: 8, weightKg: 40, rpe: 7 } }),
