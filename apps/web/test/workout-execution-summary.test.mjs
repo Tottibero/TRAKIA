@@ -64,7 +64,13 @@ const execution = {
 
 test('closed execution summary derives performed results, metrics, active time and omissions', () => {
   const summary = summarizeClosedExecution(execution)
-  assert.deepEqual(summary.totals, { performedSets: 1, reps: 7, activeSeconds: 52 })
+  assert.deepEqual(summary.totals, {
+    performedSets: 1,
+    performedCircuitResults: 0,
+    completedCircuitRounds: 0,
+    reps: 7,
+    activeSeconds: 52,
+  })
   assert.equal(summary.exercises[0].exerciseName, 'Press banca')
   assert.deepEqual(summary.exercises[0].results[0].details, [
     '7 repeticiones',
@@ -75,6 +81,84 @@ test('closed execution summary derives performed results, metrics, active time a
   assert.equal(summary.skipped.length, 1)
   assert.deepEqual(summary.notReached, [{ exerciseName: 'Press banca', label: 'Serie 3' }])
   assert.equal(summary.finishedAt, execution.finishedAt)
+})
+
+test('closed circuit summary shows rounds, exercise results and one effective duration per round', () => {
+  const circuitExecution = {
+    ...execution,
+    snapshot: {
+      ...execution.snapshot,
+      session: {
+        ...execution.snapshot.session,
+        blocks: [
+          {
+            type: 'circuit',
+            key: 'superset',
+            mode: 'rounds',
+            rounds: 2,
+            exercises: [
+              { key: 'bench', exerciseKey: 'bench-press', targets: { reps: 10 } },
+              { key: 'row', exerciseKey: 'dumbbell-row', targets: { reps: 12 } },
+            ],
+          },
+        ],
+      },
+      exercises: [
+        execution.snapshot.exercises[0],
+        {
+          key: 'dumbbell-row',
+          name: 'Remo con mancuerna',
+          category: 'strength',
+          supportedMetrics: ['reps', 'weight', 'rpe'],
+        },
+      ],
+    },
+    circuitRounds: [
+      {
+        blockKey: 'superset',
+        roundIndex: 1,
+        startedAt: '2026-11-16T10:00:00.000Z',
+        finishedAt: '2026-11-16T10:00:30.147Z',
+        activeSeconds: 30.147,
+      },
+      {
+        blockKey: 'superset',
+        roundIndex: 2,
+        startedAt: '2026-11-16T10:01:00.000Z',
+        finishedAt: '2026-11-16T10:01:42.177Z',
+        activeSeconds: 42.03,
+      },
+    ],
+    results: Array.from({ length: 2 }, (_, roundOffset) =>
+      ['bench', 'row'].map((plannedExerciseKey, exerciseOffset) => ({
+        type: 'circuit',
+        id: `circuit-${roundOffset}-${exerciseOffset}`,
+        blockKey: 'superset',
+        plannedExerciseKey,
+        actualExerciseKey: plannedExerciseKey === 'bench' ? 'bench-press' : 'dumbbell-row',
+        round: { kind: 'planned', roundIndex: roundOffset + 1 },
+        status: 'performed',
+        actualMetrics: { reps: 8, weightKg: 19, rpe: 7 },
+      })),
+    ).flat(),
+  }
+
+  const summary = summarizeClosedExecution(circuitExecution)
+  const { activeSeconds, ...circuitTotals } = summary.totals
+  assert.deepEqual(circuitTotals, {
+    performedSets: 0,
+    performedCircuitResults: 4,
+    completedCircuitRounds: 2,
+    reps: 32,
+  })
+  assert.ok(Math.abs(activeSeconds - 72.177) < 1e-9)
+  assert.equal(summary.exercises.length, 2)
+  assert.deepEqual(
+    summary.exercises.map(({ results }) => results.length),
+    [2, 2],
+  )
+  assert.equal(summary.exercises[0].results[0].label, 'Ronda 1')
+  assert.deepEqual(summary.exercises[0].results[0].details, ['8 repeticiones', '19 kg', 'RPE 7'])
 })
 
 test('duration formatting stays compact for minute and second totals', () => {

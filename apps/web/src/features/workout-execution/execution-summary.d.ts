@@ -13,7 +13,13 @@ export interface WorkoutExecutionSummary {
   exercises: Array<{ key: string; exerciseName: string; results: WorkoutExecutionSummaryResult[] }>
   skipped: WorkoutExecutionSummaryResult[]
   notReached: Array<{ exerciseName: string; label: string }>
-  totals: { performedSets: number; reps: number | null; activeSeconds: number | null }
+  totals: {
+    performedSets: number
+    performedCircuitResults: number
+    completedCircuitRounds: number
+    reps: number | null
+    activeSeconds: number | null
+  }
 }
 
 export function summarizeClosedExecution(execution: DeepReadonly<WorkoutExecution>): WorkoutExecutionSummary

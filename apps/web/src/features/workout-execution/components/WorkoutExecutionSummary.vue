@@ -31,11 +31,23 @@ const finishedLabel = computed(() => {
       </time>
     </header>
 
-    <dl class="mt-5 grid grid-cols-1 gap-3 border-y border-white/10 py-4 sm:grid-cols-3 sm:gap-5">
-      <div>
+    <dl class="mt-5 grid grid-cols-2 gap-3 border-y border-white/10 py-4 sm:grid-cols-4 sm:gap-5">
+      <div v-if="summary.totals.performedSets">
         <dt class="text-xs font-medium text-stone-400">Series realizadas</dt>
         <dd class="mt-1 text-base font-semibold tabular-nums text-stone-100">
           {{ summary.totals.performedSets }}
+        </dd>
+      </div>
+      <div v-if="summary.totals.completedCircuitRounds">
+        <dt class="text-xs font-medium text-stone-400">Rondas completadas</dt>
+        <dd class="mt-1 text-base font-semibold tabular-nums text-stone-100">
+          {{ summary.totals.completedCircuitRounds }}
+        </dd>
+      </div>
+      <div v-if="summary.totals.performedCircuitResults">
+        <dt class="text-xs font-medium text-stone-400">Resultados de ejercicios</dt>
+        <dd class="mt-1 text-base font-semibold tabular-nums text-stone-100">
+          {{ summary.totals.performedCircuitResults }}
         </dd>
       </div>
       <div>

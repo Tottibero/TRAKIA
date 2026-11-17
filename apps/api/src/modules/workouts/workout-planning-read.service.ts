@@ -35,6 +35,10 @@ export class WorkoutPlanningReadService {
           const execution = executions.get(entry.sessionId)
           if (!execution) return { ...entry, execution: null }
           const results = execution.results
+          const circuitRounds = execution.circuitRounds ?? []
+          const timedCircuitRounds = new Set(
+            circuitRounds.map(({ blockKey, roundIndex }) => `${blockKey}:${roundIndex}`),
+          )
           return {
             ...entry,
             execution: {
@@ -43,11 +47,18 @@ export class WorkoutPlanningReadService {
               summary: {
                 finishedAt: execution.finishedAt ?? null,
                 performedResults: results.filter(({ status }) => status === 'performed').length,
-                activeSeconds: results.reduce(
-                  (total, result) =>
-                    total + (result.status === 'performed' ? (result.activeSeconds ?? 0) : 0),
-                  0,
-                ),
+                activeSeconds:
+                  circuitRounds.reduce((total, round) => total + round.activeSeconds, 0) +
+                  results.reduce((total, result) => {
+                    if (result.status !== 'performed') return total
+                    if (
+                      result.type === 'circuit' &&
+                      result.round.kind === 'planned' &&
+                      timedCircuitRounds.has(`${result.blockKey}:${result.round.roundIndex}`)
+                    )
+                      return total
+                    return total + (result.activeSeconds ?? 0)
+                  }, 0),
               },
             },
           }

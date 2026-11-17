@@ -20,6 +20,7 @@
 | [HC-05-09-04a-UX-02](HC-05-09-04a-UX-02.md) | Completada | Objetivos planificados visibles durante el smoke manual conjunto; `pnpm check` y arquitectura satisfactorios. Viewports específicos de 375/390 px pendientes. |
 | [HC-05-09-04b](HC-05-09-04b.md) | Completada | Descanso de 20 segundos, métricas, recuperación, continuación manual y cierre de dos series superados en smoke; integración `trakia_test`, `pnpm check` y arquitectura satisfactorios. Viewports específicos de 375/390 px pendientes. |
 | [HC-05-09-04c](HC-05-09-04c.md) | Completada | Pausa/reanudación online aceptadas manualmente; integración `trakia_test`, `pnpm check` y arquitectura satisfactorias. |
+| [HC-05-09-05](HC-05-09-05.md) | Completada | Motor online de rondas `circuit` con N ejercicios y resumen de duración/resultados; smoke aceptado para superserie 2×2 y triserie 3×2, verificaciones e integración `trakia_test` satisfactorias. |
 
 Las fichas HC-05-01–08 conservan las decisiones y prioridades implementadas históricamente. Para HC-05-09, el recorrido vertical online mínimo (09-03), la primera serie desde PWA (09-03a) y el cierre online (09-03b) están completados. HC-05-09-04 especifica ahora los tiempos online en tareas incrementales; la integración posterior de circuitos, HIIT y AMRAP y la retirada segura del almacenamiento heredado quedan para fichas posteriores.
 

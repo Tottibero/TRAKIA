@@ -57,9 +57,19 @@ function missingPlannedSets(execution) {
 export function summarizeClosedExecution(execution) {
   const groups = new Map()
   const skipped = []
-  const resultCount = { performedSets: 0, reps: 0, activeSeconds: 0 }
+  const resultCount = {
+    performedSets: 0,
+    performedCircuitResults: 0,
+    completedCircuitRounds: execution.circuitRounds?.length ?? 0,
+    reps: 0,
+    activeSeconds: 0,
+  }
   let hasReps = false
-  let hasActiveSeconds = false
+  let hasActiveSeconds = resultCount.completedCircuitRounds > 0
+
+  for (const round of execution.circuitRounds ?? []) {
+    resultCount.activeSeconds += round.activeSeconds
+  }
 
   for (const result of execution.results) {
     const exerciseName = plannedExerciseName(execution, result)
@@ -73,11 +83,18 @@ export function summarizeClosedExecution(execution) {
     group.results.push(row)
     groups.set(key, group)
     if (result.type === 'sets') resultCount.performedSets += 1
+    if (result.type === 'circuit' && result.status === 'performed') resultCount.performedCircuitResults += 1
     if (result.actualMetrics?.reps !== undefined) {
       resultCount.reps += result.actualMetrics.reps
       hasReps = true
     }
-    if (result.activeSeconds !== undefined) {
+    const hasCircuitRoundDuration =
+      result.type === 'circuit' &&
+      result.round.kind === 'planned' &&
+      (execution.circuitRounds ?? []).some(
+        (round) => round.blockKey === result.blockKey && round.roundIndex === result.round.roundIndex,
+      )
+    if (result.activeSeconds !== undefined && !hasCircuitRoundDuration) {
       resultCount.activeSeconds += result.activeSeconds
       hasActiveSeconds = true
     }
@@ -90,6 +107,8 @@ export function summarizeClosedExecution(execution) {
     notReached: missingPlannedSets(execution),
     totals: {
       performedSets: resultCount.performedSets,
+      performedCircuitResults: resultCount.performedCircuitResults,
+      completedCircuitRounds: resultCount.completedCircuitRounds,
       reps: hasReps ? resultCount.reps : null,
       activeSeconds: hasActiveSeconds ? resultCount.activeSeconds : null,
     },
