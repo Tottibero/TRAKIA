@@ -82,6 +82,26 @@ export const WorkoutExecutionSnapshotSchema = z
   })
 export type WorkoutExecutionSnapshot = z.infer<typeof WorkoutExecutionSnapshotSchema>
 
+export const WorkoutCircuitRoundSchema = z
+  .object({
+    blockKey: StableKeySchema,
+    roundIndex: z.number().int().positive(),
+    startedAt: ResultTimestampSchema,
+    finishedAt: ResultTimestampSchema,
+    activeSeconds: z.number().finite().positive(),
+  })
+  .strict()
+  .superRefine((round, context) => {
+    if (Date.parse(round.finishedAt) <= Date.parse(round.startedAt)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['finishedAt'],
+        message: 'Circuit round must finish after it starts',
+      })
+    }
+  })
+export type WorkoutCircuitRound = z.infer<typeof WorkoutCircuitRoundSchema>
+
 const WorkoutExecutionTimerFields = {
   resultId: z.uuid(),
   blockKey: StableKeySchema,
@@ -93,6 +113,22 @@ const WorkoutExecutionTimerFields = {
 export const WorkoutExecutionActiveTimerSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('work'), ...WorkoutExecutionTimerFields }).strict(),
   z.object({ kind: z.literal('rest'), ...WorkoutExecutionTimerFields }).strict(),
+  z
+    .object({
+      kind: z.literal('circuitRound'),
+      blockKey: StableKeySchema,
+      roundIndex: z.number().int().positive(),
+      startedAt: ResultTimestampSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('circuitRest'),
+      blockKey: StableKeySchema,
+      roundIndex: z.number().int().positive(),
+      startedAt: ResultTimestampSchema,
+    })
+    .strict(),
 ])
 export type WorkoutExecutionActiveTimer = z.infer<typeof WorkoutExecutionActiveTimerSchema>
 
@@ -109,6 +145,7 @@ const WorkoutExecutionFields = {
   completionType: WorkoutCompletionTypeSchema.optional(),
   closureReason: ClosureReasonSchema.optional(),
   pauses: z.array(WorkoutPauseSchema),
+  circuitRounds: z.array(WorkoutCircuitRoundSchema).optional(),
   activeTimer: WorkoutExecutionActiveTimerSchema.optional(),
   results: z.array(WorkoutResultSchema),
   corrections: z.array(WorkoutCorrectionSchema),
@@ -154,16 +191,17 @@ export const WorkoutExecutionSchema = z
         message: 'Completed executions cannot have an active timer',
       })
     }
+    const activeTimer = execution.activeTimer
     if (
-      execution.activeTimer?.kind === 'work' &&
+      activeTimer?.kind === 'work' &&
       execution.results.some(
         (result) =>
           result.type === 'sets' &&
-          result.id === execution.activeTimer!.resultId &&
-          result.blockKey === execution.activeTimer!.blockKey &&
-          result.plannedExerciseKey === execution.activeTimer!.plannedExerciseKey &&
+          result.id === activeTimer.resultId &&
+          result.blockKey === activeTimer.blockKey &&
+          result.plannedExerciseKey === activeTimer.plannedExerciseKey &&
           result.unit.kind === 'planned' &&
-          result.unit.setIndex === execution.activeTimer!.unit.setIndex,
+          result.unit.setIndex === activeTimer.unit.setIndex,
       )
     ) {
       context.addIssue({
@@ -173,15 +211,15 @@ export const WorkoutExecutionSchema = z
       })
     }
     if (
-      execution.activeTimer?.kind === 'rest' &&
+      activeTimer?.kind === 'rest' &&
       !execution.results.some(
         (result) =>
           result.type === 'sets' &&
-          result.id === execution.activeTimer!.resultId &&
-          result.blockKey === execution.activeTimer!.blockKey &&
-          result.plannedExerciseKey === execution.activeTimer!.plannedExerciseKey &&
+          result.id === activeTimer.resultId &&
+          result.blockKey === activeTimer.blockKey &&
+          result.plannedExerciseKey === activeTimer.plannedExerciseKey &&
           result.unit.kind === 'planned' &&
-          result.unit.setIndex === execution.activeTimer!.unit.setIndex,
+          result.unit.setIndex === activeTimer.unit.setIndex,
       )
     ) {
       context.addIssue({
@@ -189,6 +227,37 @@ export const WorkoutExecutionSchema = z
         path: ['activeTimer'],
         message: 'A rest timer must reference its completed result',
       })
+    }
+    if (execution.activeTimer?.kind === 'circuitRound' || execution.activeTimer?.kind === 'circuitRest') {
+      const timer = execution.activeTimer
+      const block = execution.snapshot.session.blocks.find(
+        (candidate) =>
+          candidate.type === 'circuit' && candidate.mode === 'rounds' && candidate.key === timer.blockKey,
+      )
+      if (block?.type !== 'circuit' || block.mode !== 'rounds' || timer.roundIndex > block.rounds) {
+        context.addIssue({
+          code: 'custom',
+          path: ['activeTimer'],
+          message: 'Circuit timer must reference a planned fixed round',
+        })
+      }
+      const completed = (execution.circuitRounds ?? []).some(
+        (round) => round.blockKey === timer.blockKey && round.roundIndex === timer.roundIndex,
+      )
+      if (timer.kind === 'circuitRound' && completed) {
+        context.addIssue({
+          code: 'custom',
+          path: ['activeTimer'],
+          message: 'An active round cannot already be complete',
+        })
+      }
+      if (timer.kind === 'circuitRest' && !completed) {
+        context.addIssue({
+          code: 'custom',
+          path: ['activeTimer'],
+          message: 'Circuit rest must reference a completed round',
+        })
+      }
     }
     if (execution.completionType !== 'early' && execution.closureReason !== undefined) {
       context.addIssue({
@@ -276,6 +345,36 @@ export const WorkoutExecutionSchema = z
     }
 
     validateResults(execution, context)
+    const circuitRounds = execution.circuitRounds ?? []
+    const circuitRoundKeys = new Set<string>()
+    circuitRounds.forEach((round, index) => {
+      const identity = `${round.blockKey}:${round.roundIndex}`
+      if (circuitRoundKeys.has(identity))
+        addIssue(context, ['circuitRounds', index], 'Circuit round identities must be unique')
+      circuitRoundKeys.add(identity)
+      const block = execution.snapshot.session.blocks.find(
+        (candidate) =>
+          candidate.type === 'circuit' && candidate.mode === 'rounds' && candidate.key === round.blockKey,
+      )
+      if (block?.type !== 'circuit' || block.mode !== 'rounds' || round.roundIndex > block.rounds) {
+        addIssue(context, ['circuitRounds', index], 'Circuit round must reference a planned round')
+      }
+      if (execution.status === 'completed' && block?.type === 'circuit' && block.mode === 'rounds') {
+        const complete = block.exercises.every((exercise) =>
+          execution.results.some(
+            (result) =>
+              result.type === 'circuit' &&
+              result.blockKey === round.blockKey &&
+              result.plannedExerciseKey === exercise.key &&
+              result.round.kind === 'planned' &&
+              result.round.roundIndex === round.roundIndex &&
+              result.status === 'performed',
+          ),
+        )
+        if (!complete)
+          addIssue(context, ['results'], 'Completed circuit rounds require a result for every exercise')
+      }
+    })
     validateCorrections(execution, context)
   })
 export type WorkoutExecution = z.infer<typeof WorkoutExecutionSchema>

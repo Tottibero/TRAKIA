@@ -11,6 +11,8 @@ import {
   WorkoutExecutionWorkTimerStartRequestSchema,
   WorkoutExecutionWorkTimerStartResponseSchema,
   WorkoutExecutionResultMetricsRequestSchema,
+  WorkoutExecutionCircuitRoundRequestSchema,
+  WorkoutExecutionCircuitRoundResponseSchema,
   WorkoutSyncOperationSchema,
   WorkoutSyncResponseSchema,
   WorkoutExecutionCloseRequestSchema,
@@ -27,6 +29,7 @@ import {
   type WorkoutExecutionResumeRequest,
   type WorkoutExecutionWorkTimerStartRequest,
   type WorkoutExecutionResultMetricsRequest,
+  type WorkoutExecutionCircuitRoundRequest,
 } from '@trakia/contracts'
 import { apiRequest } from '@/shared/api/http'
 
@@ -85,6 +88,30 @@ export async function startWorkoutExecutionWorkTimer(
     { method: 'POST', body: JSON.stringify(request) },
   )
   return WorkoutExecutionWorkTimerStartResponseSchema.parse(response)
+}
+
+export async function startWorkoutExecutionCircuitRound(
+  executionId: string,
+  input: WorkoutExecutionCircuitRoundRequest,
+) {
+  const request = WorkoutExecutionCircuitRoundRequestSchema.parse(input)
+  const response = await apiRequest<unknown>(
+    `/workouts/executions/${encodeURIComponent(executionId)}/circuit-rounds/start`,
+    { method: 'POST', body: JSON.stringify(request) },
+  )
+  return WorkoutExecutionCircuitRoundResponseSchema.parse(response)
+}
+
+export async function finishWorkoutExecutionCircuitRound(
+  executionId: string,
+  input: WorkoutExecutionCircuitRoundRequest,
+) {
+  const request = WorkoutExecutionCircuitRoundRequestSchema.parse(input)
+  const response = await apiRequest<unknown>(
+    `/workouts/executions/${encodeURIComponent(executionId)}/circuit-rounds/finish`,
+    { method: 'POST', body: JSON.stringify(request) },
+  )
+  return WorkoutExecutionCircuitRoundResponseSchema.parse(response)
 }
 
 export async function pauseWorkoutExecution(executionId: string) {

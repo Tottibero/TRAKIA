@@ -380,11 +380,12 @@ export function createOnlineStrengthFlow(
 
   async function finish() {
     const unit = plannedUnit.value
-    if (!unit || !canFinish.value || !activeTimer.value) return false
+    const timer = activeTimer.value
+    if (!unit || !canFinish.value || timer?.kind !== 'work') return false
     errorMessage.value = null
     pendingResult ??= {
       type: 'sets',
-      id: activeTimer.value.resultId,
+      id: timer.resultId,
       blockKey: unit.blockKey,
       plannedExerciseKey: unit.appearance.key,
       actualExerciseKey: unit.exercise.key,

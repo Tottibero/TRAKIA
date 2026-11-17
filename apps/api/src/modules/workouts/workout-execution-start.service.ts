@@ -14,6 +14,9 @@ import {
   type WorkoutExecutionOpenResponse,
   type WorkoutExecutionResultRequest,
   type WorkoutExecutionResultResponse,
+  type WorkoutExecutionCircuitRoundRequest,
+  type WorkoutExecutionCircuitRoundResponse,
+  type WorkoutCircuitRound,
   type WorkoutExecutionWorkTimerStartRequest,
   type WorkoutExecutionWorkTimerStartResponse,
   type WorkoutExecutionResultMetricsRequest,
@@ -118,6 +121,13 @@ export class WorkoutExecutionRestNotFinishedError extends Error {
   constructor() {
     super('The planned rest period has not finished yet.')
     this.name = 'WorkoutExecutionRestNotFinishedError'
+  }
+}
+
+export class WorkoutExecutionCircuitRoundConflictError extends Error {
+  constructor() {
+    super('The circuit round transition conflicts with the current execution state.')
+    this.name = 'WorkoutExecutionCircuitRoundConflictError'
   }
 }
 
@@ -328,16 +338,14 @@ export class WorkoutExecutionStartService {
       }
 
       let startedAt: Date
-      if (record.activeTimer?.kind === 'rest') {
-        const previous = (record.results ?? []).find(({ id }) => id === record.activeTimer!.resultId)
+      const currentTimer = record.activeTimer
+      if (currentTimer?.kind === 'rest') {
+        const previous = (record.results ?? []).find(({ id }) => id === currentTimer.resultId)
         if (!previous?.actualMetrics) throw new WorkoutExecutionResultInvalidError()
-        const restSeconds = plannedRestSeconds(record.snapshot, record.activeTimer)
+        const restSeconds = plannedRestSeconds(record.snapshot, currentTimer)
         if (restSeconds === null) throw new WorkoutExecutionResultInvalidError()
         const [{ confirmedAt }] = await manager.query('SELECT clock_timestamp() AS "confirmedAt"')
-        if (
-          effectiveElapsedSeconds(record.activeTimer.startedAt, record.pauses ?? [], confirmedAt) <
-          restSeconds
-        )
+        if (effectiveElapsedSeconds(currentTimer.startedAt, record.pauses ?? [], confirmedAt) < restSeconds)
           throw new WorkoutExecutionRestNotFinishedError()
         startedAt = confirmedAt
       } else {
@@ -370,6 +378,128 @@ export class WorkoutExecutionStartService {
     })
   }
 
+  async startCircuitRound(
+    userId: string,
+    executionId: string,
+    input: WorkoutExecutionCircuitRoundRequest,
+  ): Promise<WorkoutExecutionCircuitRoundResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkoutExecutionRecord)
+      const record = await repository.findOne({
+        where: { id: executionId, userId },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
+      const block = plannedFixedCircuit(record.snapshot, input.blockKey)
+      if (!block || input.roundIndex > block.rounds) throw new WorkoutExecutionResultInvalidError()
+      const rounds = record.circuitRounds ?? []
+      const existingTimer = record.activeTimer
+      if (existingTimer?.kind === 'circuitRound') {
+        if (sameCircuitRoundIdentity(existingTimer, input))
+          return { execution: toExecution(record), replayed: true }
+        throw new WorkoutExecutionCircuitRoundConflictError()
+      }
+      if (rounds.some((round) => sameCircuitRoundIdentity(round, input)))
+        throw new WorkoutExecutionCircuitRoundConflictError()
+
+      const expectedRound =
+        rounds
+          .filter((round) => round.blockKey === input.blockKey)
+          .reduce((highest, round) => Math.max(highest, round.roundIndex), 0) + 1
+      if (input.roundIndex !== expectedRound) throw new WorkoutExecutionCircuitRoundConflictError()
+
+      if (input.roundIndex > 1) {
+        if (
+          !hasCompleteCircuitRoundResults(
+            record.snapshot,
+            record.results ?? [],
+            input.blockKey,
+            input.roundIndex - 1,
+          )
+        )
+          throw new WorkoutExecutionCircuitRoundConflictError()
+        if ((block.restBetweenRoundsSeconds ?? 0) > 0) {
+          if (
+            existingTimer?.kind !== 'circuitRest' ||
+            !sameCircuitRoundIdentity(existingTimer, {
+              blockKey: input.blockKey,
+              roundIndex: input.roundIndex - 1,
+            })
+          )
+            throw new WorkoutExecutionCircuitRoundConflictError()
+          const [{ confirmedAt }] = await manager.query('SELECT clock_timestamp() AS "confirmedAt"')
+          if (
+            effectiveElapsedSeconds(existingTimer.startedAt, record.pauses ?? [], confirmedAt) <
+            block.restBetweenRoundsSeconds!
+          )
+            throw new WorkoutExecutionRestNotFinishedError()
+        } else if (existingTimer) {
+          throw new WorkoutExecutionCircuitRoundConflictError()
+        }
+      } else if (existingTimer) {
+        throw new WorkoutExecutionCircuitRoundConflictError()
+      }
+
+      const [{ startedAt }] = await manager.query('SELECT clock_timestamp() AS "startedAt"')
+      record.activeTimer = {
+        kind: 'circuitRound',
+        blockKey: input.blockKey,
+        roundIndex: input.roundIndex,
+        startedAt: new Date(startedAt).toISOString(),
+      }
+      await repository.save(record)
+      return { execution: toExecution(record), replayed: false }
+    })
+  }
+
+  async finishCircuitRound(
+    userId: string,
+    executionId: string,
+    input: WorkoutExecutionCircuitRoundRequest,
+  ): Promise<WorkoutExecutionCircuitRoundResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkoutExecutionRecord)
+      const record = await repository.findOne({
+        where: { id: executionId, userId },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
+      const block = plannedFixedCircuit(record.snapshot, input.blockKey)
+      if (!block || input.roundIndex > block.rounds) throw new WorkoutExecutionResultInvalidError()
+      const rounds = record.circuitRounds ?? []
+      const completed = rounds.find((round) => sameCircuitRoundIdentity(round, input))
+      if (completed) return { execution: toExecution(record), replayed: true }
+      const timer = record.activeTimer
+      if (timer?.kind !== 'circuitRound' || !sameCircuitRoundIdentity(timer, input))
+        throw new WorkoutExecutionCircuitRoundConflictError()
+      const [{ finishedAt }] = await manager.query('SELECT clock_timestamp() AS "finishedAt"')
+      const activeSeconds = effectiveElapsedSeconds(timer.startedAt, record.pauses ?? [], finishedAt)
+      if (!Number.isFinite(activeSeconds) || activeSeconds <= 0)
+        throw new WorkoutExecutionResultInvalidError()
+      const round: WorkoutCircuitRound = {
+        blockKey: input.blockKey,
+        roundIndex: input.roundIndex,
+        startedAt: timer.startedAt,
+        finishedAt: new Date(finishedAt).toISOString(),
+        activeSeconds,
+      }
+      record.circuitRounds = [...rounds, round]
+      record.activeTimer =
+        input.roundIndex < block.rounds && (block.restBetweenRoundsSeconds ?? 0) > 0
+          ? {
+              kind: 'circuitRest',
+              blockKey: input.blockKey,
+              roundIndex: input.roundIndex,
+              startedAt: round.finishedAt,
+            }
+          : null
+      await repository.save(record)
+      return { execution: toExecution(record), replayed: false }
+    })
+  }
+
   async findByRequest(
     userId: string,
     deviceId: string | undefined,
@@ -397,7 +527,14 @@ export class WorkoutExecutionStartService {
 
       const result = input.result
       if (result.activeSeconds !== undefined) throw new WorkoutExecutionResultInvalidError()
-      if (!isOnlineStrengthSet(record.snapshot, result)) throw new WorkoutExecutionResultInvalidError()
+      const isStrengthSet = isOnlineStrengthSet(record.snapshot, result)
+      const isCircuitResult = isOnlineCircuitResult(
+        record.snapshot,
+        record.circuitRounds ?? [],
+        record.activeTimer,
+        result,
+      )
+      if (!isStrengthSet && !isCircuitResult) throw new WorkoutExecutionResultInvalidError()
       const results = record.results ?? []
       const existing = results.find((candidate) => candidate.id === result.id)
       if (existing) {
@@ -411,12 +548,13 @@ export class WorkoutExecutionStartService {
         }
       }
       if (record.activeTimer?.kind === 'rest') throw new WorkoutExecutionResultConflictError()
+      if (record.activeTimer?.kind === 'circuitRound') throw new WorkoutExecutionResultConflictError()
       if (results.some((candidate) => sameWorkoutUnit(candidate, result)))
         throw new WorkoutExecutionResultConflictError()
 
       let confirmedResult: WorkoutResult = result
       let finishedAt: Date | null = null
-      const completedWithWorkTimer = record.activeTimer?.kind === 'work'
+      const completedWithWorkTimer = isStrengthSet && record.activeTimer?.kind === 'work'
       if (record.activeTimer?.kind === 'work') {
         if (!sameWorkTimerResult(record.activeTimer, result)) throw new WorkoutExecutionResultConflictError()
         if (result.actualMetrics !== undefined) throw new WorkoutExecutionResultInvalidError()
@@ -449,8 +587,9 @@ export class WorkoutExecutionStartService {
           ? confirmedResult
           : null
       const restSeconds = restSource ? plannedRestSeconds(record.snapshot, restSource) : null
-      record.activeTimer =
-        restSource && restSeconds
+      record.activeTimer = isCircuitResult
+        ? record.activeTimer
+        : restSource && restSeconds
           ? {
               kind: 'rest',
               resultId: restSource.id,
@@ -489,11 +628,19 @@ export class WorkoutExecutionStartService {
       const index = results.findIndex(({ id }) => id === resultId)
       if (index < 0) throw new WorkoutExecutionSessionNotFoundError()
       const current = results[index]!
+      const timedSet = current.type === 'sets' && current.activeSeconds !== undefined
+      const recordedCircuitRound =
+        current.type === 'circuit' &&
+        (record.circuitRounds ?? []).some(
+          (round) =>
+            round.blockKey === current.blockKey &&
+            current.round.kind === 'planned' &&
+            round.roundIndex === current.round.roundIndex,
+        )
       if (
-        current.type !== 'sets' ||
         current.status !== 'performed' ||
-        current.activeSeconds === undefined ||
-        !current.actualExerciseKey
+        !current.actualExerciseKey ||
+        (!timedSet && !recordedCircuitRound)
       )
         throw new WorkoutExecutionResultInvalidError()
       if (current.actualMetrics) {
@@ -568,7 +715,8 @@ export class WorkoutExecutionStartService {
         submitted.planKey !== record.planKey ||
         submitted.sessionKey !== record.sessionKey ||
         submitted.startedAt !== record.startedAt.toISOString() ||
-        !isDeepStrictEqual(submitted.snapshot, record.snapshot)
+        !isDeepStrictEqual(submitted.snapshot, record.snapshot) ||
+        !isDeepStrictEqual(submitted.circuitRounds ?? [], record.circuitRounds ?? [])
       ) {
         return syncConflict(
           responseIdentity,
@@ -651,6 +799,18 @@ export class WorkoutExecutionStartService {
       }
       if (record.status !== 'in_progress' && record.status !== 'paused')
         throw new WorkoutExecutionCloseConflictError()
+      if (
+        (record.circuitRounds ?? []).some(
+          (round) =>
+            !hasCompleteCircuitRoundResults(
+              record.snapshot,
+              record.results ?? [],
+              round.blockKey,
+              round.roundIndex,
+            ),
+        )
+      )
+        throw new WorkoutExecutionResultInvalidError()
 
       const [{ finishedAt }] = await manager.query('SELECT clock_timestamp() AS "finishedAt"')
       const finished = new Date(finishedAt)
@@ -809,6 +969,39 @@ function isOnlineStrengthSet(snapshot: WorkoutExecutionSnapshot | null, result: 
   )
 }
 
+function isOnlineCircuitResult(
+  snapshot: WorkoutExecutionSnapshot | null,
+  rounds: WorkoutCircuitRound[],
+  activeTimer: WorkoutExecutionActiveTimer | null,
+  result: WorkoutResult,
+): boolean {
+  if (
+    !snapshot ||
+    result.type !== 'circuit' ||
+    result.status !== 'performed' ||
+    result.round.kind !== 'planned' ||
+    activeTimer?.kind === 'circuitRound' ||
+    activeTimer?.kind === 'work' ||
+    activeTimer?.kind === 'rest'
+  )
+    return false
+  const block = plannedFixedCircuit(snapshot, result.blockKey)
+  if (!block || result.round.roundIndex > block.rounds) return false
+  if (
+    !rounds.some((round) =>
+      sameCircuitRoundIdentity(round, {
+        blockKey: result.blockKey,
+        roundIndex: result.round.roundIndex,
+      }),
+    )
+  )
+    return false
+  const planned = block.exercises.find(({ key }) => key === result.plannedExerciseKey)
+  if (!planned) return false
+  const allowed = [planned.exerciseKey, ...(planned.alternatives ?? []).map(({ exerciseKey }) => exerciseKey)]
+  return Boolean(result.actualExerciseKey && allowed.includes(result.actualExerciseKey))
+}
+
 function isNextOnlineStrengthUnit(
   snapshot: WorkoutExecutionSnapshot | null,
   results: WorkoutResult[],
@@ -870,7 +1063,10 @@ function sameWorkTimerIdentity(
   )
 }
 
-function sameWorkTimerResult(timer: WorkoutExecutionActiveTimer, result: WorkoutResult): boolean {
+function sameWorkTimerResult(
+  timer: Extract<WorkoutExecutionActiveTimer, { kind: 'work' }>,
+  result: WorkoutResult,
+): boolean {
   return (
     result.type === 'sets' &&
     result.id === timer.resultId &&
@@ -883,7 +1079,7 @@ function sameWorkTimerResult(timer: WorkoutExecutionActiveTimer, result: Workout
 
 function plannedRestSeconds(
   snapshot: WorkoutExecutionSnapshot | null,
-  source: WorkoutResult | WorkoutExecutionActiveTimer,
+  source: WorkoutResult | Extract<WorkoutExecutionActiveTimer, { kind: 'work' | 'rest' }>,
 ): number | null {
   if (!snapshot) return null
   const identity = 'type' in source ? (source.type === 'sets' ? source : null) : source
@@ -912,6 +1108,41 @@ function effectiveElapsedSeconds(
     return total + Math.max(0, pauseEnd - pauseStart)
   }, 0)
   return Math.max(0, (end - start - pausedMilliseconds) / 1000)
+}
+
+function plannedFixedCircuit(snapshot: WorkoutExecutionSnapshot | null, blockKey: string) {
+  const block = snapshot?.session.blocks.find(
+    (candidate) => candidate.type === 'circuit' && candidate.mode === 'rounds' && candidate.key === blockKey,
+  )
+  return block?.type === 'circuit' && block.mode === 'rounds' ? block : null
+}
+
+function sameCircuitRoundIdentity(
+  identity: { blockKey: string; roundIndex: number },
+  input: { blockKey: string; roundIndex: number },
+): boolean {
+  return identity.blockKey === input.blockKey && identity.roundIndex === input.roundIndex
+}
+
+function hasCompleteCircuitRoundResults(
+  snapshot: WorkoutExecutionSnapshot | null,
+  results: WorkoutResult[],
+  blockKey: string,
+  roundIndex: number,
+): boolean {
+  const block = plannedFixedCircuit(snapshot, blockKey)
+  if (!block) return false
+  return block.exercises.every((exercise) =>
+    results.some(
+      (result) =>
+        result.type === 'circuit' &&
+        result.blockKey === blockKey &&
+        result.plannedExerciseKey === exercise.key &&
+        result.round.kind === 'planned' &&
+        result.round.roundIndex === roundIndex &&
+        result.status === 'performed',
+    ),
+  )
 }
 
 function withoutTimedResultFields(result: WorkoutResult): WorkoutResult {
@@ -944,6 +1175,7 @@ function toExecution(record: WorkoutExecutionRecord): WorkoutExecution {
       ? { closureReason: record.closureReason }
       : {}),
     pauses: record.pauses ?? [],
+    ...((record.circuitRounds ?? []).length ? { circuitRounds: record.circuitRounds } : {}),
     ...(record.activeTimer ? { activeTimer: record.activeTimer } : {}),
     results: record.results ?? [],
     corrections: (record.correctionOperations ?? []).map(({ payload }) => payload.correction),

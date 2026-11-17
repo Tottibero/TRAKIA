@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { test } from 'node:test'
 import {
   WorkoutExecutionOpenExistsError,
@@ -8,6 +9,7 @@ import {
   WorkoutExecutionResultInvalidError,
   WorkoutExecutionResultMetricsConflictError,
   WorkoutExecutionRestNotFinishedError,
+  WorkoutExecutionCircuitRoundConflictError,
   WorkoutExecutionSessionProtectedError,
   WorkoutExecutionStartService,
 } from '../dist/modules/workouts/workout-execution-start.service.js'
@@ -73,12 +75,14 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
     query: async (...args) => {
       calls.push(['query', ...args])
       if (String(args[0]).includes('clock_timestamp')) {
+        if (String(args[0]).includes('AS "startedAt"'))
+          return [{ startedAt: new Date('2026-11-16T10:00:00.000Z') }]
         if (String(args[0]).includes('AS "confirmedAt"')) {
           const activeTimer = rows[0]?.activeTimer
           return [
             {
               confirmedAt:
-                activeTimer?.kind === 'rest'
+                activeTimer?.kind === 'rest' || activeTimer?.kind === 'circuitRest'
                   ? new Date(Date.parse(activeTimer.startedAt) + restElapsedMs)
                   : new Date('2026-11-16T10:00:00.000Z'),
             },
@@ -127,6 +131,72 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
     service: new WorkoutExecutionStartService(repository, dataSource, protection, plans, exercises),
   }
 }
+
+test('online circuit rounds persist one duration for N exercises and gate the next round on all results and rest', async () => {
+  const circuitSession = {
+    type: 'session',
+    key: 'monday',
+    date: '2026-11-16',
+    blocks: [
+      {
+        type: 'circuit',
+        key: 'tri-set',
+        mode: 'rounds',
+        rounds: 2,
+        restBetweenRoundsSeconds: 15,
+        exercises: [
+          { key: 'press', exerciseKey: 'press', targets: { reps: 8 } },
+          { key: 'row', exerciseKey: 'row', targets: { reps: 10 } },
+          { key: 'squat', exerciseKey: 'squat', targets: { reps: 12 } },
+        ],
+      },
+    ],
+  }
+  const { rows, service, setRestElapsedMs } = createHarness({ plannedSession: circuitSession })
+  const started = await service.start(userId, request)
+  const first = { blockKey: 'tri-set', roundIndex: 1 }
+  const timer = await service.startCircuitRound(userId, started.execution.id, first)
+  assert.equal(timer.execution.activeTimer.kind, 'circuitRound')
+  assert.equal((await service.startCircuitRound(userId, started.execution.id, first)).replayed, true)
+  const finished = await service.finishCircuitRound(userId, started.execution.id, first)
+  assert.equal(finished.execution.circuitRounds.length, 1)
+  assert.equal(finished.execution.circuitRounds[0].activeSeconds, 12.5)
+  assert.equal(finished.execution.activeTimer.kind, 'circuitRest')
+  assert.equal((await service.finishCircuitRound(userId, started.execution.id, first)).replayed, true)
+
+  await assert.rejects(
+    service.startCircuitRound(userId, started.execution.id, { blockKey: 'tri-set', roundIndex: 2 }),
+    WorkoutExecutionCircuitRoundConflictError,
+  )
+  const appearances = circuitSession.blocks[0].exercises
+  for (const [index, appearance] of appearances.entries()) {
+    await service.recordResult(userId, started.execution.id, {
+      result: {
+        type: 'circuit',
+        id: randomUUID(),
+        blockKey: 'tri-set',
+        plannedExerciseKey: appearance.key,
+        actualExerciseKey: appearance.exerciseKey,
+        round: { kind: 'planned', roundIndex: 1 },
+        status: 'performed',
+        actualMetrics: { reps: 8 + index },
+      },
+    })
+  }
+  setRestElapsedMs(0)
+  await assert.rejects(
+    service.startCircuitRound(userId, started.execution.id, { blockKey: 'tri-set', roundIndex: 2 }),
+    WorkoutExecutionRestNotFinishedError,
+  )
+  setRestElapsedMs(20_000)
+  const secondRound = await service.startCircuitRound(userId, started.execution.id, {
+    blockKey: 'tri-set',
+    roundIndex: 2,
+  })
+  assert.equal(secondRound.execution.activeTimer.roundIndex, 2)
+  assert.equal(rows[0].circuitRounds.length, 1)
+  assert.equal(rows[0].results.length, 3)
+})
 
 const request = { requestId, planId, sessionId }
 

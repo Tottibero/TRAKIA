@@ -94,6 +94,7 @@ export {
   WorkoutFeelingSchema,
   WorkoutExecutionSnapshotSchema,
   WorkoutExerciseSnapshotSchema,
+  WorkoutCircuitRoundSchema,
   WorkoutPauseSchema,
   WorkoutStatusSchema,
 } from './workout-executions/workout-execution.js'
@@ -122,6 +123,7 @@ export type {
   WorkoutFeeling,
   WorkoutExecutionSnapshot,
   WorkoutExecutionActiveTimer,
+  WorkoutCircuitRound,
   WorkoutExerciseSnapshot,
   WorkoutPause,
   WorkoutStatus,
@@ -164,6 +166,16 @@ export type {
   WorkoutExecutionWorkTimerStartResponse,
   WorkoutExecutionResultMetricsRequest,
 } from './workout-executions/workout-execution-results.js'
+export {
+  WorkoutExecutionCircuitRoundPathParamsSchema,
+  WorkoutExecutionCircuitRoundRequestSchema,
+  WorkoutExecutionCircuitRoundResponseSchema,
+} from './workout-executions/workout-execution-circuit-round.js'
+export type {
+  WorkoutExecutionCircuitRoundPathParams,
+  WorkoutExecutionCircuitRoundRequest,
+  WorkoutExecutionCircuitRoundResponse,
+} from './workout-executions/workout-execution-circuit-round.js'
 export type {
   WorkoutExecutionOpenQuery,
   WorkoutExecutionOpenResponse,

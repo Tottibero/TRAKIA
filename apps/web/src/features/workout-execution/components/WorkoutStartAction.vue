@@ -3,6 +3,7 @@ import { computed, shallowRef, toRef, watch } from 'vue'
 import type { WorkoutExecution } from '@trakia/contracts'
 import { useWorkoutExecutionStart } from '../useWorkoutExecutionStart'
 import { onlineStrengthExecutionLocation } from '../online-strength-flow'
+import { onlineCircuitExecutionLocation } from '../online-circuit-flow'
 import WorkoutExecutionSummary from './WorkoutExecutionSummary.vue'
 
 const props = defineProps<{
@@ -20,6 +21,15 @@ const isSummaryVisible = shallowRef(props.showSummary ?? false)
 const activeExecution = computed(() => workoutStart.activeExecution.value)
 const closedExecution = computed(() => workoutStart.closedExecution.value)
 const presentationState = computed(() => workoutStart.presentationState.value)
+const executionLocation = computed(() => {
+  if (!activeExecution.value) return undefined
+  const hasFixedCircuit = activeExecution.value.snapshot.session.blocks.some(
+    (block) => block.type === 'circuit' && block.mode === 'rounds',
+  )
+  return hasFixedCircuit
+    ? onlineCircuitExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
+    : onlineStrengthExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
+})
 
 watch(
   () => props.showSummary,
@@ -84,7 +94,7 @@ watch(
     <RouterLink
       v-else-if="presentationState === 'open' && activeExecution"
       class="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-3 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-200 sm:w-auto"
-      :to="onlineStrengthExecutionLocation(activeExecution.id, workoutStart.activeRequestId.value)"
+      :to="executionLocation ?? { name: 'home' }"
     >
       Continuar online
     </RouterLink>

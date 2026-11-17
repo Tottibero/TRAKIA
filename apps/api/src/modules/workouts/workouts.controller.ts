@@ -31,6 +31,9 @@ import {
   WorkoutExecutionResultMetricsRequestSchema,
   WorkoutExecutionWorkTimerStartRequestSchema,
   WorkoutExecutionWorkTimerStartResponseSchema,
+  WorkoutExecutionCircuitRoundPathParamsSchema,
+  WorkoutExecutionCircuitRoundRequestSchema,
+  WorkoutExecutionCircuitRoundResponseSchema,
   WorkoutExecutionCloseRequestSchema,
   WorkoutExecutionCloseResponseSchema,
   WorkoutExecutionPausePathParamsSchema,
@@ -56,6 +59,7 @@ import {
   WorkoutExecutionRestNotFinishedError,
   WorkoutExecutionCloseConflictError,
   WorkoutExecutionPauseConflictError,
+  WorkoutExecutionCircuitRoundConflictError,
 } from './workout-execution-start.service.js'
 
 interface AuthenticatedWorkoutRequest {
@@ -138,6 +142,46 @@ export class WorkoutsController {
     try {
       return WorkoutExecutionResultResponseSchema.parse(
         await this.starts.recordResult(userId, path.data.executionId, input.data),
+      )
+    } catch (error) {
+      throw toHttpException(error)
+    }
+  }
+
+  @Post(':executionId/circuit-rounds/start')
+  @HttpCode(200)
+  async startCircuitRound(
+    @Req() request: AuthenticatedWorkoutRequest,
+    @Param() params: unknown,
+    @Body() body: unknown,
+  ) {
+    const path = WorkoutExecutionCircuitRoundPathParamsSchema.safeParse(params)
+    const input = WorkoutExecutionCircuitRoundRequestSchema.safeParse(body)
+    if (!path.success || !input.success) throw invalidRequest()
+    const userId = authenticatedUserId(request)
+    try {
+      return WorkoutExecutionCircuitRoundResponseSchema.parse(
+        await this.starts.startCircuitRound(userId, path.data.executionId, input.data),
+      )
+    } catch (error) {
+      throw toHttpException(error)
+    }
+  }
+
+  @Post(':executionId/circuit-rounds/finish')
+  @HttpCode(200)
+  async finishCircuitRound(
+    @Req() request: AuthenticatedWorkoutRequest,
+    @Param() params: unknown,
+    @Body() body: unknown,
+  ) {
+    const path = WorkoutExecutionCircuitRoundPathParamsSchema.safeParse(params)
+    const input = WorkoutExecutionCircuitRoundRequestSchema.safeParse(body)
+    if (!path.success || !input.success) throw invalidRequest()
+    const userId = authenticatedUserId(request)
+    try {
+      return WorkoutExecutionCircuitRoundResponseSchema.parse(
+        await this.starts.finishCircuitRound(userId, path.data.executionId, input.data),
       )
     } catch (error) {
       throw toHttpException(error)
@@ -371,6 +415,12 @@ function toHttpException(error: unknown): HttpException {
   if (error instanceof WorkoutExecutionRestNotFinishedError) {
     return new HttpException(
       WorkoutExecutionStartErrorSchema.parse({ code: 'REST_NOT_FINISHED', message: error.message }),
+      409,
+    )
+  }
+  if (error instanceof WorkoutExecutionCircuitRoundConflictError) {
+    return new HttpException(
+      WorkoutExecutionStartErrorSchema.parse({ code: 'TIMER_PRECONDITION_FAILED', message: error.message }),
       409,
     )
   }

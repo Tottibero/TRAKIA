@@ -83,7 +83,9 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
     const exercises = app.get(ExerciseCatalogService)
     const benchKey = `${prefix}-bench`
     const foreignKey = `${prefix}-plank`
-    exerciseKeys = [benchKey, foreignKey]
+    const rowKey = `${prefix}-row`
+    const squatKey = `${prefix}-squat`
+    exerciseKeys = [benchKey, foreignKey, rowKey, squatKey]
     await exercises.createFromDefinition({
       key: benchKey,
       name: 'Press banca',
@@ -96,25 +98,62 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
       category: 'strength',
       supportedMetrics: ['duration'],
     })
+    for (const [key, name] of [
+      [rowKey, 'Remo'],
+      [squatKey, 'Sentadilla'],
+    ]) {
+      await exercises.createFromDefinition({
+        key,
+        name,
+        category: 'strength',
+        supportedMetrics: ['reps', 'rpe'],
+      })
+    }
     const plans = app.get(TrainingPlanService)
     const plan = await plans.create(prefix, {
       key: `${prefix}-plan`,
       name: 'Press banca integración HTTP',
       startDate: '2026-11-01',
       endDate: '2026-11-30',
-      days: ['monday', 'tuesday'].map((key, index) => ({
-        type: 'session',
-        key,
-        date: `2026-11-${String(16 + index).padStart(2, '0')}`,
-        blocks: [
-          {
-            type: 'sets',
-            key: 'bench-block',
-            restBetweenSetsSeconds: key === 'tuesday' ? 20 : 60,
-            exercises: [{ key: 'bench-press', exerciseKey: benchKey, sets: key === 'monday' ? 1 : 2 }],
-          },
-        ],
-      })),
+      days: [
+        ...['monday', 'tuesday'].map((key, index) => ({
+          type: 'session',
+          key,
+          date: `2026-11-${String(16 + index).padStart(2, '0')}`,
+          blocks: [
+            {
+              type: 'sets',
+              key: 'bench-block',
+              restBetweenSetsSeconds: key === 'tuesday' ? 20 : 60,
+              exercises: [{ key: 'bench-press', exerciseKey: benchKey, sets: key === 'monday' ? 1 : 2 }],
+            },
+          ],
+        })),
+        {
+          type: 'session',
+          key: 'wednesday',
+          date: '2026-11-18',
+          blocks: [
+            {
+              type: 'circuit',
+              key: 'rounds',
+              mode: 'rounds',
+              rounds: 2,
+              restBetweenRoundsSeconds: 15,
+              exercises: [
+                {
+                  key: 'bench',
+                  exerciseKey: benchKey,
+                  targets: { reps: 8 },
+                  overridesByRound: [{ index: 2, targetOverrides: { reps: 10 } }],
+                },
+                { key: 'row', exerciseKey: rowKey, targets: { reps: 10 } },
+                { key: 'squat', exerciseKey: squatKey, targets: { reps: 12 } },
+              ],
+            },
+          ],
+        },
+      ],
     })
     planId = plan.id
     const sessions = await database.query('SELECT id, key FROM training_plan_entries WHERE plan_id = $1', [
@@ -664,6 +703,196 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
     assert.equal(secondClosed.execution.status, 'completed')
     assert.deepEqual(secondClosed.execution.results, [firstResult, secondResult])
 
+    const circuitStartResponse = await fetch(`${url}/workouts/executions/start`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ requestId: randomUUID(), planId: plan.id, sessionId: sessionIds.wednesday }),
+    })
+    assert.equal(circuitStartResponse.status, 200)
+    const circuitExecution = (await circuitStartResponse.json()).execution
+    const circuitBaseUrl = `${url}/workouts/executions/${circuitExecution.id}/circuit-rounds`
+    const roundOne = { blockKey: 'rounds', roundIndex: 1 }
+    const unauthenticatedRound = await fetch(`${circuitBaseUrl}/start`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(roundOne),
+    })
+    assert.equal(unauthenticatedRound.status, 401)
+    const roundOneStartResponse = await fetch(`${circuitBaseUrl}/start`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(roundOne),
+    })
+    assert.equal(roundOneStartResponse.status, 200)
+    const roundOneStart = await roundOneStartResponse.json()
+    assert.equal(roundOneStart.execution.activeTimer.kind, 'circuitRound')
+    const roundOneReplay = await fetch(`${circuitBaseUrl}/start`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(roundOne),
+    })
+    assert.equal(roundOneReplay.status, 200)
+    assert.equal(
+      (await roundOneReplay.json()).execution.activeTimer.startedAt,
+      roundOneStart.execution.activeTimer.startedAt,
+    )
+    const roundOneFinishResponse = await fetch(`${circuitBaseUrl}/finish`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(roundOne),
+    })
+    assert.equal(roundOneFinishResponse.status, 200)
+    const roundOneFinish = await roundOneFinishResponse.json()
+    assert.equal(roundOneFinish.execution.circuitRounds.length, 1)
+    assert.ok(roundOneFinish.execution.circuitRounds[0].activeSeconds > 0)
+    assert.equal(roundOneFinish.execution.activeTimer.kind, 'circuitRest')
+    const roundOneReplayFinish = await fetch(`${circuitBaseUrl}/finish`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(roundOne),
+    })
+    assert.equal((await roundOneReplayFinish.json()).replayed, true)
+
+    const roundTwo = { blockKey: 'rounds', roundIndex: 2 }
+    const beforeResults = await fetch(`${circuitBaseUrl}/start`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(roundTwo),
+    })
+    assert.equal(beforeResults.status, 409)
+    const resultResponses = []
+    for (const [appearanceKey, actualExerciseKey, reps] of [
+      ['bench', benchKey, 8],
+      ['row', rowKey, 10],
+      ['squat', squatKey, 12],
+    ]) {
+      const resultResponse = await fetch(`${url}/workouts/executions/${circuitExecution.id}/results`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          result: {
+            type: 'circuit',
+            id: randomUUID(),
+            blockKey: 'rounds',
+            plannedExerciseKey: appearanceKey,
+            actualExerciseKey,
+            round: { kind: 'planned', roundIndex: 1 },
+            status: 'performed',
+            actualMetrics: { reps, rpe: 7 },
+          },
+        }),
+      })
+      assert.equal(resultResponse.status, 200)
+      resultResponses.push(await resultResponse.json())
+    }
+    assert.equal(
+      resultResponses.reduce((sum, response) => sum + (response.result.activeSeconds ?? 0), 0),
+      0,
+    )
+    const circuitRecovery = await fetch(`${url}/workouts/executions/open`, { headers: { cookie } })
+    assert.equal(circuitRecovery.status, 200)
+    const recoveredCircuitExecution = (await circuitRecovery.json()).execution.execution
+    assert.deepEqual(recoveredCircuitExecution.circuitRounds, roundOneFinish.execution.circuitRounds)
+    assert.equal(recoveredCircuitExecution.results.length, 3)
+
+    await fetch(`${url}/workouts/executions/${circuitExecution.id}/pause`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    }).then((response) => assert.equal(response.status, 200))
+    const pausedCircuit = await fetch(`${url}/workouts/executions/open`, { headers: { cookie } }).then(
+      (response) => response.json(),
+    )
+    assert.equal(pausedCircuit.execution.execution.status, 'paused')
+    const circuitSimulatedPauseAt = new Date(Date.now() - 20_000).toISOString()
+    const shortRestStartedAt = new Date(Date.now() - 25_000).toISOString()
+    const circuitExecutionStartedAt = new Date(Date.now() - 60_000).toISOString()
+    await database.query(
+      `UPDATE workout_executions SET started_at = $4, active_timer = jsonb_set(active_timer, '{startedAt}', to_jsonb($2::text)), pauses = jsonb_set(pauses, '{0,startedAt}', to_jsonb($3::text)) WHERE id = $1`,
+      [circuitExecution.id, shortRestStartedAt, circuitSimulatedPauseAt, circuitExecutionStartedAt],
+    )
+    const circuitResume = await fetch(`${url}/workouts/executions/${circuitExecution.id}/resume`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ pauseStartedAt: circuitSimulatedPauseAt }),
+    })
+    assert.equal(circuitResume.status, 200)
+    const prematureRoundTwo = await fetch(`${circuitBaseUrl}/start`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(roundTwo),
+    })
+    assert.equal(prematureRoundTwo.status, 409)
+    const expiredRestAt = new Date(Date.now() - 60_000).toISOString()
+    await database.query(
+      `UPDATE workout_executions SET active_timer = jsonb_set(active_timer, '{startedAt}', to_jsonb($2::text)) WHERE id = $1`,
+      [circuitExecution.id, expiredRestAt],
+    )
+    const roundTwoStart = await fetch(`${circuitBaseUrl}/start`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(roundTwo),
+    })
+    assert.equal(roundTwoStart.status, 200)
+    const roundTwoFinish = await fetch(`${circuitBaseUrl}/finish`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(roundTwo),
+    })
+    assert.equal(roundTwoFinish.status, 200)
+    const roundTwoFinished = await roundTwoFinish.json()
+    assert.equal(roundTwoFinished.execution.activeTimer, undefined)
+    for (const [appearanceKey, actualExerciseKey, reps] of [
+      ['bench', benchKey, 10],
+      ['row', rowKey, 11],
+      ['squat', squatKey, 13],
+    ]) {
+      const resultResponse = await fetch(`${url}/workouts/executions/${circuitExecution.id}/results`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          result: {
+            type: 'circuit',
+            id: randomUUID(),
+            blockKey: 'rounds',
+            plannedExerciseKey: appearanceKey,
+            actualExerciseKey,
+            round: { kind: 'planned', roundIndex: 2 },
+            status: 'performed',
+            actualMetrics: { reps, rpe: 8 },
+          },
+        }),
+      })
+      assert.equal(resultResponse.status, 200)
+    }
+    const circuitClose = await fetch(`${url}/workouts/executions/${circuitExecution.id}/close`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ completionType: 'planned' }),
+    })
+    assert.equal(circuitClose.status, 200)
+    const closedCircuit = await circuitClose.json()
+    assert.equal(closedCircuit.execution.status, 'completed')
+    assert.equal(closedCircuit.execution.circuitRounds.length, 2)
+    assert.equal(closedCircuit.execution.results.length, 6)
+    assert.equal(
+      closedCircuit.execution.results.filter(({ activeSeconds }) => activeSeconds !== undefined).length,
+      0,
+    )
+    const circuitCalendarResponse = await fetch(
+      `${url}/training-plans/calendar?from=2026-11-16&to=2026-11-22`,
+      { headers: { cookie } },
+    )
+    assert.equal(circuitCalendarResponse.status, 200)
+    const circuitCalendar = await circuitCalendarResponse.json()
+    const circuitCalendarEntry = circuitCalendar.days
+      .find(({ date }) => date === '2026-11-18')
+      .entries.find(({ sessionKey }) => sessionKey === 'wednesday')
+    assert.equal(
+      circuitCalendarEntry.execution.summary.activeSeconds,
+      closedCircuit.execution.circuitRounds.reduce((total, round) => total + round.activeSeconds, 0),
+    )
+
     console.log(
       `WORKOUT_ONLINE_HTTP_EVIDENCE ${JSON.stringify({
         start: responseBodies[0],
@@ -697,6 +926,14 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
           secondSetActiveSeconds: secondFinish.result.activeSeconds,
           onlineClose: secondCloseResponse.status,
           preservedSetCount: secondClosed.execution.results.length,
+        },
+        circuitFlow: {
+          exerciseCount: circuitExecution.snapshot.session.blocks[0].exercises.length,
+          roundOneActiveSeconds: roundOneFinish.execution.circuitRounds[0].activeSeconds,
+          roundTwoActiveSeconds: roundTwoFinished.execution.circuitRounds[1].activeSeconds,
+          individualResults: closedCircuit.execution.results.length,
+          summarizedActiveSeconds: circuitCalendarEntry.execution.summary.activeSeconds,
+          closed: circuitClose.status,
         },
       })}`,
     )

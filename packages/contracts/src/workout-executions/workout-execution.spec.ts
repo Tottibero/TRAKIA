@@ -144,6 +144,36 @@ describe('WorkoutExecutionSchema', () => {
     ).toBe(false)
   })
 
+  it('stores one server-timestamped duration per fixed circuit round and accepts dynamic exercise counts', () => {
+    const circuitRounds = [
+      {
+        blockKey: 'fixed',
+        roundIndex: 1,
+        startedAt: '2026-11-13T09:15:00Z',
+        finishedAt: '2026-11-13T09:15:40Z',
+        activeSeconds: 40,
+      },
+    ]
+    const parsed = WorkoutExecutionSchema.safeParse(execution({ circuitRounds }))
+    expect(parsed.success).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(execution({ circuitRounds: [...circuitRounds, ...circuitRounds] }))
+        .success,
+    ).toBe(false)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          activeTimer: {
+            kind: 'circuitRound',
+            blockKey: 'fixed',
+            roundIndex: 1,
+            startedAt: '2026-11-13T09:15:00Z',
+          },
+        }),
+      ).success,
+    ).toBe(true)
+  })
+
   it('accepts a paused execution with one open pause', () => {
     expect(
       WorkoutExecutionSchema.safeParse(
