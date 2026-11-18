@@ -16,6 +16,8 @@ import {
   type WorkoutExecutionResultResponse,
   type WorkoutExecutionCircuitRoundRequest,
   type WorkoutExecutionCircuitRoundResponse,
+  type WorkoutExecutionIntervalRequest,
+  type WorkoutExecutionIntervalResponse,
   type WorkoutCircuitRound,
   type WorkoutExecutionWorkTimerStartRequest,
   type WorkoutExecutionWorkTimerStartResponse,
@@ -500,6 +502,168 @@ export class WorkoutExecutionStartService {
     })
   }
 
+  async transitionInterval(
+    userId: string,
+    executionId: string,
+    input: WorkoutExecutionIntervalRequest,
+  ): Promise<WorkoutExecutionIntervalResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkoutExecutionRecord)
+      const record = await repository.findOne({
+        where: { id: executionId, userId },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
+      const block = record.snapshot?.session.blocks.find(
+        (candidate) => candidate.type === 'intervals' && candidate.key === input.blockKey,
+      )
+      if (!record.snapshot || block?.type !== 'intervals' || input.cycleIndex > block.cycles)
+        throw new WorkoutExecutionResultInvalidError()
+      const phaseIndex = block.phases.findIndex(({ key }) => key === input.phaseKey)
+      const phase = block.phases[phaseIndex]
+      if (!phase || phaseIndex < 0) throw new WorkoutExecutionResultInvalidError()
+      const identityExists = (record.results ?? []).some(
+        (result) =>
+          result.type === 'intervals' &&
+          result.blockKey === input.blockKey &&
+          result.cycleIndex === input.cycleIndex &&
+          result.phaseKey === input.phaseKey,
+      )
+      if (identityExists) return { execution: toExecution(record), replayed: true }
+      if (
+        input.action === 'advance' &&
+        intervalIdentityAlreadyPassed(
+          block,
+          input.cycleIndex,
+          phaseIndex,
+          record.activeTimer,
+          record.results ?? [],
+        )
+      )
+        return { execution: toExecution(record), replayed: true }
+
+      const [{ confirmedAt }] = await manager.query('SELECT clock_timestamp() AS "confirmedAt"')
+      const now = new Date(confirmedAt)
+      if (input.action === 'start') {
+        const firstWork = block.phases.find((candidate) => candidate.type === 'work')
+        const existingTimer = record.activeTimer
+        if (
+          existingTimer?.kind === 'intervalWork' &&
+          existingTimer.blockKey === block.key &&
+          existingTimer.cycleIndex === input.cycleIndex &&
+          existingTimer.phaseKey === input.phaseKey
+        )
+          return { execution: toExecution(record), replayed: true }
+        if (
+          existingTimer ||
+          !intervalBlockIsStartable(record.snapshot, block.key, record.results ?? []) ||
+          input.cycleIndex !== 1 ||
+          phase.type !== 'work' ||
+          phase.key !== firstWork?.key
+        )
+          throw new WorkoutExecutionResultConflictError()
+        record.activeTimer = {
+          kind: 'intervalWork',
+          blockKey: block.key,
+          cycleIndex: 1,
+          phaseKey: phase.key,
+          startedAt: now.toISOString(),
+        }
+      } else if (input.action === 'finish' || input.action === 'skip') {
+        const timer = record.activeTimer
+        const matchingTimer =
+          (timer?.kind === 'intervalWork' || timer?.kind === 'intervalRest') &&
+          timer.blockKey === input.blockKey &&
+          timer.cycleIndex === input.cycleIndex &&
+          timer.phaseKey === input.phaseKey
+        if (!matchingTimer || (input.action === 'finish' && timer?.kind !== 'intervalWork'))
+          throw new WorkoutExecutionResultConflictError()
+        if (input.action === 'skip' && phase.type !== 'work') throw new WorkoutExecutionResultInvalidError()
+        const elapsed =
+          timer?.kind === 'intervalWork'
+            ? effectiveElapsedSeconds(timer.startedAt, record.pauses ?? [], now)
+            : 0
+        if (input.action === 'finish' && elapsed <= 0) throw new WorkoutExecutionResultInvalidError()
+        record.results = [
+          ...(record.results ?? []),
+          {
+            type: 'intervals',
+            id: randomUUID(),
+            blockKey: block.key,
+            cycleIndex: input.cycleIndex,
+            phaseKey: phase.key,
+            status: input.action === 'skip' ? 'skipped' : 'interrupted',
+            ...(input.action === 'finish' && phase.type === 'work'
+              ? { actualExerciseKey: phase.exercise.exerciseKey }
+              : {}),
+            ...(input.action === 'finish' ? { activeSeconds: elapsed } : {}),
+          },
+        ]
+        record.activeTimer = nextIntervalTimer(block, input.cycleIndex, phaseIndex, now.toISOString())
+      } else {
+        const timer = record.activeTimer
+        if (
+          (timer?.kind !== 'intervalWork' && timer?.kind !== 'intervalRest') ||
+          timer.blockKey !== input.blockKey ||
+          timer.cycleIndex !== input.cycleIndex ||
+          timer.phaseKey !== input.phaseKey
+        )
+          throw new WorkoutExecutionResultConflictError()
+
+        let current: IntervalExecutionTimer | null = timer
+        let transitions = 0
+        let transitioned = false
+        while (transitions++ < block.cycles * block.phases.length + 1) {
+          if (!current) break
+          const phaseTimer = current
+          const currentIndex = block.phases.findIndex(({ key }) => key === phaseTimer.phaseKey)
+          const currentPhase = block.phases[currentIndex]
+          if (
+            !currentPhase ||
+            effectiveElapsedSeconds(phaseTimer.startedAt, record.pauses ?? [], now) <
+              currentPhase.windowSeconds
+          )
+            break
+          const boundary = addEffectiveSeconds(
+            phaseTimer.startedAt,
+            currentPhase.windowSeconds,
+            record.pauses ?? [],
+          )
+          if (currentPhase.type === 'work') {
+            record.results = [
+              ...(record.results ?? []),
+              {
+                type: 'intervals',
+                id: randomUUID(),
+                blockKey: block.key,
+                cycleIndex: phaseTimer.cycleIndex,
+                phaseKey: phaseTimer.phaseKey,
+                status: 'completed',
+                ...(currentPhase.type === 'work'
+                  ? { actualExerciseKey: currentPhase.exercise.exerciseKey }
+                  : {}),
+                activeSeconds: currentPhase.windowSeconds,
+              },
+            ]
+          }
+          current = nextIntervalTimer(block, phaseTimer.cycleIndex, currentIndex, boundary)
+          record.activeTimer = current
+          transitioned = true
+        }
+        if (!transitioned) return { execution: toExecution(record), replayed: true }
+      }
+
+      try {
+        WorkoutExecutionSchema.parse(toExecution(record))
+      } catch {
+        throw new WorkoutExecutionResultInvalidError()
+      }
+      await repository.save(record)
+      return { execution: toExecution(record), replayed: false }
+    })
+  }
+
   async findByRequest(
     userId: string,
     deviceId: string | undefined,
@@ -637,11 +801,7 @@ export class WorkoutExecutionStartService {
             current.round.kind === 'planned' &&
             round.roundIndex === current.round.roundIndex,
         )
-      if (
-        current.status !== 'performed' ||
-        !current.actualExerciseKey ||
-        (!timedSet && !recordedCircuitRound)
-      )
+      if (current.status !== 'performed' || !current.actualExerciseKey || (!timedSet && !recordedCircuitRound))
         throw new WorkoutExecutionResultInvalidError()
       if (current.actualMetrics) {
         if (!isDeepStrictEqual(current.actualMetrics, input.actualMetrics))
@@ -808,6 +968,12 @@ export class WorkoutExecutionStartService {
               round.blockKey,
               round.roundIndex,
             ),
+        )
+      )
+        throw new WorkoutExecutionResultInvalidError()
+      if (
+        !(record.snapshot?.session.blocks ?? []).every(
+          (block) => block.type !== 'intervals' || hasCompleteIntervals(block, record.results ?? []),
         )
       )
         throw new WorkoutExecutionResultInvalidError()
@@ -1108,6 +1274,95 @@ function effectiveElapsedSeconds(
     return total + Math.max(0, pauseEnd - pauseStart)
   }, 0)
   return Math.max(0, (end - start - pausedMilliseconds) / 1000)
+}
+
+function addEffectiveSeconds(
+  startedAt: string,
+  seconds: number,
+  pauses: Array<{ startedAt: string; finishedAt?: string }>,
+): string {
+  const start = Date.parse(startedAt)
+  let boundary = start + seconds * 1000
+  for (const pause of pauses) {
+    const pauseStart = Math.max(start, Date.parse(pause.startedAt))
+    if (pauseStart >= boundary) break
+    if (!pause.finishedAt) break
+    const pauseEnd = Date.parse(pause.finishedAt)
+    if (pauseEnd > pauseStart) boundary += pauseEnd - pauseStart
+  }
+  return new Date(boundary).toISOString()
+}
+
+function nextIntervalTimer(
+  block: Extract<PlannedBlock, { type: 'intervals' }>,
+  cycleIndex: number,
+  phaseIndex: number,
+  startedAt: string,
+): IntervalExecutionTimer | null {
+  const nextPhaseIndex = phaseIndex + 1
+  const nextCycleIndex = nextPhaseIndex < block.phases.length ? cycleIndex : cycleIndex + 1
+  const phase = block.phases[nextPhaseIndex < block.phases.length ? nextPhaseIndex : 0]
+  if (nextCycleIndex > block.cycles || !phase) return null
+  return {
+    kind: phase.type === 'work' ? 'intervalWork' : 'intervalRest',
+    blockKey: block.key,
+    cycleIndex: nextCycleIndex,
+    phaseKey: phase.key,
+    startedAt,
+  }
+}
+
+type IntervalExecutionTimer = Extract<WorkoutExecutionActiveTimer, { kind: 'intervalWork' | 'intervalRest' }>
+
+function hasCompleteIntervals(
+  block: Extract<PlannedBlock, { type: 'intervals' }>,
+  results: WorkoutResult[],
+): boolean {
+  return Array.from({ length: block.cycles }, (_, index) => index + 1).every((cycleIndex) =>
+    block.phases
+      .filter(({ type }) => type === 'work')
+      .every((phase) =>
+        results.some(
+          (result) =>
+            result.type === 'intervals' &&
+            result.blockKey === block.key &&
+            result.cycleIndex === cycleIndex &&
+            result.phaseKey === phase.key,
+        ),
+      ),
+  )
+}
+
+function intervalBlockIsStartable(
+  snapshot: WorkoutExecutionSnapshot,
+  blockKey: string,
+  results: WorkoutResult[],
+): boolean {
+  const blocks = snapshot.session.blocks.filter(
+    (candidate): candidate is Extract<PlannedBlock, { type: 'intervals' }> => candidate.type === 'intervals',
+  )
+  const targetIndex = blocks.findIndex(({ key }) => key === blockKey)
+  return (
+    targetIndex >= 0 && blocks.slice(0, targetIndex).every((block) => hasCompleteIntervals(block, results))
+  )
+}
+
+function intervalIdentityAlreadyPassed(
+  block: Extract<PlannedBlock, { type: 'intervals' }>,
+  cycleIndex: number,
+  phaseIndex: number,
+  activeTimer: WorkoutExecutionActiveTimer | null,
+  results: WorkoutResult[],
+): boolean {
+  if (activeTimer?.kind === 'intervalWork' || activeTimer?.kind === 'intervalRest') {
+    if (activeTimer.blockKey !== block.key) return false
+    const currentIndex = block.phases.findIndex(({ key }) => key === activeTimer.phaseKey)
+    return (
+      activeTimer.cycleIndex > cycleIndex ||
+      (activeTimer.cycleIndex === cycleIndex && currentIndex > phaseIndex)
+    )
+  }
+  return activeTimer === null && hasCompleteIntervals(block, results)
 }
 
 function plannedFixedCircuit(snapshot: WorkoutExecutionSnapshot | null, blockKey: string) {

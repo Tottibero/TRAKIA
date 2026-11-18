@@ -186,6 +186,18 @@ export type {
   WorkoutExecutionStartResponse,
 } from './workout-executions/workout-execution-start.js'
 export {
+  WorkoutExecutionIntervalActionSchema,
+  WorkoutExecutionIntervalPathParamsSchema,
+  WorkoutExecutionIntervalRequestSchema,
+  WorkoutExecutionIntervalResponseSchema,
+} from './workout-executions/workout-execution-interval.js'
+export type {
+  WorkoutExecutionIntervalAction,
+  WorkoutExecutionIntervalPathParams,
+  WorkoutExecutionIntervalRequest,
+  WorkoutExecutionIntervalResponse,
+} from './workout-executions/workout-execution-interval.js'
+export {
   ActualMetricsSchema,
   ResultStatusSchema,
   WorkoutResultSchema,

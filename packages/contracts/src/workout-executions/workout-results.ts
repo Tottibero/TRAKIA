@@ -124,7 +124,7 @@ const IntervalResultSchema = z
     blockKey: StableKeySchema,
     cycleIndex: PositiveIntegerSchema,
     phaseKey: StableKeySchema,
-    status: ResultStatusSchema,
+    status: z.enum(['performed', 'skipped', 'completed', 'interrupted']),
     actualExerciseKey: StableKeySchema.optional(),
     activeSeconds: PositiveMeasurementSchema.optional(),
     windowProgressSeconds: PositiveMeasurementSchema.optional(),
