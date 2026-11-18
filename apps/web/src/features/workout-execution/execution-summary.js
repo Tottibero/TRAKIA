@@ -14,12 +14,12 @@ function resultLabel(result) {
     const round = result.round.kind === 'planned' ? result.round.roundIndex : result.round.roundIndex
     return `Ronda ${round}`
   }
+  if (result.type === 'intervals') return `Ciclo ${result.cycleIndex} · ${result.phaseKey}`
   return `Ciclo ${result.cycleIndex}`
 }
 
 function metricDetails(result) {
-  const metrics = result.actualMetrics
-  if (!metrics) return []
+  const metrics = result.actualMetrics ?? {}
   return [
     ...(metrics.reps === undefined ? [] : [`${metrics.reps} repeticiones`]),
     ...(metrics.weightKg === undefined ? [] : [`${metrics.weightKg} kg`]),
@@ -28,6 +28,29 @@ function metricDetails(result) {
     ...(metrics.distanceMeters === undefined ? [] : [`${metrics.distanceMeters} m`]),
     ...(metrics.calories === undefined ? [] : [`${metrics.calories} kcal`]),
     ...(result.activeSeconds === undefined ? [] : [`${formatDuration(result.activeSeconds)} de trabajo`]),
+  ]
+}
+
+function plannedIntervalDetails(execution, result) {
+  if (result.type !== 'intervals') return []
+  const block = execution.snapshot.session.blocks.find(
+    (candidate) => candidate.type === 'intervals' && candidate.key === result.blockKey,
+  )
+  const phase = block?.type === 'intervals' ? block.phases.find(({ key }) => key === result.phaseKey) : null
+  if (!phase || phase.type !== 'work') return []
+  const labels = {
+    reps: 'reps',
+    weight: 'kg',
+    duration: 's',
+    distance: 'm',
+    rpe: 'RPE',
+    calories: 'kcal',
+  }
+  return [
+    `${phase.windowSeconds} s programados`,
+    ...Object.entries(phase.exercise.targets ?? {}).map(([metric, value]) =>
+      labels[metric] ? `${value} ${labels[metric]}` : `${value} ${metric}`,
+    ),
   ]
 }
 
@@ -62,9 +85,12 @@ export function summarizeClosedExecution(execution) {
     performedCircuitResults: 0,
     completedCircuitRounds: execution.circuitRounds?.length ?? 0,
     reps: 0,
+    durationSeconds: 0,
+    distanceMeters: 0,
+    calories: 0,
     activeSeconds: 0,
   }
-  let hasReps = false
+  const hasMetricTotal = { reps: false, durationSeconds: false, distanceMeters: false, calories: false }
   let hasActiveSeconds = resultCount.completedCircuitRounds > 0
 
   for (const round of execution.circuitRounds ?? []) {
@@ -73,20 +99,46 @@ export function summarizeClosedExecution(execution) {
 
   for (const result of execution.results) {
     const exerciseName = plannedExerciseName(execution, result)
-    const row = { id: result.id, label: resultLabel(result), exerciseName, details: metricDetails(result) }
+    const state =
+      result.type === 'intervals'
+        ? result.status === 'interrupted'
+          ? 'Interrumpido'
+          : result.status === 'completed'
+            ? 'Completado'
+            : result.status === 'skipped'
+              ? 'Omitido'
+              : 'Realizado'
+        : null
+    const row = {
+      id: result.id,
+      label: resultLabel(result),
+      exerciseName,
+      plannedDetails: plannedIntervalDetails(execution, result),
+      details: [...(state ? [state] : []), ...metricDetails(result)],
+    }
     if (result.status === 'skipped') {
       skipped.push(row)
       continue
     }
-    const key = result.actualExerciseKey ?? result.plannedExerciseKey
+    const key =
+      result.type === 'intervals'
+        ? (result.actualExerciseKey ??
+          execution.snapshot.session.blocks
+            .find(({ key: blockKey }) => blockKey === result.blockKey)
+            ?.phases.find(({ key: phaseKey }) => phaseKey === result.phaseKey)?.exercise?.exerciseKey ??
+          `${result.blockKey}:${result.phaseKey}`)
+        : (result.actualExerciseKey ?? result.plannedExerciseKey)
     const group = groups.get(key) ?? { key, exerciseName, results: [] }
     group.results.push(row)
     groups.set(key, group)
     if (result.type === 'sets') resultCount.performedSets += 1
     if (result.type === 'circuit' && result.status === 'performed') resultCount.performedCircuitResults += 1
-    if (result.actualMetrics?.reps !== undefined) {
-      resultCount.reps += result.actualMetrics.reps
-      hasReps = true
+    for (const metric of ['reps', 'durationSeconds', 'distanceMeters', 'calories']) {
+      const value = result.actualMetrics?.[metric]
+      if (value !== undefined) {
+        resultCount[metric] += value
+        hasMetricTotal[metric] = true
+      }
     }
     const hasCircuitRoundDuration =
       result.type === 'circuit' &&
@@ -109,7 +161,10 @@ export function summarizeClosedExecution(execution) {
       performedSets: resultCount.performedSets,
       performedCircuitResults: resultCount.performedCircuitResults,
       completedCircuitRounds: resultCount.completedCircuitRounds,
-      reps: hasReps ? resultCount.reps : null,
+      reps: hasMetricTotal.reps ? resultCount.reps : null,
+      durationSeconds: hasMetricTotal.durationSeconds ? resultCount.durationSeconds : null,
+      distanceMeters: hasMetricTotal.distanceMeters ? resultCount.distanceMeters : null,
+      calories: hasMetricTotal.calories ? resultCount.calories : null,
       activeSeconds: hasActiveSeconds ? resultCount.activeSeconds : null,
     },
   }

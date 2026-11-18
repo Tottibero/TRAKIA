@@ -675,7 +675,17 @@ describe('WorkoutExecutionSchema', () => {
     const publicExecution: WorkoutExecution = WorkoutExecutionSchema.parse(base())
     expect(WorkoutExecutionSchema.safeParse(publicExecution).success).toBe(true)
     expect(ActualMetricsSchema.safeParse({ reps: 0 }).success).toBe(false)
-    expect(ActualMetricsSchema.safeParse({ reps: 10.5, weightKg: 40.25 }).success).toBe(true)
+    expect(ActualMetricsSchema.safeParse({ reps: 10, weightKg: 40.25 }).success).toBe(true)
+    expect(ActualMetricsSchema.safeParse({ reps: 10.5 }).success).toBe(false)
+    expect(
+      ActualMetricsSchema.safeParse({
+        weightKg: 40.25,
+        durationSeconds: 10.497,
+        distanceMeters: 75.5,
+        calories: 8.25,
+        rpe: 7.5,
+      }).success,
+    ).toBe(true)
     expect(ActualMetricsSchema.safeParse({ weightKg: Number.POSITIVE_INFINITY }).success).toBe(false)
     expect(ActualMetricsSchema.safeParse({ calories: Number.NaN }).success).toBe(false)
   })

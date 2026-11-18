@@ -5,6 +5,7 @@ export interface WorkoutExecutionSummaryResult {
   id: string
   label: string
   exerciseName: string
+  plannedDetails: string[]
   details: string[]
 }
 
@@ -18,6 +19,9 @@ export interface WorkoutExecutionSummary {
     performedCircuitResults: number
     completedCircuitRounds: number
     reps: number | null
+    durationSeconds: number | null
+    distanceMeters: number | null
+    calories: number | null
     activeSeconds: number | null
   }
 }
