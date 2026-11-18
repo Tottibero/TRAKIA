@@ -102,6 +102,69 @@ export const WorkoutCircuitRoundSchema = z
   })
 export type WorkoutCircuitRound = z.infer<typeof WorkoutCircuitRoundSchema>
 
+export const WorkoutAmrapRoundSchema = z
+  .object({ roundIndex: z.number().int().positive(), finishedAt: ResultTimestampSchema })
+  .strict()
+export type WorkoutAmrapRound = z.infer<typeof WorkoutAmrapRoundSchema>
+
+export const WorkoutAmrapStateSchema = z
+  .object({
+    blockKey: StableKeySchema,
+    startedAt: ResultTimestampSchema,
+    rounds: z.array(WorkoutAmrapRoundSchema),
+    finishedAt: ResultTimestampSchema.optional(),
+    finishReason: z.enum(['time_limit', 'early']).optional(),
+    activeSeconds: z.number().finite().positive().optional(),
+  })
+  .strict()
+  .superRefine((amrap, context) => {
+    amrap.rounds.forEach((round, index) => {
+      if (round.roundIndex !== index + 1) {
+        context.addIssue({
+          code: 'custom',
+          path: ['rounds', index, 'roundIndex'],
+          message: 'AMRAP rounds must be sequential and start at one',
+        })
+      }
+      if (Date.parse(round.finishedAt) < Date.parse(amrap.startedAt)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['rounds', index, 'finishedAt'],
+          message: 'AMRAP round cannot finish before it starts',
+        })
+      }
+    })
+    const hasFinishedAt = amrap.finishedAt !== undefined
+    if (
+      hasFinishedAt !== (amrap.finishReason !== undefined) ||
+      hasFinishedAt !== (amrap.activeSeconds !== undefined)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['finishedAt'],
+        message: 'Finished AMRAP state requires finish reason and effective time together',
+      })
+    }
+    if (amrap.finishedAt && Date.parse(amrap.finishedAt) < Date.parse(amrap.startedAt)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['finishedAt'],
+        message: 'AMRAP cannot finish before it starts',
+      })
+    }
+    if (
+      amrap.finishedAt &&
+      amrap.rounds.some((round) => Date.parse(round.finishedAt) > Date.parse(amrap.finishedAt!))
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['rounds'],
+        message: 'AMRAP rounds cannot finish after the AMRAP window',
+      })
+    }
+  })
+export type WorkoutAmrapState = z.infer<typeof WorkoutAmrapStateSchema>
+
 const WorkoutExecutionTimerFields = {
   resultId: z.uuid(),
   blockKey: StableKeySchema,
@@ -164,6 +227,7 @@ const WorkoutExecutionFields = {
   closureReason: ClosureReasonSchema.optional(),
   pauses: z.array(WorkoutPauseSchema),
   circuitRounds: z.array(WorkoutCircuitRoundSchema).optional(),
+  amrap: WorkoutAmrapStateSchema.optional(),
   activeTimer: WorkoutExecutionActiveTimerSchema.optional(),
   results: z.array(WorkoutResultSchema),
   corrections: z.array(WorkoutCorrectionSchema),
@@ -428,6 +492,60 @@ export const WorkoutExecutionSchema = z
           addIssue(context, ['results'], 'Completed circuit rounds require a result for every exercise')
       }
     })
+    const amrap = execution.amrap
+    if (amrap) {
+      const block = execution.snapshot.session.blocks.find(
+        (candidate) =>
+          candidate.type === 'circuit' && candidate.mode === 'amrap' && candidate.key === amrap.blockKey,
+      )
+      if (block?.type !== 'circuit' || block.mode !== 'amrap') {
+        addIssue(context, ['amrap', 'blockKey'], 'AMRAP state must reference an AMRAP snapshot block')
+      } else if (amrap.activeSeconds !== undefined && amrap.activeSeconds > block.maxDurationSeconds) {
+        addIssue(context, ['amrap', 'activeSeconds'], 'AMRAP active time cannot exceed its time limit')
+      }
+      if (block?.type === 'circuit' && block.mode === 'amrap') {
+        for (const round of amrap.rounds) {
+          for (const exercise of block.exercises) {
+            const hasResult = execution.results.some(
+              (result) =>
+                result.type === 'circuit' &&
+                result.blockKey === amrap.blockKey &&
+                result.plannedExerciseKey === exercise.key &&
+                result.round.kind === 'amrap' &&
+                result.round.roundIndex === round.roundIndex &&
+                (result.status === 'performed' || result.status === 'skipped'),
+            )
+            if (execution.status === 'completed' && !hasResult)
+              addIssue(
+                context,
+                ['results'],
+                `Completed AMRAP round ${round.roundIndex} has an unresolved exercise ${exercise.key}`,
+              )
+          }
+        }
+      }
+      if (execution.status === 'completed' && !amrap.finishedAt) {
+        addIssue(context, ['amrap'], 'An AMRAP must finish before the execution can close')
+      }
+      execution.results.forEach((result, index) => {
+        if (result.type !== 'circuit' || result.round.kind !== 'amrap') return
+        if (
+          result.blockKey !== amrap.blockKey ||
+          !amrap.finishedAt ||
+          result.round.roundIndex > amrap.rounds.length + (amrap.finishedAt ? 1 : 0)
+        ) {
+          addIssue(
+            context,
+            ['results', index, 'round'],
+            'Partial AMRAP results must follow the completed rounds',
+          )
+        }
+      })
+    } else if (
+      execution.results.some((result) => result.type === 'circuit' && result.round.kind === 'amrap')
+    ) {
+      addIssue(context, ['results'], 'AMRAP results require a confirmed AMRAP state')
+    }
     validateCorrections(execution, context)
   })
 export type WorkoutExecution = z.infer<typeof WorkoutExecutionSchema>
@@ -632,34 +750,6 @@ function validateResults(
       }
     }
   })
-
-  for (const block of execution.snapshot.session.blocks) {
-    if (block.type !== 'circuit' || block.mode !== 'amrap') continue
-    const roundResults = execution.results.filter(
-      (result) => result.type === 'circuit' && result.blockKey === block.key,
-    )
-    const roundIndexes = [
-      ...new Set(roundResults.map((result) => (result.type === 'circuit' ? result.round.roundIndex : 0))),
-    ].sort((left, right) => left - right)
-    roundIndexes.forEach((roundIndex, index) => {
-      if (roundIndex !== index + 1) {
-        addIssue(context, ['results'], 'AMRAP started round indexes must be contiguous from one')
-      }
-      if (roundIndex < (roundIndexes.at(-1) ?? roundIndex)) {
-        for (const exercise of block.exercises) {
-          const hasResult = roundResults.some(
-            (result) =>
-              result.type === 'circuit' &&
-              result.round.roundIndex === roundIndex &&
-              result.plannedExerciseKey === exercise.key,
-          )
-          if (!hasResult) {
-            addIssue(context, ['results'], `Completed AMRAP round ${roundIndex} is missing ${exercise.key}`)
-          }
-        }
-      }
-    })
-  }
 }
 
 function validateCorrections(

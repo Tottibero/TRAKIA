@@ -99,6 +99,7 @@ test('metric input constraints accept integer reps and decimal values without a 
   const reps = actualMetricInputConstraints('reps')
   assert.deepEqual(reps, { min: '1', step: '1' })
   assert.equal((10 - Number(reps.min)) % Number(reps.step), 0)
+  assert.deepEqual(actualMetricInputConstraints('reps', { allowZeroReps: true }), { min: '0', step: '1' })
 
   const decimal = actualMetricInputConstraints('weightKg')
   assert.deepEqual(decimal, { min: '0', step: 'any' })

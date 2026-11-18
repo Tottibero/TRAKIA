@@ -6,6 +6,7 @@ import type {
   WorkoutExecutionActiveTimer,
   WorkoutPause,
   WorkoutCircuitRound,
+  WorkoutAmrapState,
   WorkoutResult,
   WorkoutStatus,
   WorkoutCompletionType,
@@ -42,6 +43,7 @@ export class WorkoutExecutionRecord {
   @Column({ type: 'jsonb', default: () => "'[]'::jsonb" }) pauses!: WorkoutPause[]
   @Column({ name: 'circuit_rounds', type: 'jsonb', default: () => "'[]'::jsonb" })
   circuitRounds!: WorkoutCircuitRound[]
+  @Column({ type: 'jsonb', nullable: true }) amrap!: WorkoutAmrapState | null
   @Column({ name: 'close_operation', type: 'jsonb', nullable: true })
   closeOperation!: CloseExecutionOperation | null
   @Column({ name: 'correction_operations', type: 'jsonb', default: () => "'[]'::jsonb" })

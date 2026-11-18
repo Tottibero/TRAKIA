@@ -5,6 +5,7 @@ import { useWorkoutExecutionStart } from '../useWorkoutExecutionStart'
 import { onlineStrengthExecutionLocation } from '../online-strength-flow'
 import { onlineCircuitExecutionLocation } from '../online-circuit-flow'
 import { onlineIntervalExecutionLocation } from '../online-interval-flow'
+import { onlineAmrapExecutionLocation } from '../online-amrap-flow'
 import WorkoutExecutionSummary from './WorkoutExecutionSummary.vue'
 
 const props = defineProps<{
@@ -30,6 +31,11 @@ const executionLocation = computed(() => {
   const hasIntervals = activeExecution.value.snapshot.session.blocks.some(
     (block) => block.type === 'intervals',
   )
+  const hasAmrap = activeExecution.value.snapshot.session.blocks.some(
+    (block) => block.type === 'circuit' && block.mode === 'amrap',
+  )
+  if (hasAmrap)
+    return onlineAmrapExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
   if (hasIntervals)
     return onlineIntervalExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
   return hasFixedCircuit

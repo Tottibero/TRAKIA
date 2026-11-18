@@ -1,1 +1,4 @@
-export function actualMetricInputConstraints(fieldKey: string): { min: string; step: string }
+export function actualMetricInputConstraints(
+  fieldKey: string,
+  options?: { allowZeroReps?: boolean },
+): { min: string; step: string }
