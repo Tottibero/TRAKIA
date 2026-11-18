@@ -34,6 +34,9 @@ import {
   WorkoutExecutionCircuitRoundPathParamsSchema,
   WorkoutExecutionCircuitRoundRequestSchema,
   WorkoutExecutionCircuitRoundResponseSchema,
+  WorkoutExecutionAmrapPathParamsSchema,
+  WorkoutExecutionAmrapRequestSchema,
+  WorkoutExecutionAmrapResponseSchema,
   WorkoutExecutionIntervalPathParamsSchema,
   WorkoutExecutionIntervalRequestSchema,
   WorkoutExecutionIntervalResponseSchema,
@@ -63,6 +66,7 @@ import {
   WorkoutExecutionCloseConflictError,
   WorkoutExecutionPauseConflictError,
   WorkoutExecutionCircuitRoundConflictError,
+  WorkoutExecutionAmrapConflictError,
 } from './workout-execution-start.service.js'
 
 interface AuthenticatedWorkoutRequest {
@@ -205,6 +209,26 @@ export class WorkoutsController {
     try {
       return WorkoutExecutionIntervalResponseSchema.parse(
         await this.starts.transitionInterval(userId, path.data.executionId, input.data),
+      )
+    } catch (error) {
+      throw toHttpException(error)
+    }
+  }
+
+  @Post(':executionId/amrap/transition')
+  @HttpCode(200)
+  async transitionAmrap(
+    @Req() request: AuthenticatedWorkoutRequest,
+    @Param() params: unknown,
+    @Body() body: unknown,
+  ) {
+    const path = WorkoutExecutionAmrapPathParamsSchema.safeParse(params)
+    const input = WorkoutExecutionAmrapRequestSchema.safeParse(body)
+    if (!path.success || !input.success) throw invalidRequest()
+    const userId = authenticatedUserId(request)
+    try {
+      return WorkoutExecutionAmrapResponseSchema.parse(
+        await this.starts.transitionAmrap(userId, path.data.executionId, input.data),
       )
     } catch (error) {
       throw toHttpException(error)
@@ -442,6 +466,12 @@ function toHttpException(error: unknown): HttpException {
     )
   }
   if (error instanceof WorkoutExecutionCircuitRoundConflictError) {
+    return new HttpException(
+      WorkoutExecutionStartErrorSchema.parse({ code: 'TIMER_PRECONDITION_FAILED', message: error.message }),
+      409,
+    )
+  }
+  if (error instanceof WorkoutExecutionAmrapConflictError) {
     return new HttpException(
       WorkoutExecutionStartErrorSchema.parse({ code: 'TIMER_PRECONDITION_FAILED', message: error.message }),
       409,

@@ -95,6 +95,8 @@ export {
   WorkoutExecutionSnapshotSchema,
   WorkoutExerciseSnapshotSchema,
   WorkoutCircuitRoundSchema,
+  WorkoutAmrapRoundSchema,
+  WorkoutAmrapStateSchema,
   WorkoutPauseSchema,
   WorkoutStatusSchema,
 } from './workout-executions/workout-execution.js'
@@ -124,6 +126,8 @@ export type {
   WorkoutExecutionSnapshot,
   WorkoutExecutionActiveTimer,
   WorkoutCircuitRound,
+  WorkoutAmrapRound,
+  WorkoutAmrapState,
   WorkoutExerciseSnapshot,
   WorkoutPause,
   WorkoutStatus,
@@ -171,6 +175,16 @@ export {
   WorkoutExecutionCircuitRoundRequestSchema,
   WorkoutExecutionCircuitRoundResponseSchema,
 } from './workout-executions/workout-execution-circuit-round.js'
+export {
+  WorkoutExecutionAmrapPathParamsSchema,
+  WorkoutExecutionAmrapRequestSchema,
+  WorkoutExecutionAmrapResponseSchema,
+} from './workout-executions/workout-execution-amrap.js'
+export type {
+  WorkoutExecutionAmrapPathParams,
+  WorkoutExecutionAmrapRequest,
+  WorkoutExecutionAmrapResponse,
+} from './workout-executions/workout-execution-amrap.js'
 export type {
   WorkoutExecutionCircuitRoundPathParams,
   WorkoutExecutionCircuitRoundRequest,

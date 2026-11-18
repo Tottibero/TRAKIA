@@ -83,7 +83,7 @@ export function summarizeClosedExecution(execution) {
   const resultCount = {
     performedSets: 0,
     performedCircuitResults: 0,
-    completedCircuitRounds: execution.circuitRounds?.length ?? 0,
+    completedCircuitRounds: (execution.circuitRounds?.length ?? 0) + (execution.amrap?.rounds.length ?? 0),
     reps: 0,
     durationSeconds: 0,
     distanceMeters: 0,
@@ -96,6 +96,7 @@ export function summarizeClosedExecution(execution) {
   for (const round of execution.circuitRounds ?? []) {
     resultCount.activeSeconds += round.activeSeconds
   }
+  if (execution.amrap?.activeSeconds !== undefined) resultCount.activeSeconds += execution.amrap.activeSeconds
 
   for (const result of execution.results) {
     const exerciseName = plannedExerciseName(execution, result)

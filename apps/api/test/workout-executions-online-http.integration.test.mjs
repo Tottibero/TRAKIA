@@ -107,7 +107,7 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
         key,
         name,
         category: 'strength',
-        supportedMetrics: ['reps', 'rpe'],
+        supportedMetrics: ['reps', 'weight', 'rpe'],
       })
     }
     await exercises.createFromDefinition({
@@ -217,6 +217,37 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
                   exercise: { key: 'early-bike-two', exerciseKey: bikeKey, targets: { reps: 25 } },
                 },
               ],
+            },
+          ],
+        },
+        {
+          type: 'session',
+          key: 'friday',
+          date: '2026-11-20',
+          blocks: [
+            {
+              type: 'circuit',
+              key: 'amrap',
+              mode: 'amrap',
+              maxDurationSeconds: 90,
+              exercises: [
+                { key: 'amrap-row', exerciseKey: rowKey, targets: { reps: 10 } },
+                { key: 'amrap-squat', exerciseKey: squatKey, targets: { reps: 12 } },
+              ],
+            },
+          ],
+        },
+        {
+          type: 'session',
+          key: 'saturday',
+          date: '2026-11-21',
+          blocks: [
+            {
+              type: 'circuit',
+              key: 'amrap-expiry',
+              mode: 'amrap',
+              maxDurationSeconds: 3,
+              exercises: [{ key: 'expiry-squat', exerciseKey: squatKey, targets: { reps: 12 } }],
             },
           ],
         },
@@ -959,6 +990,297 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
       circuitCalendarEntry.execution.summary.activeSeconds,
       closedCircuit.execution.circuitRounds.reduce((total, round) => total + round.activeSeconds, 0),
     )
+
+    const amrapStartResponse = await fetch(`${url}/workouts/executions/start`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ requestId: randomUUID(), planId: plan.id, sessionId: sessionIds.friday }),
+    })
+    assert.equal(amrapStartResponse.status, 200)
+    const amrapExecution = (await amrapStartResponse.json()).execution
+    const amrapUrl = `${url}/workouts/executions/${amrapExecution.id}/amrap/transition`
+    const amrapStart = { blockKey: 'amrap', action: 'start' }
+    const unauthenticatedAmrap = await fetch(amrapUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(amrapStart),
+    })
+    assert.equal(unauthenticatedAmrap.status, 401)
+    const amrapStartedResponse = await fetch(amrapUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(amrapStart),
+    })
+    assert.equal(amrapStartedResponse.status, 200)
+    const amrapStarted = await amrapStartedResponse.json()
+    assert.ok(amrapStarted.execution.amrap.startedAt)
+    assert.equal(amrapStarted.execution.amrap.rounds.length, 0)
+    assert.equal(
+      (
+        await fetch(amrapUrl, { method: 'POST', headers, body: JSON.stringify(amrapStart) }).then((r) =>
+          r.json(),
+        )
+      ).replayed,
+      true,
+    )
+
+    const amrapStartedAt = new Date(Date.now() - 20_000).toISOString()
+    await database.query(
+      `UPDATE workout_executions SET amrap = jsonb_set(amrap, '{startedAt}', to_jsonb($2::text)) WHERE id = $1`,
+      [amrapExecution.id, amrapStartedAt],
+    )
+    const amrapPauseResponse = await fetch(`${url}/workouts/executions/${amrapExecution.id}/pause`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({}),
+    })
+    assert.equal(amrapPauseResponse.status, 200)
+    const pausedAmrap = await amrapPauseResponse.json()
+    const amrapPauseStartedAt = pausedAmrap.execution.pauses.at(-1).startedAt
+    const roundWhilePaused = await fetch(amrapUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ blockKey: 'amrap', action: 'completeRound', roundIndex: 1 }),
+    })
+    assert.equal(roundWhilePaused.status, 409)
+    const recoveredPausedAmrap = await fetch(`${url}/workouts/executions/open`, { headers: { cookie } }).then(
+      (r) => r.json(),
+    )
+    assert.equal(recoveredPausedAmrap.execution.execution.status, 'paused')
+    const amrapResume = await fetch(`${url}/workouts/executions/${amrapExecution.id}/resume`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ pauseStartedAt: amrapPauseStartedAt }),
+    })
+    assert.equal(amrapResume.status, 200)
+    const firstAmrapRound = { blockKey: 'amrap', action: 'completeRound', roundIndex: 1 }
+    const firstAmrapRoundResponse = await fetch(amrapUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(firstAmrapRound),
+    })
+    const firstAmrapRoundBody = await firstAmrapRoundResponse.json()
+    assert.equal(firstAmrapRoundResponse.status, 200, JSON.stringify(firstAmrapRoundBody))
+    assert.equal(firstAmrapRoundBody.execution.amrap.rounds.length, 1)
+    assert.equal(firstAmrapRoundBody.execution.results.length, 0)
+    assert.ok(firstAmrapRoundBody.execution.amrap.rounds[0].finishedAt)
+    const firstAmrapReplay = await fetch(amrapUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(firstAmrapRound),
+    })
+    assert.equal((await firstAmrapReplay.json()).replayed, true)
+    const secondAmrapRound = await fetch(amrapUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ blockKey: 'amrap', action: 'completeRound', roundIndex: 2 }),
+    })
+    assert.equal(secondAmrapRound.status, 200)
+    const recoveredMultiRoundAmrap = await fetch(`${url}/workouts/executions/open`, {
+      headers: { cookie },
+    }).then((r) => r.json())
+    const recoveredAmrapExecution = recoveredMultiRoundAmrap.execution.execution
+    assert.equal(recoveredAmrapExecution.amrap.rounds.length, 2)
+    assert.equal(recoveredAmrapExecution.results.length, 0)
+
+    const amrapFinishResponse = await fetch(amrapUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ blockKey: 'amrap', action: 'finish' }),
+    })
+    assert.equal(amrapFinishResponse.status, 200)
+    const amrapFinished = await amrapFinishResponse.json()
+    assert.equal(amrapFinished.execution.amrap.finishReason, 'early')
+    assert.ok(amrapFinished.execution.amrap.activeSeconds < 90)
+    const confirmedRoundTimestamps = amrapFinished.execution.amrap.rounds.map((round) => round.finishedAt)
+    const incompleteAmrapClose = await fetch(`${url}/workouts/executions/${amrapExecution.id}/close`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ completionType: 'planned' }),
+    })
+    assert.equal(incompleteAmrapClose.status, 409)
+    const amrapResultUrl = `${url}/workouts/executions/${amrapExecution.id}/results`
+    const roundOneRow = {
+      type: 'circuit',
+      id: randomUUID(),
+      blockKey: 'amrap',
+      plannedExerciseKey: 'amrap-row',
+      actualExerciseKey: rowKey,
+      round: { kind: 'amrap', roundIndex: 1 },
+      status: 'performed',
+      actualMetrics: { reps: 10, weightKg: 20, rpe: 7 },
+    }
+    const firstRoundRowResponse = await fetch(amrapResultUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ result: roundOneRow }),
+    })
+    assert.equal(firstRoundRowResponse.status, 200)
+    assert.deepEqual((await firstRoundRowResponse.json()).result.actualMetrics, {
+      reps: 10,
+      weightKg: 20,
+      rpe: 7,
+    })
+    const firstRoundRowReplay = await fetch(amrapResultUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ result: roundOneRow }),
+    })
+    assert.equal((await firstRoundRowReplay.json()).replayed, true)
+    const changedRoundOneRow = { ...roundOneRow, actualMetrics: { reps: 11, weightKg: 20, rpe: 8 } }
+    const changedRoundOneRowResponse = await fetch(amrapResultUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ result: changedRoundOneRow }),
+    })
+    assert.equal(changedRoundOneRowResponse.status, 200)
+    assert.deepEqual((await changedRoundOneRowResponse.json()).result.actualMetrics, {
+      reps: 11,
+      weightKg: 20,
+      rpe: 8,
+    })
+    const roundOneSquatZero = {
+      type: 'circuit',
+      id: randomUUID(),
+      blockKey: 'amrap',
+      plannedExerciseKey: 'amrap-squat',
+      actualExerciseKey: squatKey,
+      round: { kind: 'amrap', roundIndex: 1 },
+      status: 'performed',
+      actualMetrics: { reps: 0, weightKg: 30, rpe: 9 },
+    }
+    const zeroRoundResult = await fetch(amrapResultUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ result: roundOneSquatZero }),
+    })
+    assert.equal(zeroRoundResult.status, 200)
+    const roundTwoRow = {
+      ...roundOneRow,
+      id: randomUUID(),
+      round: { kind: 'amrap', roundIndex: 2 },
+      actualMetrics: { reps: 9, weightKg: 20, rpe: 8 },
+    }
+    const roundTwoSquatSkipped = {
+      ...roundOneRow,
+      id: randomUUID(),
+      plannedExerciseKey: 'amrap-squat',
+      round: { kind: 'amrap', roundIndex: 2 },
+      status: 'skipped',
+      actualExerciseKey: undefined,
+      actualMetrics: undefined,
+    }
+    for (const result of [roundTwoRow, roundTwoSquatSkipped]) {
+      const response = await fetch(amrapResultUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ result }),
+      })
+      assert.equal(response.status, 200)
+    }
+    const rowsAfterActuals = await database.query(
+      'SELECT amrap, results FROM workout_executions WHERE id = $1',
+      [amrapExecution.id],
+    )
+    assert.deepEqual(
+      rowsAfterActuals[0].amrap.rounds.map((round) => round.finishedAt),
+      confirmedRoundTimestamps,
+    )
+    assert.equal(
+      rowsAfterActuals[0].results.find((result) => result.id === roundTwoSquatSkipped.id).status,
+      'skipped',
+    )
+    const recoveredAmrapResults = await fetch(`${url}/workouts/executions/open`, {
+      headers: { cookie },
+    }).then((response) => response.json())
+    assert.equal(recoveredAmrapResults.execution.execution.results.length, 4)
+    assert.equal(
+      recoveredAmrapResults.execution.execution.results.find((result) => result.id === roundOneRow.id)
+        .actualMetrics.reps,
+      11,
+    )
+    const partialAmrapResult = await fetch(amrapResultUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        result: {
+          type: 'circuit',
+          id: randomUUID(),
+          blockKey: 'amrap',
+          plannedExerciseKey: 'amrap-row',
+          actualExerciseKey: rowKey,
+          round: { kind: 'amrap', roundIndex: 3 },
+          status: 'performed',
+          actualMetrics: { reps: 4 },
+        },
+      }),
+    })
+    assert.equal(partialAmrapResult.status, 200)
+    const amrapCloseResponse = await fetch(`${url}/workouts/executions/${amrapExecution.id}/close`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ completionType: 'planned' }),
+    })
+    assert.equal(amrapCloseResponse.status, 200)
+    const closedAmrap = await amrapCloseResponse.json()
+    assert.equal(closedAmrap.execution.status, 'completed')
+    assert.equal(closedAmrap.execution.amrap.rounds.length, 2)
+    assert.equal(closedAmrap.execution.results.length, 5)
+    assert.equal(
+      closedAmrap.execution.results.reduce(
+        (total, result) => total + (result.status === 'performed' ? (result.actualMetrics?.reps ?? 0) : 0),
+        0,
+      ),
+      24,
+    )
+    assert.equal(closedAmrap.execution.results.filter((result) => result.status === 'skipped').length, 1)
+    assert.equal(closedAmrap.execution.amrap.finishReason, 'early')
+
+    const expiryStartResponse = await fetch(`${url}/workouts/executions/start`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ requestId: randomUUID(), planId: plan.id, sessionId: sessionIds.saturday }),
+    })
+    assert.equal(expiryStartResponse.status, 200)
+    const expiryExecution = (await expiryStartResponse.json()).execution
+    const expiryUrl = `${url}/workouts/executions/${expiryExecution.id}/amrap/transition`
+    const expiryStart = await fetch(expiryUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ blockKey: 'amrap-expiry', action: 'start' }),
+    })
+    assert.equal(expiryStart.status, 200)
+    await database.query(
+      `UPDATE workout_executions SET amrap = jsonb_set(amrap, '{startedAt}', to_jsonb($2::text)) WHERE id = $1`,
+      [expiryExecution.id, new Date(Date.now() - 10_000).toISOString()],
+    )
+    const pauseAfterAmrapExpiry = await fetch(`${url}/workouts/executions/${expiryExecution.id}/pause`, {
+      method: 'POST',
+      headers,
+    })
+    assert.equal(pauseAfterAmrapExpiry.status, 200)
+    const expiredPauseState = (await pauseAfterAmrapExpiry.json()).execution
+    assert.equal(expiredPauseState.status, 'in_progress')
+    assert.equal(expiredPauseState.amrap.finishReason, 'time_limit')
+    assert.equal(expiredPauseState.pauses.length, 0)
+    const recoveredExpiredAmrap = await fetch(`${url}/workouts/executions/open`, {
+      headers: { cookie },
+    }).then((r) => r.json())
+    assert.equal(recoveredExpiredAmrap.execution.execution.amrap.finishReason, 'time_limit')
+    assert.equal(recoveredExpiredAmrap.execution.execution.amrap.activeSeconds, 3)
+    const lateRound = await fetch(expiryUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ blockKey: 'amrap-expiry', action: 'completeRound', roundIndex: 1 }),
+    })
+    assert.equal(lateRound.status, 200)
+    assert.equal((await lateRound.json()).execution.amrap.rounds.length, 0)
+    const expiredClose = await fetch(`${url}/workouts/executions/${expiryExecution.id}/close`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ completionType: 'planned' }),
+    })
+    assert.equal(expiredClose.status, 200)
 
     const intervalStartResponse = await fetch(`${url}/workouts/executions/start`, {
       method: 'POST',

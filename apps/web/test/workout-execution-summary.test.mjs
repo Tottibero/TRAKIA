@@ -208,6 +208,132 @@ test('closed circuit summary shows rounds, exercise results and one effective du
   assert.deepEqual(summary.exercises[0].results[0].details, ['8 repeticiones', '19 kg', 'RPE 7'])
 })
 
+test('AMRAP summary counts only confirmed per-exercise values and adds the global duration once', () => {
+  const amrapExecution = {
+    ...execution,
+    snapshot: {
+      ...execution.snapshot,
+      session: {
+        ...execution.snapshot.session,
+        blocks: [
+          {
+            type: 'circuit',
+            key: 'amrap',
+            mode: 'amrap',
+            maxDurationSeconds: 120,
+            exercises: [
+              { key: 'squat', exerciseKey: 'bench-press', targets: { reps: 10 } },
+              { key: 'push-up', exerciseKey: 'dumbbell-row', targets: { reps: 8 } },
+            ],
+          },
+        ],
+      },
+      exercises: [
+        execution.snapshot.exercises[0],
+        {
+          key: 'dumbbell-row',
+          name: 'Remo con mancuerna',
+          category: 'strength',
+          supportedMetrics: ['reps', 'weight', 'rpe'],
+        },
+      ],
+    },
+    status: 'completed',
+    amrap: {
+      blockKey: 'amrap',
+      startedAt: '2026-11-16T10:00:00.000Z',
+      rounds: [
+        { roundIndex: 1, finishedAt: '2026-11-16T10:00:40.000Z' },
+        { roundIndex: 2, finishedAt: '2026-11-16T10:01:20.000Z' },
+      ],
+      finishedAt: '2026-11-16T10:02:00.000Z',
+      finishReason: 'time_limit',
+      activeSeconds: 120,
+    },
+    results: [
+      {
+        type: 'circuit',
+        id: 'amrap-1-squat',
+        blockKey: 'amrap',
+        plannedExerciseKey: 'squat',
+        actualExerciseKey: 'bench-press',
+        round: { kind: 'amrap', roundIndex: 1 },
+        status: 'performed',
+        actualMetrics: { reps: 10 },
+      },
+      {
+        type: 'circuit',
+        id: 'amrap-1-pushup',
+        blockKey: 'amrap',
+        plannedExerciseKey: 'push-up',
+        round: { kind: 'amrap', roundIndex: 1 },
+        status: 'skipped',
+      },
+      {
+        type: 'circuit',
+        id: 'amrap-2-squat',
+        blockKey: 'amrap',
+        plannedExerciseKey: 'squat',
+        actualExerciseKey: 'bench-press',
+        round: { kind: 'amrap', roundIndex: 2 },
+        status: 'performed',
+        actualMetrics: { reps: 0 },
+      },
+      {
+        type: 'circuit',
+        id: 'amrap-2-pushup',
+        blockKey: 'amrap',
+        plannedExerciseKey: 'push-up',
+        actualExerciseKey: 'dumbbell-row',
+        round: { kind: 'amrap', roundIndex: 2 },
+        status: 'performed',
+        actualMetrics: { reps: 9 },
+      },
+    ],
+  }
+
+  const summary = summarizeClosedExecution(amrapExecution)
+  assert.equal(summary.totals.completedCircuitRounds, 2)
+  assert.equal(summary.totals.performedCircuitResults, 3)
+  assert.equal(summary.totals.reps, 19)
+  assert.equal(summary.totals.activeSeconds, 120)
+  assert.equal(summary.skipped.length, 1)
+  assert.equal(summary.exercises.flatMap(({ results }) => results).length, 3)
+})
+
+test('unconfirmed AMRAP objectives do not become performed results or totals', () => {
+  const summary = summarizeClosedExecution({
+    ...execution,
+    snapshot: {
+      ...execution.snapshot,
+      session: {
+        ...execution.snapshot.session,
+        blocks: [
+          {
+            type: 'circuit',
+            key: 'amrap',
+            mode: 'amrap',
+            maxDurationSeconds: 120,
+            exercises: [{ key: 'squat', exerciseKey: 'bench-press', targets: { reps: 10 } }],
+          },
+        ],
+      },
+    },
+    results: [],
+    amrap: {
+      blockKey: 'amrap',
+      startedAt: '2026-11-16T10:00:00.000Z',
+      rounds: [{ roundIndex: 1, finishedAt: '2026-11-16T10:00:40.000Z' }],
+      finishedAt: '2026-11-16T10:02:00.000Z',
+      finishReason: 'early',
+      activeSeconds: 120,
+    },
+  })
+  assert.equal(summary.totals.performedCircuitResults, 0)
+  assert.equal(summary.totals.reps, null)
+  assert.equal(summary.exercises.length, 0)
+})
+
 test('closed HIIT summary retains completed, interrupted and skipped work without rest time', () => {
   const hiitExecution = {
     ...execution,

@@ -13,6 +13,8 @@ import {
   WorkoutExecutionResultMetricsRequestSchema,
   WorkoutExecutionCircuitRoundRequestSchema,
   WorkoutExecutionCircuitRoundResponseSchema,
+  WorkoutExecutionAmrapRequestSchema,
+  WorkoutExecutionAmrapResponseSchema,
   WorkoutExecutionIntervalRequestSchema,
   WorkoutExecutionIntervalResponseSchema,
   WorkoutSyncOperationSchema,
@@ -32,6 +34,7 @@ import {
   type WorkoutExecutionWorkTimerStartRequest,
   type WorkoutExecutionResultMetricsRequest,
   type WorkoutExecutionCircuitRoundRequest,
+  type WorkoutExecutionAmrapRequest,
   type WorkoutExecutionIntervalRequest,
 } from '@trakia/contracts'
 import { apiRequest } from '@/shared/api/http'
@@ -127,6 +130,18 @@ export async function transitionWorkoutExecutionInterval(
     { method: 'POST', body: JSON.stringify(request) },
   )
   return WorkoutExecutionIntervalResponseSchema.parse(response)
+}
+
+export async function transitionWorkoutExecutionAmrap(
+  executionId: string,
+  input: WorkoutExecutionAmrapRequest,
+) {
+  const request = WorkoutExecutionAmrapRequestSchema.parse(input)
+  const response = await apiRequest<unknown>(
+    `/workouts/executions/${encodeURIComponent(executionId)}/amrap/transition`,
+    { method: 'POST', body: JSON.stringify(request) },
+  )
+  return WorkoutExecutionAmrapResponseSchema.parse(response)
 }
 
 export async function pauseWorkoutExecution(executionId: string) {

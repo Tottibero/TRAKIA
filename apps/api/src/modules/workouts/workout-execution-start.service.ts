@@ -16,9 +16,12 @@ import {
   type WorkoutExecutionResultResponse,
   type WorkoutExecutionCircuitRoundRequest,
   type WorkoutExecutionCircuitRoundResponse,
+  type WorkoutExecutionAmrapRequest,
+  type WorkoutExecutionAmrapResponse,
   type WorkoutExecutionIntervalRequest,
   type WorkoutExecutionIntervalResponse,
   type WorkoutCircuitRound,
+  type WorkoutAmrapState,
   type WorkoutExecutionWorkTimerStartRequest,
   type WorkoutExecutionWorkTimerStartResponse,
   type WorkoutExecutionResultMetricsRequest,
@@ -133,6 +136,13 @@ export class WorkoutExecutionCircuitRoundConflictError extends Error {
   }
 }
 
+export class WorkoutExecutionAmrapConflictError extends Error {
+  constructor() {
+    super('The AMRAP transition conflicts with the confirmed execution state.')
+    this.name = 'WorkoutExecutionAmrapConflictError'
+  }
+}
+
 export class WorkoutExecutionResultMetricsConflictError extends Error {
   constructor() {
     super('The result already has different confirmed metrics.')
@@ -225,9 +235,103 @@ export class WorkoutExecutionStartService {
   }
 
   async findOpen(userId: string): Promise<WorkoutExecutionOpenResponse> {
-    const record = await findOpenRecord(this.executions, userId)
-    if (!record) return { state: 'none', execution: null }
-    return { state: 'open', execution: toStartResponse(record) }
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkoutExecutionRecord)
+      const record = await findOpenRecord(repository, userId, true)
+      if (!record) return { state: 'none', execution: null }
+      if (record.status !== 'paused') await this.expireAmrapIfDue(record, manager)
+      return { state: 'open', execution: toStartResponse(record) }
+    })
+  }
+
+  async transitionAmrap(
+    userId: string,
+    executionId: string,
+    input: WorkoutExecutionAmrapRequest,
+  ): Promise<WorkoutExecutionAmrapResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkoutExecutionRecord)
+      const record = await repository.findOne({
+        where: { id: executionId, userId },
+        lock: { mode: 'pessimistic_write' },
+      })
+      if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.status !== 'in_progress' && record.status !== 'paused')
+        throw new WorkoutExecutionClosedError()
+      const block = plannedAmrapCircuit(record.snapshot, input.blockKey)
+      if (!block) throw new WorkoutExecutionResultInvalidError()
+
+      if (input.action === 'start') {
+        if (record.amrap) {
+          if (record.amrap.blockKey === input.blockKey && !record.amrap.finishedAt)
+            return { execution: toExecution(record), replayed: true }
+          throw new WorkoutExecutionAmrapConflictError()
+        }
+        if (record.status !== 'in_progress' || record.activeTimer)
+          throw new WorkoutExecutionAmrapConflictError()
+        const [{ startedAt }] = await manager.query('SELECT clock_timestamp() AS "startedAt"')
+        record.amrap = { blockKey: block.key, startedAt: new Date(startedAt).toISOString(), rounds: [] }
+        await repository.save(record)
+        return { execution: toExecution(record), replayed: false }
+      }
+
+      const amrap = record.amrap
+      if (!amrap || amrap.blockKey !== input.blockKey) throw new WorkoutExecutionAmrapConflictError()
+      if (amrap.finishedAt) return { execution: toExecution(record), replayed: true }
+      if (record.status === 'paused' && input.action !== 'finish')
+        throw new WorkoutExecutionAmrapConflictError()
+      const [{ confirmedAt }] = await manager.query('SELECT clock_timestamp() AS "confirmedAt"')
+      const now = new Date(confirmedAt)
+      const elapsed = effectiveElapsedSeconds(amrap.startedAt, record.pauses ?? [], now)
+      if (elapsed >= block.maxDurationSeconds) {
+        record.amrap = finishAmrapAtLimit(amrap, block.maxDurationSeconds, record.pauses ?? [])
+        await repository.save(record)
+        return { execution: toExecution(record), replayed: false }
+      }
+
+      if (input.action === 'finish') {
+        if (record.status === 'paused') {
+          const pauses = record.pauses ?? []
+          const last = pauses.at(-1)
+          if (!last || last.finishedAt) throw new WorkoutExecutionAmrapConflictError()
+          record.pauses = pauses.map((pause, index) =>
+            index === pauses.length - 1 ? { ...pause, finishedAt: now.toISOString() } : pause,
+          )
+          record.status = 'in_progress'
+        }
+        record.amrap = {
+          ...amrap,
+          finishedAt: now.toISOString(),
+          finishReason: 'early',
+          activeSeconds: elapsed,
+        }
+        await repository.save(record)
+        return { execution: toExecution(record), replayed: false }
+      }
+
+      const existingRound = amrap.rounds.find(({ roundIndex }) => roundIndex === input.roundIndex)
+      if (existingRound) return { execution: toExecution(record), replayed: true }
+      if (input.roundIndex !== amrap.rounds.length + 1) throw new WorkoutExecutionAmrapConflictError()
+      record.amrap = {
+        ...amrap,
+        rounds: [...amrap.rounds, { roundIndex: input.roundIndex, finishedAt: now.toISOString() }],
+      }
+      WorkoutExecutionSchema.parse(toExecution(record))
+      await repository.save(record)
+      return { execution: toExecution(record), replayed: false }
+    })
+  }
+
+  private async expireAmrapIfDue(record: WorkoutExecutionRecord, manager: EntityManager): Promise<void> {
+    const amrap = record.amrap
+    if (!amrap || amrap.finishedAt || record.status === 'paused') return
+    const block = plannedAmrapCircuit(record.snapshot, amrap.blockKey)
+    if (!block) return
+    const [{ confirmedAt }] = await manager.query('SELECT clock_timestamp() AS "confirmedAt"')
+    if (effectiveElapsedSeconds(amrap.startedAt, record.pauses ?? [], confirmedAt) < block.maxDurationSeconds)
+      return
+    record.amrap = finishAmrapAtLimit(amrap, block.maxDurationSeconds, record.pauses ?? [])
+    await manager.getRepository(WorkoutExecutionRecord).save(record)
   }
 
   async findForSessions(userId: string, sessionIds: string[]): Promise<Map<string, WorkoutExecution>> {
@@ -272,7 +376,20 @@ export class WorkoutExecutionStartService {
       if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
 
       const [{ pausedAt }] = await manager.query('SELECT clock_timestamp() AS "pausedAt"')
-      record.pauses = [...(record.pauses ?? []), { startedAt: new Date(pausedAt).toISOString() }]
+      const confirmedAt = new Date(pausedAt)
+      if (record.amrap && !record.amrap.finishedAt) {
+        const block = plannedAmrapCircuit(record.snapshot, record.amrap.blockKey)
+        if (
+          block &&
+          effectiveElapsedSeconds(record.amrap.startedAt, record.pauses ?? [], confirmedAt) >=
+            block.maxDurationSeconds
+        ) {
+          record.amrap = finishAmrapAtLimit(record.amrap, block.maxDurationSeconds, record.pauses ?? [])
+          await repository.save(record)
+          return { execution: toExecution(record), replayed: false }
+        }
+      }
+      record.pauses = [...(record.pauses ?? []), { startedAt: confirmedAt.toISOString() }]
       record.status = 'paused'
       await repository.save(record)
       return { execution: toExecution(record), replayed: false }
@@ -696,6 +813,7 @@ export class WorkoutExecutionStartService {
         record.snapshot,
         record.circuitRounds ?? [],
         record.activeTimer,
+        record.amrap,
         result,
       )
       if (!isStrengthSet && !isCircuitResult) throw new WorkoutExecutionResultInvalidError()
@@ -704,12 +822,23 @@ export class WorkoutExecutionStartService {
       if (existing) {
         const comparableExisting =
           existing.activeSeconds !== undefined ? withoutTimedResultFields(existing) : existing
-        if (!isDeepStrictEqual(comparableExisting, result)) throw new WorkoutExecutionResultConflictError()
-        return {
-          result: existing,
-          replayed: true,
-          ...(record.activeTimer ? { activeTimer: record.activeTimer } : {}),
+        if (isDeepStrictEqual(comparableExisting, result)) {
+          return {
+            result: existing,
+            replayed: true,
+            ...(record.activeTimer ? { activeTimer: record.activeTimer } : {}),
+          }
         }
+        if (!sameAmrapResultIdentity(existing, result)) throw new WorkoutExecutionResultConflictError()
+        const updatedResults = results.map((candidate) => (candidate.id === result.id ? result : candidate))
+        try {
+          WorkoutExecutionSchema.parse({ ...toExecution(record), results: updatedResults })
+        } catch {
+          throw new WorkoutExecutionResultInvalidError()
+        }
+        record.results = updatedResults
+        await repository.save(record)
+        return { result, replayed: false }
       }
       if (record.activeTimer?.kind === 'rest') throw new WorkoutExecutionResultConflictError()
       if (record.activeTimer?.kind === 'circuitRound') throw new WorkoutExecutionResultConflictError()
@@ -795,12 +924,16 @@ export class WorkoutExecutionStartService {
       const timedSet = current.type === 'sets' && current.activeSeconds !== undefined
       const recordedCircuitRound =
         current.type === 'circuit' &&
-        (record.circuitRounds ?? []).some(
-          (round) =>
-            round.blockKey === current.blockKey &&
-            current.round.kind === 'planned' &&
-            round.roundIndex === current.round.roundIndex,
-        )
+        (current.round.kind === 'planned'
+          ? (record.circuitRounds ?? []).some(
+              (round) => round.blockKey === current.blockKey && round.roundIndex === current.round.roundIndex,
+            )
+          : Boolean(
+              record.amrap?.blockKey === current.blockKey &&
+              record.amrap.finishedAt &&
+              (current.round.roundIndex <= record.amrap.rounds.length ||
+                current.round.roundIndex === record.amrap.rounds.length + 1),
+            ))
       const intervalWorkResult =
         current.type === 'intervals' &&
         (current.status === 'completed' || current.status === 'interrupted') &&
@@ -825,13 +958,17 @@ export class WorkoutExecutionStartService {
       )
         throw new WorkoutExecutionResultInvalidError()
       if (current.actualMetrics) {
-        if (!isDeepStrictEqual(current.actualMetrics, input.actualMetrics))
+        if (
+          !isDeepStrictEqual(current.actualMetrics, input.actualMetrics) &&
+          !(current.type === 'circuit' && current.round.kind === 'amrap')
+        )
           throw new WorkoutExecutionResultMetricsConflictError()
-        return {
-          result: current,
-          replayed: true,
-          ...(record.activeTimer ? { activeTimer: record.activeTimer } : {}),
-        }
+        if (isDeepStrictEqual(current.actualMetrics, input.actualMetrics))
+          return {
+            result: current,
+            replayed: true,
+            ...(record.activeTimer ? { activeTimer: record.activeTimer } : {}),
+          }
       }
       if (Object.keys(input.actualMetrics).length === 0) throw new WorkoutExecutionResultInvalidError()
 
@@ -903,7 +1040,8 @@ export class WorkoutExecutionStartService {
         submitted.sessionKey !== record.sessionKey ||
         submitted.startedAt !== record.startedAt.toISOString() ||
         !isDeepStrictEqual(submitted.snapshot, record.snapshot) ||
-        !isDeepStrictEqual(submitted.circuitRounds ?? [], record.circuitRounds ?? [])
+        !isDeepStrictEqual(submitted.circuitRounds ?? [], record.circuitRounds ?? []) ||
+        !isDeepStrictEqual(submitted.amrap ?? null, record.amrap ?? null)
       ) {
         return syncConflict(
           responseIdentity,
@@ -1004,6 +1142,7 @@ export class WorkoutExecutionStartService {
         )
       )
         throw new WorkoutExecutionResultInvalidError()
+      if (record.amrap && !record.amrap.finishedAt) throw new WorkoutExecutionResultInvalidError()
 
       const [{ finishedAt }] = await manager.query('SELECT clock_timestamp() AS "finishedAt"')
       const finished = new Date(finishedAt)
@@ -1166,33 +1305,62 @@ function isOnlineCircuitResult(
   snapshot: WorkoutExecutionSnapshot | null,
   rounds: WorkoutCircuitRound[],
   activeTimer: WorkoutExecutionActiveTimer | null,
+  amrap: WorkoutAmrapState | null,
   result: WorkoutResult,
 ): boolean {
   if (
     !snapshot ||
     result.type !== 'circuit' ||
-    result.status !== 'performed' ||
-    result.round.kind !== 'planned' ||
     activeTimer?.kind === 'circuitRound' ||
     activeTimer?.kind === 'work' ||
     activeTimer?.kind === 'rest'
   )
     return false
-  const block = plannedFixedCircuit(snapshot, result.blockKey)
-  if (!block || result.round.roundIndex > block.rounds) return false
-  if (
-    !rounds.some((round) =>
-      sameCircuitRoundIdentity(round, {
-        blockKey: result.blockKey,
-        roundIndex: result.round.roundIndex,
-      }),
+  if (result.round.kind === 'planned') {
+    if (result.status !== 'performed') return false
+    const block = plannedFixedCircuit(snapshot, result.blockKey)
+    if (!block || result.round.roundIndex > block.rounds) return false
+    if (
+      !rounds.some(
+        (round) => round.blockKey === result.blockKey && round.roundIndex === result.round.roundIndex,
+      )
     )
+      return false
+    const planned = block.exercises.find(({ key }) => key === result.plannedExerciseKey)
+    if (!planned) return false
+    const allowed = [
+      planned.exerciseKey,
+      ...(planned.alternatives ?? []).map(({ exerciseKey }) => exerciseKey),
+    ]
+    return Boolean(result.actualExerciseKey && allowed.includes(result.actualExerciseKey))
+  }
+
+  const block = plannedAmrapCircuit(snapshot, result.blockKey)
+  if (
+    !block ||
+    amrap?.blockKey !== result.blockKey ||
+    !amrap.finishedAt ||
+    result.round.roundIndex > amrap.rounds.length + 1
   )
     return false
   const planned = block.exercises.find(({ key }) => key === result.plannedExerciseKey)
   if (!planned) return false
+  if (result.status === 'skipped') return true
   const allowed = [planned.exerciseKey, ...(planned.alternatives ?? []).map(({ exerciseKey }) => exerciseKey)]
   return Boolean(result.actualExerciseKey && allowed.includes(result.actualExerciseKey))
+}
+
+function sameAmrapResultIdentity(existing: WorkoutResult, incoming: WorkoutResult): boolean {
+  return (
+    existing.type === 'circuit' &&
+    incoming.type === 'circuit' &&
+    existing.round.kind === 'amrap' &&
+    incoming.round.kind === 'amrap' &&
+    existing.id === incoming.id &&
+    existing.blockKey === incoming.blockKey &&
+    existing.plannedExerciseKey === incoming.plannedExerciseKey &&
+    existing.round.roundIndex === incoming.round.roundIndex
+  )
 }
 
 function isNextOnlineStrengthUnit(
@@ -1399,6 +1567,26 @@ function plannedFixedCircuit(snapshot: WorkoutExecutionSnapshot | null, blockKey
   return block?.type === 'circuit' && block.mode === 'rounds' ? block : null
 }
 
+function plannedAmrapCircuit(snapshot: WorkoutExecutionSnapshot | null, blockKey: string) {
+  const block = snapshot?.session.blocks.find(
+    (candidate) => candidate.type === 'circuit' && candidate.mode === 'amrap' && candidate.key === blockKey,
+  )
+  return block?.type === 'circuit' && block.mode === 'amrap' ? block : null
+}
+
+function finishAmrapAtLimit(
+  amrap: WorkoutAmrapState,
+  maxDurationSeconds: number,
+  pauses: Array<{ startedAt: string; finishedAt?: string }>,
+): WorkoutAmrapState {
+  return {
+    ...amrap,
+    finishedAt: addEffectiveSeconds(amrap.startedAt, maxDurationSeconds, pauses),
+    finishReason: 'time_limit',
+    activeSeconds: maxDurationSeconds,
+  }
+}
+
 function sameCircuitRoundIdentity(
   identity: { blockKey: string; roundIndex: number },
   input: { blockKey: string; roundIndex: number },
@@ -1458,6 +1646,7 @@ function toExecution(record: WorkoutExecutionRecord): WorkoutExecution {
       : {}),
     pauses: record.pauses ?? [],
     ...((record.circuitRounds ?? []).length ? { circuitRounds: record.circuitRounds } : {}),
+    ...(record.amrap ? { amrap: record.amrap } : {}),
     ...(record.activeTimer ? { activeTimer: record.activeTimer } : {}),
     results: record.results ?? [],
     corrections: (record.correctionOperations ?? []).map(({ payload }) => payload.correction),
@@ -1560,11 +1749,12 @@ function actualMetricField(field: Exclude<WorkoutCorrection['changes'][number]['
   }
 }
 
-function findOpenRecord(repository: Repository<WorkoutExecutionRecord>, userId: string) {
+function findOpenRecord(repository: Repository<WorkoutExecutionRecord>, userId: string, lock = false) {
   return repository.findOne({
     where: [
       { userId, status: 'in_progress' },
       { userId, status: 'paused' },
     ],
+    ...(lock ? { lock: { mode: 'pessimistic_write' as const } } : {}),
   })
 }

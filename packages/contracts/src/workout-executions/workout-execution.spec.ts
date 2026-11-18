@@ -174,6 +174,80 @@ describe('WorkoutExecutionSchema', () => {
     ).toBe(true)
   })
 
+  it('validates persisted AMRAP rounds and defers exercise results until the session closes', () => {
+    const amrap = {
+      blockKey: 'amrap',
+      startedAt: '2026-11-13T09:00:00Z',
+      rounds: [
+        { roundIndex: 1, finishedAt: '2026-11-13T09:01:00Z' },
+        { roundIndex: 2, finishedAt: '2026-11-13T09:02:00Z' },
+      ],
+      finishedAt: '2026-11-13T09:03:00Z',
+      finishReason: 'early',
+      activeSeconds: 180,
+    }
+    const results = Array.from({ length: 4 }, (_, index) => ({
+      type: 'circuit',
+      id: `e41e34c7-04d1-4e9c-8f6b-${String(index + 1).padStart(12, '0')}`,
+      blockKey: 'amrap',
+      plannedExerciseKey: index % 2 === 0 ? 'burpee' : 'jump',
+      actualExerciseKey: index % 2 === 0 ? 'burpee' : 'box-jump',
+      round: { kind: 'amrap', roundIndex: Math.floor(index / 2) + 1 },
+      status: 'performed',
+    }))
+    const partial = {
+      type: 'circuit',
+      id: 'e41e34c7-04d1-4e9c-8f6b-000000000005',
+      blockKey: 'amrap',
+      plannedExerciseKey: 'burpee',
+      actualExerciseKey: 'burpee',
+      round: { kind: 'amrap', roundIndex: 3 },
+      status: 'performed',
+      actualMetrics: { reps: 4 },
+    }
+    expect(
+      WorkoutExecutionSchema.safeParse(execution({ amrap, results: [...results, partial] })).success,
+    ).toBe(true)
+    expect(WorkoutExecutionSchema.safeParse(execution({ amrap, results: results.slice(0, 3) })).success).toBe(
+      true,
+    )
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          status: 'completed',
+          finishedAt: '2026-11-13T09:04:00Z',
+          amrap,
+          results: results.slice(0, 3),
+        }),
+      ).success,
+    ).toBe(false)
+    const resolvedWithSkip = [
+      ...results.slice(0, 3),
+      { ...results[3], status: 'skipped', actualExerciseKey: undefined },
+    ]
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          status: 'completed',
+          finishedAt: '2026-11-13T09:04:00Z',
+          amrap,
+          results: resolvedWithSkip,
+        }),
+      ).success,
+    ).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({ amrap, results: [...results, { ...partial, round: { kind: 'amrap', roundIndex: 4 } }] }),
+      ).success,
+    ).toBe(false)
+    expect(
+      WorkoutExecutionSchema.safeParse({
+        ...execution({ amrap, results }),
+        amrap: { ...amrap, activeSeconds: 301 },
+      }).success,
+    ).toBe(false)
+  })
+
   it('accepts a paused execution with one open pause', () => {
     expect(
       WorkoutExecutionSchema.safeParse(
@@ -417,21 +491,52 @@ describe('WorkoutExecutionSchema', () => {
     ).toBe(false)
   })
 
-  it('accepts an incomplete started AMRAP round', () => {
+  it('allows zero reps only on AMRAP results and requires no fictional metrics for omissions', () => {
+    const zeroRep = {
+      type: 'circuit',
+      id: 'e41e34c7-04d1-4e9c-8f6b-00fd73722b7d',
+      blockKey: 'amrap',
+      plannedExerciseKey: 'burpee',
+      round: { kind: 'amrap', roundIndex: 1 },
+      actualExerciseKey: 'burpee',
+      status: 'performed',
+      actualMetrics: { reps: 0 },
+    }
+    const startedAmrap = {
+      blockKey: 'amrap',
+      startedAt: '2026-11-13T09:00:00Z',
+      rounds: [{ roundIndex: 1, finishedAt: '2026-11-13T09:01:00Z' }],
+      finishedAt: '2026-11-13T09:02:00Z',
+      finishReason: 'early',
+      activeSeconds: 120,
+    }
     expect(
-      resultArray([
-        {
-          type: 'circuit',
-          id: 'e41e34c7-04d1-4e9c-8f6b-00fd73722b7d',
-          blockKey: 'amrap',
-          plannedExerciseKey: 'burpee',
-          round: { kind: 'amrap', roundIndex: 1 },
-          actualExerciseKey: 'burpee',
-          status: 'performed',
-          actualMetrics: { reps: 8 },
-        },
-      ]).success,
+      WorkoutExecutionSchema.safeParse(execution({ amrap: startedAmrap, results: [zeroRep] })).success,
     ).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          amrap: startedAmrap,
+          results: [{ ...zeroRep, round: { kind: 'planned', roundIndex: 1 } }],
+        }),
+      ).success,
+    ).toBe(false)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          amrap: startedAmrap,
+          results: [
+            {
+              ...zeroRep,
+              status: 'skipped',
+              actualExerciseKey: undefined,
+              actualMetrics: undefined,
+            },
+          ],
+        }),
+      ).success,
+    ).toBe(true)
+    expect(WorkoutExecutionSchema.safeParse(execution({ results: [zeroRep] })).success).toBe(false)
   })
 
   it('rejects AMRAP round indexes with a gap', () => {
