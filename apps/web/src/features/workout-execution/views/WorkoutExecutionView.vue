@@ -315,7 +315,15 @@ function title() {
                   <span class="block break-words text-sm text-stone-100">{{ item.title }}</span>
                   <span class="mt-1 block text-xs text-stone-400">{{ item.detail }}</span>
                 </span>
-                <span class="shrink-0 text-xs text-stone-300">{{ group.status }}</span>
+                <span class="shrink-0 text-xs text-stone-300">
+                  {{
+                    item.status === 'interrupted'
+                      ? 'Interrumpida'
+                      : item.status === 'completed'
+                        ? 'Completada'
+                        : group.status
+                  }}
+                </span>
               </li>
             </ul>
             <p v-else class="mt-2 text-sm text-stone-400">Ninguna</p>

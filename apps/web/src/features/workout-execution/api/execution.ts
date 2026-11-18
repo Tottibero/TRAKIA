@@ -13,6 +13,8 @@ import {
   WorkoutExecutionResultMetricsRequestSchema,
   WorkoutExecutionCircuitRoundRequestSchema,
   WorkoutExecutionCircuitRoundResponseSchema,
+  WorkoutExecutionIntervalRequestSchema,
+  WorkoutExecutionIntervalResponseSchema,
   WorkoutSyncOperationSchema,
   WorkoutSyncResponseSchema,
   WorkoutExecutionCloseRequestSchema,
@@ -30,6 +32,7 @@ import {
   type WorkoutExecutionWorkTimerStartRequest,
   type WorkoutExecutionResultMetricsRequest,
   type WorkoutExecutionCircuitRoundRequest,
+  type WorkoutExecutionIntervalRequest,
 } from '@trakia/contracts'
 import { apiRequest } from '@/shared/api/http'
 
@@ -112,6 +115,18 @@ export async function finishWorkoutExecutionCircuitRound(
     { method: 'POST', body: JSON.stringify(request) },
   )
   return WorkoutExecutionCircuitRoundResponseSchema.parse(response)
+}
+
+export async function transitionWorkoutExecutionInterval(
+  executionId: string,
+  input: WorkoutExecutionIntervalRequest,
+) {
+  const request = WorkoutExecutionIntervalRequestSchema.parse(input)
+  const response = await apiRequest<unknown>(
+    `/workouts/executions/${encodeURIComponent(executionId)}/intervals/transition`,
+    { method: 'POST', body: JSON.stringify(request) },
+  )
+  return WorkoutExecutionIntervalResponseSchema.parse(response)
 }
 
 export async function pauseWorkoutExecution(executionId: string) {

@@ -470,6 +470,48 @@ describe('WorkoutExecutionSchema', () => {
     ).toBe(true)
   })
 
+  it('distinguishes a completed interval from interrupted and skipped work', () => {
+    const baseInterval = {
+      type: 'intervals',
+      id: 'e41e34c7-04d1-4e9c-8f6b-00fd73722b7d',
+      blockKey: 'emom',
+      cycleIndex: 1,
+      phaseKey: 'minute-work',
+    }
+    expect(resultArray([{ ...baseInterval, status: 'completed', activeSeconds: 60 }]).success).toBe(true)
+    expect(resultArray([{ ...baseInterval, status: 'interrupted', activeSeconds: 18 }]).success).toBe(true)
+    expect(resultArray([{ ...baseInterval, status: 'skipped' }]).success).toBe(true)
+  })
+
+  it('validates online interval timers against the confirmed phase schedule', () => {
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        base({
+          activeTimer: {
+            kind: 'intervalWork',
+            blockKey: 'emom',
+            cycleIndex: 2,
+            phaseKey: 'minute-work',
+            startedAt: '2026-11-13T09:00:00Z',
+          },
+        }),
+      ).success,
+    ).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        base({
+          activeTimer: {
+            kind: 'intervalWork',
+            blockKey: 'emom',
+            cycleIndex: 2,
+            phaseKey: 'active-recovery',
+            startedAt: '2026-11-13T09:00:00Z',
+          },
+        }),
+      ).success,
+    ).toBe(false)
+  })
+
   it('accepts an omitted interval without work values', () => {
     expect(
       resultArray([

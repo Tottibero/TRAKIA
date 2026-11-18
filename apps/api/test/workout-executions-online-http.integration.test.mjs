@@ -85,7 +85,8 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
     const foreignKey = `${prefix}-plank`
     const rowKey = `${prefix}-row`
     const squatKey = `${prefix}-squat`
-    exerciseKeys = [benchKey, foreignKey, rowKey, squatKey]
+    const bikeKey = `${prefix}-bike`
+    exerciseKeys = [benchKey, foreignKey, rowKey, squatKey, bikeKey]
     await exercises.createFromDefinition({
       key: benchKey,
       name: 'Press banca',
@@ -109,6 +110,12 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
         supportedMetrics: ['reps', 'rpe'],
       })
     }
+    await exercises.createFromDefinition({
+      key: bikeKey,
+      name: 'Bicicleta',
+      category: 'cardio',
+      supportedMetrics: ['duration', 'distance', 'reps', 'calories'],
+    })
     const plans = app.get(TrainingPlanService)
     const plan = await plans.create(prefix, {
       key: `${prefix}-plan`,
@@ -149,6 +156,66 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
                 },
                 { key: 'row', exerciseKey: rowKey, targets: { reps: 10 } },
                 { key: 'squat', exerciseKey: squatKey, targets: { reps: 12 } },
+              ],
+            },
+          ],
+        },
+        {
+          type: 'session',
+          key: 'thursday',
+          date: '2026-11-19',
+          blocks: [
+            {
+              type: 'intervals',
+              key: 'hiit',
+              cycles: 1,
+              phases: [
+                {
+                  type: 'work',
+                  key: 'work-one',
+                  windowSeconds: 1,
+                  exercise: { key: 'bike-one', exerciseKey: bikeKey, targets: { reps: 20 } },
+                },
+                { type: 'rest', key: 'recovery', windowSeconds: 1 },
+                {
+                  type: 'work',
+                  key: 'work-two',
+                  windowSeconds: 1,
+                  exercise: { key: 'bike-two', exerciseKey: bikeKey, targets: { reps: 18 } },
+                },
+              ],
+            },
+            {
+              type: 'intervals',
+              key: 'sprints',
+              cycles: 1,
+              phases: [
+                {
+                  type: 'work',
+                  key: 'sprint-work',
+                  windowSeconds: 30,
+                  exercise: { key: 'sprint-bike', exerciseKey: bikeKey },
+                },
+              ],
+            },
+            {
+              type: 'intervals',
+              key: 'early',
+              cycles: 1,
+              phases: [
+                {
+                  type: 'work',
+                  key: 'early-work-one',
+                  windowSeconds: 30,
+                  exercise: { key: 'early-bike-one', exerciseKey: bikeKey, targets: { reps: 30 } },
+                },
+                { type: 'rest', key: 'early-recovery', windowSeconds: 1 },
+                {
+                  type: 'work',
+                  key: 'early-work-two',
+                  windowSeconds: 30,
+                  exercise: { key: 'early-bike-two', exerciseKey: bikeKey, targets: { reps: 25 } },
+                },
               ],
             },
           ],
@@ -893,6 +960,207 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
       closedCircuit.execution.circuitRounds.reduce((total, round) => total + round.activeSeconds, 0),
     )
 
+    const intervalStartResponse = await fetch(`${url}/workouts/executions/start`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ requestId: randomUUID(), planId: plan.id, sessionId: sessionIds.thursday }),
+    })
+    assert.equal(intervalStartResponse.status, 200)
+    const intervalExecution = (await intervalStartResponse.json()).execution
+    const intervalUrl = `${url}/workouts/executions/${intervalExecution.id}/intervals/transition`
+    const workOne = { blockKey: 'hiit', cycleIndex: 1, phaseKey: 'work-one', action: 'start' }
+    const intervalWorkStart = await fetch(intervalUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(workOne),
+    })
+    assert.equal(intervalWorkStart.status, 200)
+    assert.equal((await intervalWorkStart.json()).execution.activeTimer.kind, 'intervalWork')
+    const intervalWorkStartReplay = await fetch(intervalUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(workOne),
+    })
+    assert.equal(intervalWorkStartReplay.status, 200)
+    assert.equal((await intervalWorkStartReplay.json()).replayed, true)
+    const pausedInterval = await fetch(`${url}/workouts/executions/${intervalExecution.id}/pause`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({}),
+    })
+    assert.equal(pausedInterval.status, 200)
+    const pauseStartedAt = (await pausedInterval.json()).execution.pauses.at(-1).startedAt
+    const prematureIntervalAdvance = await fetch(intervalUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ blockKey: 'hiit', cycleIndex: 1, phaseKey: 'work-one', action: 'advance' }),
+    })
+    assert.equal(prematureIntervalAdvance.status, 409)
+    const resumedInterval = await fetch(`${url}/workouts/executions/${intervalExecution.id}/resume`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ pauseStartedAt }),
+    })
+    assert.equal(resumedInterval.status, 200)
+    await database.query(
+      "UPDATE workout_executions SET active_timer = jsonb_set(active_timer, '{startedAt}', to_jsonb((clock_timestamp() - interval '3.5 seconds')::text)) WHERE id = $1",
+      [intervalExecution.id],
+    )
+    const completedWork = await fetch(intervalUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ blockKey: 'hiit', cycleIndex: 1, phaseKey: 'work-one', action: 'advance' }),
+    })
+    assert.equal(completedWork.status, 200)
+    const completedWorkBody = await completedWork.json()
+    assert.equal(completedWorkBody.execution.results[0].status, 'completed')
+    assert.equal(completedWorkBody.execution.results[1].status, 'completed')
+    assert.equal(completedWorkBody.execution.activeTimer, undefined)
+    const completedWorkReplay = await fetch(intervalUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ blockKey: 'hiit', cycleIndex: 1, phaseKey: 'work-one', action: 'advance' }),
+    })
+    assert.equal(completedWorkReplay.status, 200)
+    assert.equal((await completedWorkReplay.json()).replayed, true)
+
+    const sprintStart = await fetch(intervalUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ blockKey: 'sprints', cycleIndex: 1, phaseKey: 'sprint-work', action: 'start' }),
+    })
+    assert.equal(sprintStart.status, 200)
+    const skippedInterval = await fetch(intervalUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ blockKey: 'sprints', cycleIndex: 1, phaseKey: 'sprint-work', action: 'skip' }),
+    })
+    assert.equal(skippedInterval.status, 200)
+    const skippedIntervalBody = await skippedInterval.json()
+    assert.equal(skippedIntervalBody.execution.results[2].status, 'skipped')
+    assert.equal(skippedIntervalBody.execution.results[2].activeSeconds, undefined)
+    const skippedReplay = await fetch(intervalUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ blockKey: 'sprints', cycleIndex: 1, phaseKey: 'sprint-work', action: 'skip' }),
+    })
+    assert.equal(skippedReplay.status, 200)
+    assert.equal((await skippedReplay.json()).replayed, true)
+
+    const intervalEarlyStart = await fetch(intervalUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ blockKey: 'early', cycleIndex: 1, phaseKey: 'early-work-one', action: 'start' }),
+    })
+    assert.equal(intervalEarlyStart.status, 200)
+    const earlyPaused = await fetch(`${url}/workouts/executions/${intervalExecution.id}/pause`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({}),
+    })
+    assert.equal(earlyPaused.status, 200)
+    const earlyPauseStartedAt = (await earlyPaused.json()).execution.pauses.at(-1).startedAt
+    const earlyResumed = await fetch(`${url}/workouts/executions/${intervalExecution.id}/resume`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ pauseStartedAt: earlyPauseStartedAt }),
+    })
+    assert.equal(earlyResumed.status, 200)
+    const earlyFinish = await fetch(intervalUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        blockKey: 'early',
+        cycleIndex: 1,
+        phaseKey: 'early-work-one',
+        action: 'finish',
+      }),
+    })
+    assert.equal(earlyFinish.status, 200)
+    const afterEarlyFinish = await earlyFinish.json()
+    assert.equal(afterEarlyFinish.execution.results[3].status, 'interrupted')
+    assert.ok(afterEarlyFinish.execution.results[3].activeSeconds > 0)
+    assert.ok(afterEarlyFinish.execution.results[3].activeSeconds < 30)
+    assert.equal(afterEarlyFinish.execution.activeTimer.kind, 'intervalRest')
+    const earlyRestPaused = await fetch(`${url}/workouts/executions/${intervalExecution.id}/pause`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({}),
+    })
+    assert.equal(earlyRestPaused.status, 200)
+    const earlyRestPauseAt = (await earlyRestPaused.json()).execution.pauses.at(-1).startedAt
+    const pausedRestAdvance = await fetch(intervalUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        blockKey: 'early',
+        cycleIndex: 1,
+        phaseKey: 'early-recovery',
+        action: 'advance',
+      }),
+    })
+    assert.equal(pausedRestAdvance.status, 409)
+    const earlyRestResumed = await fetch(`${url}/workouts/executions/${intervalExecution.id}/resume`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ pauseStartedAt: earlyRestPauseAt }),
+    })
+    assert.equal(earlyRestResumed.status, 200)
+    await database.query(
+      "UPDATE workout_executions SET active_timer = jsonb_set(active_timer, '{startedAt}', to_jsonb((clock_timestamp() - interval '3.5 seconds')::text)) WHERE id = $1",
+      [intervalExecution.id],
+    )
+    const expiredRest = await fetch(intervalUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        blockKey: 'early',
+        cycleIndex: 1,
+        phaseKey: 'early-recovery',
+        action: 'advance',
+      }),
+    })
+    assert.equal(expiredRest.status, 200)
+    assert.equal((await expiredRest.json()).execution.activeTimer.phaseKey, 'early-work-two')
+    const secondEarlyFinish = await fetch(intervalUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        blockKey: 'early',
+        cycleIndex: 1,
+        phaseKey: 'early-work-two',
+        action: 'finish',
+      }),
+    })
+    assert.equal(secondEarlyFinish.status, 200)
+    const finalIntervalExecution = (await secondEarlyFinish.json()).execution
+    assert.equal(finalIntervalExecution.activeTimer, undefined)
+
+    const intervalClose = await fetch(`${url}/workouts/executions/${intervalExecution.id}/close`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ completionType: 'planned' }),
+    })
+    assert.equal(intervalClose.status, 200)
+    const closedIntervals = await intervalClose.json()
+    const persistedIntervals = await database.query(
+      'SELECT status, results FROM workout_executions WHERE id = $1',
+      [intervalExecution.id],
+    )
+    assert.equal(persistedIntervals[0].status, 'completed')
+    assert.deepEqual(persistedIntervals[0].results, closedIntervals.execution.results)
+    assert.equal(persistedIntervals[0].results.length, 5)
+    assert.deepEqual(
+      closedIntervals.execution.results.map(({ status }) => status),
+      ['completed', 'completed', 'skipped', 'interrupted', 'interrupted'],
+    )
+    assert.equal(
+      closedIntervals.execution.results.reduce((sum, result) => sum + (result.activeSeconds ?? 0), 0),
+      closedIntervals.execution.results[0].activeSeconds +
+        closedIntervals.execution.results[1].activeSeconds +
+        closedIntervals.execution.results[3].activeSeconds +
+        closedIntervals.execution.results[4].activeSeconds,
+    )
     console.log(
       `WORKOUT_ONLINE_HTTP_EVIDENCE ${JSON.stringify({
         start: responseBodies[0],
@@ -934,6 +1202,17 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
           individualResults: closedCircuit.execution.results.length,
           summarizedActiveSeconds: circuitCalendarEntry.execution.summary.activeSeconds,
           closed: circuitClose.status,
+        },
+        intervalFlow: {
+          start: intervalWorkStart.status,
+          pausedAdvance: prematureIntervalAdvance.status,
+          completed: completedWorkBody.execution.results[0].status,
+          nextWorkAfterRest: expiredRest.status,
+          persistedResultCount: persistedIntervals[0].results.length,
+          persistedExecutionStatus: persistedIntervals[0].status,
+          early: afterEarlyFinish.execution.results[3],
+          skipped: skippedIntervalBody.execution.results[2].status,
+          closed: intervalClose.status,
         },
       })}`,
     )

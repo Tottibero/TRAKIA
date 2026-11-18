@@ -34,6 +34,9 @@ import {
   WorkoutExecutionCircuitRoundPathParamsSchema,
   WorkoutExecutionCircuitRoundRequestSchema,
   WorkoutExecutionCircuitRoundResponseSchema,
+  WorkoutExecutionIntervalPathParamsSchema,
+  WorkoutExecutionIntervalRequestSchema,
+  WorkoutExecutionIntervalResponseSchema,
   WorkoutExecutionCloseRequestSchema,
   WorkoutExecutionCloseResponseSchema,
   WorkoutExecutionPausePathParamsSchema,
@@ -182,6 +185,26 @@ export class WorkoutsController {
     try {
       return WorkoutExecutionCircuitRoundResponseSchema.parse(
         await this.starts.finishCircuitRound(userId, path.data.executionId, input.data),
+      )
+    } catch (error) {
+      throw toHttpException(error)
+    }
+  }
+
+  @Post(':executionId/intervals/transition')
+  @HttpCode(200)
+  async transitionInterval(
+    @Req() request: AuthenticatedWorkoutRequest,
+    @Param() params: unknown,
+    @Body() body: unknown,
+  ) {
+    const path = WorkoutExecutionIntervalPathParamsSchema.safeParse(params)
+    const input = WorkoutExecutionIntervalRequestSchema.safeParse(body)
+    if (!path.success || !input.success) throw invalidRequest()
+    const userId = authenticatedUserId(request)
+    try {
+      return WorkoutExecutionIntervalResponseSchema.parse(
+        await this.starts.transitionInterval(userId, path.data.executionId, input.data),
       )
     } catch (error) {
       throw toHttpException(error)

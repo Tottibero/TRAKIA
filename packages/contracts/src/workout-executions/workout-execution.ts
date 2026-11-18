@@ -129,6 +129,24 @@ export const WorkoutExecutionActiveTimerSchema = z.discriminatedUnion('kind', [
       startedAt: ResultTimestampSchema,
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal('intervalWork'),
+      blockKey: StableKeySchema,
+      cycleIndex: z.number().int().positive(),
+      phaseKey: StableKeySchema,
+      startedAt: ResultTimestampSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('intervalRest'),
+      blockKey: StableKeySchema,
+      cycleIndex: z.number().int().positive(),
+      phaseKey: StableKeySchema,
+      startedAt: ResultTimestampSchema,
+    })
+    .strict(),
 ])
 export type WorkoutExecutionActiveTimer = z.infer<typeof WorkoutExecutionActiveTimerSchema>
 
@@ -256,6 +274,41 @@ export const WorkoutExecutionSchema = z
           code: 'custom',
           path: ['activeTimer'],
           message: 'Circuit rest must reference a completed round',
+        })
+      }
+    }
+    if (execution.activeTimer?.kind === 'intervalWork' || execution.activeTimer?.kind === 'intervalRest') {
+      const timer = execution.activeTimer
+      const block = execution.snapshot.session.blocks.find(
+        (candidate) => candidate.type === 'intervals' && candidate.key === timer.blockKey,
+      )
+      const phase =
+        block?.type === 'intervals' ? block.phases.find(({ key }) => key === timer.phaseKey) : undefined
+      if (
+        block?.type !== 'intervals' ||
+        timer.cycleIndex > block.cycles ||
+        !phase ||
+        (timer.kind === 'intervalWork') !== (phase.type === 'work')
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['activeTimer'],
+          message: 'Interval timer must reference a scheduled phase',
+        })
+      }
+      if (
+        execution.results.some(
+          (result) =>
+            result.type === 'intervals' &&
+            result.blockKey === timer.blockKey &&
+            result.cycleIndex === timer.cycleIndex &&
+            result.phaseKey === timer.phaseKey,
+        )
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['activeTimer'],
+          message: 'An active interval phase cannot already have a result',
         })
       }
     }
@@ -526,9 +579,12 @@ function validateResults(
         scheduledMetrics = result.actualExerciseKey
           ? catalog.get(result.actualExerciseKey)?.supportedMetrics
           : undefined
-      } else if (result.actualExerciseKey) {
+      } else if (phase?.type === 'rest' && result.actualExerciseKey) {
         addIssue(context, [...path, 'actualExerciseKey'], 'Passive recovery cannot reference an exercise')
-      } else if (phase && (result.activeSeconds !== undefined || result.actualMetrics !== undefined)) {
+      } else if (
+        phase?.type === 'rest' &&
+        (result.activeSeconds !== undefined || result.actualMetrics !== undefined)
+      ) {
         addIssue(context, [...path], 'Passive recovery cannot record active work')
       }
       unitIdentity = `${result.blockKey}:${result.cycleIndex}:${result.phaseKey}`

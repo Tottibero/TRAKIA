@@ -353,7 +353,7 @@ export type WorkoutReviewItem = {
   id: string
   title: string
   detail: string
-  status: 'performed' | 'skipped' | 'not_reached'
+  status: WorkoutResult['status'] | 'not_reached'
 }
 
 export type WorkoutReviewSummary = {
@@ -375,8 +375,8 @@ export function summarizeWorkoutExecution(
   const resultUnits = combinedResults.map((result) => reviewItemForResult(execution, result))
 
   for (const item of resultUnits) {
-    if (item.status === 'performed') performed.push(item)
-    else skipped.push(item)
+    if (item.status === 'skipped') skipped.push(item)
+    else performed.push(item)
   }
 
   for (const unit of collectGuidedUnits(execution)) {

@@ -4,6 +4,7 @@ import type { WorkoutExecution } from '@trakia/contracts'
 import { useWorkoutExecutionStart } from '../useWorkoutExecutionStart'
 import { onlineStrengthExecutionLocation } from '../online-strength-flow'
 import { onlineCircuitExecutionLocation } from '../online-circuit-flow'
+import { onlineIntervalExecutionLocation } from '../online-interval-flow'
 import WorkoutExecutionSummary from './WorkoutExecutionSummary.vue'
 
 const props = defineProps<{
@@ -26,6 +27,11 @@ const executionLocation = computed(() => {
   const hasFixedCircuit = activeExecution.value.snapshot.session.blocks.some(
     (block) => block.type === 'circuit' && block.mode === 'rounds',
   )
+  const hasIntervals = activeExecution.value.snapshot.session.blocks.some(
+    (block) => block.type === 'intervals',
+  )
+  if (hasIntervals)
+    return onlineIntervalExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
   return hasFixedCircuit
     ? onlineCircuitExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
     : onlineStrengthExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
