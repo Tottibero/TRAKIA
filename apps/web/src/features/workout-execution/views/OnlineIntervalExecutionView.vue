@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
+import type { IntervalResult } from '@trakia/contracts'
 import {
   closeWorkoutExecution,
   getOpenWorkoutExecution,
@@ -9,6 +10,7 @@ import {
   resumeWorkoutExecution,
   transitionWorkoutExecutionInterval,
 } from '../api/execution'
+import IntervalResultMetricsReview from '../components/IntervalResultMetricsReview.vue'
 import WorkoutExecutionSummary from '../components/WorkoutExecutionSummary.vue'
 import { invalidateTrainingPlanExecutionQueries } from '../execution-query-invalidation'
 import { createOnlineIntervalFlow } from '../online-interval-flow'
@@ -44,6 +46,15 @@ function totalEffectiveSeconds() {
     (total, result) => total + (result.type === 'intervals' ? (result.activeSeconds ?? 0) : 0),
     0,
   )
+}
+
+function updateIntervalResult(result: IntervalResult) {
+  const current = flow.execution.value
+  if (!current) return
+  flow.execution.value = {
+    ...current,
+    results: current.results.map((candidate) => (candidate.id === result.id ? result : candidate)),
+  }
 }
 
 onMounted(() => {
@@ -180,6 +191,12 @@ onBeforeUnmount(() => {
           Trabajo efectivo registrado: {{ totalEffectiveSeconds() }} s
         </p>
         <p class="mt-1 text-sm text-stone-300">Los descansos no se suman al tiempo de trabajo.</p>
+        <IntervalResultMetricsReview
+          :execution="flow.execution.value"
+          :online="flow.isOnline.value"
+          @pending-change="flow.setMetricsPending"
+          @result-updated="updateIntervalResult"
+        />
         <p v-if="flow.errorMessage.value" class="mt-4 text-sm text-rose-200" role="alert">
           {{ flow.errorMessage.value }}
         </p>

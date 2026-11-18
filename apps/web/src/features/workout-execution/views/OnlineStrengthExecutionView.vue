@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { RouterLink } from 'vue-router'
 import type { ActualMetrics } from '@trakia/contracts'
+import { actualMetricInputConstraints } from '../metric-input-constraints.js'
 import {
   closeWorkoutExecution,
   getOpenWorkoutExecution,
@@ -149,7 +150,7 @@ onBeforeUnmount(() => {
             class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-md border border-white/20 px-5 py-4 text-base font-semibold text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200"
             :to="{ name: 'home' }"
           >
-            Volver a planificación
+            Volver al calendario
           </RouterLink>
         </section>
 
@@ -200,8 +201,7 @@ onBeforeUnmount(() => {
                   :id="metricId(metric.field)"
                   class="mt-2 min-h-12 w-full rounded-md border border-white/20 bg-[#191a17] px-3 text-base text-white outline-none focus-visible:border-lime-300 focus-visible:ring-2 focus-visible:ring-lime-300/40 disabled:opacity-70"
                   type="number"
-                  min="0.01"
-                  step="any"
+                  v-bind="actualMetricInputConstraints(metric.field)"
                   inputmode="decimal"
                   :value="flow.fields[metric.field] ?? ''"
                   :aria-invalid="Boolean(flow.validationErrors[metric.field])"

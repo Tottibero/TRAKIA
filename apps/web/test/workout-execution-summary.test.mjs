@@ -1,9 +1,50 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import {
   formatDuration,
   summarizeClosedExecution,
 } from '../src/features/workout-execution/execution-summary.js'
+
+const summaryView = readFileSync(
+  new URL('../src/features/workout-execution/components/WorkoutExecutionSummary.vue', import.meta.url),
+  'utf8',
+)
+const startActionView = readFileSync(
+  new URL('../src/features/workout-execution/components/WorkoutStartAction.vue', import.meta.url),
+  'utf8',
+)
+const strengthView = readFileSync(
+  new URL('../src/features/workout-execution/views/OnlineStrengthExecutionView.vue', import.meta.url),
+  'utf8',
+)
+const circuitView = readFileSync(
+  new URL('../src/features/workout-execution/views/OnlineCircuitExecutionView.vue', import.meta.url),
+  'utf8',
+)
+const intervalView = readFileSync(
+  new URL('../src/features/workout-execution/views/OnlineIntervalExecutionView.vue', import.meta.url),
+  'utf8',
+)
+
+test('shared execution summary returns to the weekly calendar with a mobile-safe accessible link', () => {
+  assert.match(summaryView, /<RouterLink/)
+  assert.match(summaryView, /:to="\{ name: 'home' \}"/)
+  assert.match(summaryView, /Volver al calendario/)
+  assert.match(summaryView, /min-h-12 w-full/)
+  assert.match(summaryView, /focus-visible:outline-2/)
+  assert.doesNotMatch(summaryView, /fixed|sticky/)
+  assert.match(startActionView, /<WorkoutExecutionSummary/)
+})
+
+test('closed strength and circuit flows keep calendar navigation and HIIT uses its shared summary link', () => {
+  for (const view of [strengthView, circuitView]) {
+    assert.match(view, /<RouterLink/)
+    assert.match(view, /:to="\{ name: 'home' \}"/)
+    assert.match(view, /Volver al calendario/)
+  }
+  assert.match(intervalView, /<WorkoutExecutionSummary/)
+})
 
 const execution = {
   id: '24983cfb-a1cb-455a-ac1e-5cc6210c629b',
@@ -69,6 +110,9 @@ test('closed execution summary derives performed results, metrics, active time a
     performedCircuitResults: 0,
     completedCircuitRounds: 0,
     reps: 7,
+    durationSeconds: null,
+    distanceMeters: null,
+    calories: null,
     activeSeconds: 52,
   })
   assert.equal(summary.exercises[0].exerciseName, 'Press banca')
@@ -150,6 +194,9 @@ test('closed circuit summary shows rounds, exercise results and one effective du
     performedCircuitResults: 4,
     completedCircuitRounds: 2,
     reps: 32,
+    durationSeconds: null,
+    distanceMeters: null,
+    calories: null,
   })
   assert.ok(Math.abs(activeSeconds - 72.177) < 1e-9)
   assert.equal(summary.exercises.length, 2)
@@ -159,6 +206,108 @@ test('closed circuit summary shows rounds, exercise results and one effective du
   )
   assert.equal(summary.exercises[0].results[0].label, 'Ronda 1')
   assert.deepEqual(summary.exercises[0].results[0].details, ['8 repeticiones', '19 kg', 'RPE 7'])
+})
+
+test('closed HIIT summary retains completed, interrupted and skipped work without rest time', () => {
+  const hiitExecution = {
+    ...execution,
+    snapshot: {
+      ...execution.snapshot,
+      session: {
+        ...execution.snapshot.session,
+        blocks: [
+          {
+            type: 'intervals',
+            key: 'hiit',
+            cycles: 1,
+            phases: [
+              {
+                type: 'work',
+                key: 'work-one',
+                windowSeconds: 60,
+                exercise: { key: 'bike-one', exerciseKey: 'air-bike', targets: { reps: 20 } },
+              },
+              { type: 'rest', key: 'recovery', windowSeconds: 30 },
+              {
+                type: 'work',
+                key: 'work-two',
+                windowSeconds: 60,
+                exercise: { key: 'bike-two', exerciseKey: 'air-bike', targets: { reps: 15 } },
+              },
+            ],
+          },
+        ],
+      },
+      exercises: [
+        {
+          key: 'air-bike',
+          name: 'Bicicleta',
+          category: 'cardio',
+          supportedMetrics: ['duration', 'calories'],
+        },
+      ],
+    },
+    results: [
+      {
+        type: 'intervals',
+        id: 'interval-1',
+        blockKey: 'hiit',
+        cycleIndex: 1,
+        phaseKey: 'work-one',
+        status: 'completed',
+        actualExerciseKey: 'air-bike',
+        activeSeconds: 60,
+        actualMetrics: { reps: 24, calories: 8, durationSeconds: 60, distanceMeters: 500 },
+      },
+      {
+        type: 'intervals',
+        id: 'interval-2',
+        blockKey: 'hiit',
+        cycleIndex: 1,
+        phaseKey: 'work-two',
+        status: 'interrupted',
+        actualExerciseKey: 'air-bike',
+        activeSeconds: 17,
+        actualMetrics: { reps: 4 },
+      },
+      {
+        type: 'intervals',
+        id: 'interval-3',
+        blockKey: 'hiit',
+        cycleIndex: 1,
+        phaseKey: 'work-three',
+        status: 'skipped',
+      },
+    ],
+  }
+  hiitExecution.snapshot.session.blocks[0].phases.push({
+    type: 'work',
+    key: 'work-three',
+    windowSeconds: 60,
+    exercise: { key: 'bike-three', exerciseKey: 'air-bike' },
+  })
+
+  const summary = summarizeClosedExecution(hiitExecution)
+  assert.equal(summary.totals.activeSeconds, 77)
+  assert.equal(summary.totals.reps, 28)
+  assert.equal(summary.totals.calories, 8)
+  assert.equal(summary.totals.durationSeconds, 60)
+  assert.equal(summary.totals.distanceMeters, 500)
+  assert.equal(summary.exercises.length, 1)
+  assert.deepEqual(
+    summary.exercises[0].results.map(({ details }) => details[0]),
+    ['Completado', 'Interrumpido'],
+  )
+  assert.deepEqual(summary.exercises[0].results[0].details, [
+    'Completado',
+    '24 repeticiones',
+    'Duración 1 min',
+    '500 m',
+    '8 kcal',
+    '1 min de trabajo',
+  ])
+  assert.deepEqual(summary.exercises[0].results[0].plannedDetails, ['60 s programados', '20 reps'])
+  assert.equal(summary.skipped[0].details[0], 'Omitido')
 })
 
 test('duration formatting stays compact for minute and second totals', () => {

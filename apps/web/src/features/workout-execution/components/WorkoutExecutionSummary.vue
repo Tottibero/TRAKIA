@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, type DeepReadonly } from 'vue'
+import { RouterLink } from 'vue-router'
 import type { WorkoutExecution } from '@trakia/contracts'
 import { formatDuration, summarizeClosedExecution } from '../execution-summary.js'
 
@@ -31,6 +32,13 @@ const finishedLabel = computed(() => {
       </time>
     </header>
 
+    <RouterLink
+      class="mt-4 inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/20 px-4 py-3 text-base font-semibold text-stone-100 transition hover:border-lime-200/50 hover:text-lime-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 sm:w-auto"
+      :to="{ name: 'home' }"
+    >
+      Volver al calendario
+    </RouterLink>
+
     <dl class="mt-5 grid grid-cols-2 gap-3 border-y border-white/10 py-4 sm:grid-cols-4 sm:gap-5">
       <div v-if="summary.totals.performedSets">
         <dt class="text-xs font-medium text-stone-400">Series realizadas</dt>
@@ -56,6 +64,24 @@ const finishedLabel = computed(() => {
           {{ summary.totals.reps ?? '—' }}
         </dd>
       </div>
+      <div v-if="summary.totals.durationSeconds !== null">
+        <dt class="text-xs font-medium text-stone-400">Duración registrada</dt>
+        <dd class="mt-1 text-base font-semibold tabular-nums text-stone-100">
+          {{ formatDuration(summary.totals.durationSeconds) }}
+        </dd>
+      </div>
+      <div v-if="summary.totals.distanceMeters !== null">
+        <dt class="text-xs font-medium text-stone-400">Distancia registrada</dt>
+        <dd class="mt-1 text-base font-semibold tabular-nums text-stone-100">
+          {{ summary.totals.distanceMeters }} m
+        </dd>
+      </div>
+      <div v-if="summary.totals.calories !== null">
+        <dt class="text-xs font-medium text-stone-400">Calorías registradas</dt>
+        <dd class="mt-1 text-base font-semibold tabular-nums text-stone-100">
+          {{ summary.totals.calories }} kcal
+        </dd>
+      </div>
       <div>
         <dt class="text-xs font-medium text-stone-400">Tiempo efectivo</dt>
         <dd class="mt-1 text-base font-semibold tabular-nums text-stone-100">
@@ -76,7 +102,12 @@ const finishedLabel = computed(() => {
               class="flex flex-col gap-1 text-sm sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
             >
               <span class="text-stone-300">{{ result.label }}</span>
-              <span class="text-stone-400">{{ result.details.join(' · ') || 'Sin métricas' }}</span>
+              <span class="text-stone-400 sm:text-right">
+                <span v-if="result.plannedDetails.length" class="block text-xs text-stone-400">
+                  Objetivo: {{ result.plannedDetails.join(' · ') }}
+                </span>
+                <span class="block">{{ result.details.join(' · ') || 'Sin métricas' }}</span>
+              </span>
             </li>
           </ul>
         </li>
@@ -84,7 +115,7 @@ const finishedLabel = computed(() => {
     </section>
 
     <section v-if="summary.skipped.length" class="mt-5" aria-labelledby="skipped-title">
-      <h4 id="skipped-title" class="text-sm font-semibold text-stone-200">Series omitidas</h4>
+      <h4 id="skipped-title" class="text-sm font-semibold text-stone-200">Trabajo omitido</h4>
       <ul class="mt-2 space-y-1 text-sm text-stone-300">
         <li v-for="result in summary.skipped" :key="result.id">
           {{ result.exerciseName }} · {{ result.label }}

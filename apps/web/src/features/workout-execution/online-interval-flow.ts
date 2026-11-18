@@ -40,6 +40,7 @@ export function createOnlineIntervalFlow(
   const isBusy = ref(false)
   const isPausing = ref(false)
   const isClosing = ref(false)
+  const hasPendingMetrics = ref(false)
   const isOnline = ref(typeof navigator === 'undefined' ? false : Boolean(navigator.onLine))
   const errorMessage = ref<string | null>(null)
   const clockNow = ref(Date.now())
@@ -136,11 +137,15 @@ export function createOnlineIntervalFlow(
       ),
     )
   })
-  const canClose = computed(() => canReview.value)
+  const canClose = computed(() => canReview.value && !hasPendingMetrics.value)
   const isClosed = computed(() => execution.value?.status === 'completed')
 
   function setOnline(value: boolean) {
     isOnline.value = value
+  }
+
+  function setMetricsPending(value: boolean) {
+    hasPendingMetrics.value = value
   }
 
   function tick() {
@@ -320,6 +325,7 @@ export function createOnlineIntervalFlow(
     canClose,
     isClosed,
     setOnline,
+    setMetricsPending,
     tick,
     recover,
     start,

@@ -22,7 +22,7 @@
 | [HC-05-09-04c](HC-05-09-04c.md) | Completada | Pausa/reanudación online aceptadas manualmente; integración `trakia_test`, `pnpm check` y arquitectura satisfactorias. |
 | [HC-05-09-05](HC-05-09-05.md) | Completada | Motor online de rondas `circuit` con N ejercicios y resumen de duración/resultados; smoke aceptado para superserie 2×2 y triserie 3×2, verificaciones e integración `trakia_test` satisfactorias. |
 | [HC-05-09-06](HC-05-09-06.md) | Completada | HIIT online aceptado manualmente: transiciones, estados, pausas, recarga y 56 s efectivos. Checks finales satisfactorios; anchos exactos 375/390 px no medidos. |
-| [HC-05-09-06a](HC-05-09-06a.md) | En revisión | Smoke HIIT satisfactorio; retorno «Volver al calendario» añadido al resumen y navegación móvil cubierta. Confirmación manual del botón pendiente. |
+| [HC-05-09-06a](HC-05-09-06a.md) | Completada | Métricas HIIT aceptadas manualmente: 26 reps, RPE 10 y resultados por intervalo. «Volver al calendario» tiene pruebas automatizadas; smoke manual posterior del enlace pendiente. |
 
 Las fichas HC-05-01–08 conservan las decisiones y prioridades implementadas históricamente. Para HC-05-09, el recorrido vertical online mínimo (09-03), la primera serie desde PWA (09-03a) y el cierre online (09-03b) están completados. HC-05-09-04 especifica ahora los tiempos online en tareas incrementales; la integración posterior de circuitos, HIIT y AMRAP y la retirada segura del almacenamiento heredado quedan para fichas posteriores.
 

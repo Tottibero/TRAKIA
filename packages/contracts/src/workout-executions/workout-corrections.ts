@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { ExerciseMetricSchema } from '../exercises/exercise.js'
 
 const PositiveMeasurementSchema = z.number().positive()
+const PositiveIntegerSchema = z.number().int().positive()
 const MetricCorrectionSchema = z
   .object({
     field: ExerciseMetricSchema,
@@ -26,7 +27,11 @@ const RpeCorrectionSchema = z
 
 export const WorkoutCorrectionChangeSchema = z.discriminatedUnion('field', [
   ExerciseCorrectionSchema,
-  MetricCorrectionSchema.extend({ field: z.literal('reps') }),
+  MetricCorrectionSchema.extend({
+    field: z.literal('reps'),
+    before: PositiveIntegerSchema.nullable(),
+    after: PositiveIntegerSchema.nullable(),
+  }),
   MetricCorrectionSchema.extend({ field: z.literal('weight') }),
   MetricCorrectionSchema.extend({ field: z.literal('duration') }),
   MetricCorrectionSchema.extend({ field: z.literal('distance') }),

@@ -801,7 +801,28 @@ export class WorkoutExecutionStartService {
             current.round.kind === 'planned' &&
             round.roundIndex === current.round.roundIndex,
         )
-      if (current.status !== 'performed' || !current.actualExerciseKey || (!timedSet && !recordedCircuitRound))
+      const intervalWorkResult =
+        current.type === 'intervals' &&
+        (current.status === 'completed' || current.status === 'interrupted') &&
+        current.activeSeconds !== undefined
+      const intervalBlock =
+        current.type === 'intervals'
+          ? record.snapshot?.session.blocks.find(
+              (block): block is Extract<PlannedBlock, { type: 'intervals' }> =>
+                block.type === 'intervals' && block.key === current.blockKey,
+            )
+          : undefined
+      const intervalExerciseKey =
+        current.type === 'intervals'
+          ? (current.actualExerciseKey ??
+            intervalBlock?.phases.find((phase) => phase.type === 'work' && phase.key === current.phaseKey)
+              ?.exercise?.exerciseKey)
+          : undefined
+      if (
+        (current.type !== 'intervals' && current.status !== 'performed') ||
+        (!current.actualExerciseKey && !intervalExerciseKey) ||
+        (!timedSet && !recordedCircuitRound && !intervalWorkResult)
+      )
         throw new WorkoutExecutionResultInvalidError()
       if (current.actualMetrics) {
         if (!isDeepStrictEqual(current.actualMetrics, input.actualMetrics))
@@ -814,7 +835,13 @@ export class WorkoutExecutionStartService {
       }
       if (Object.keys(input.actualMetrics).length === 0) throw new WorkoutExecutionResultInvalidError()
 
-      const updated: WorkoutResult = { ...current, actualMetrics: input.actualMetrics }
+      const updated: WorkoutResult = {
+        ...current,
+        ...(current.type === 'intervals' && !current.actualExerciseKey && intervalExerciseKey
+          ? { actualExerciseKey: intervalExerciseKey }
+          : {}),
+        actualMetrics: input.actualMetrics,
+      }
       results[index] = updated
       try {
         WorkoutExecutionSchema.parse({ ...toExecution(record), results })

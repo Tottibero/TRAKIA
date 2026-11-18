@@ -1136,6 +1136,85 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
     const finalIntervalExecution = (await secondEarlyFinish.json()).execution
     assert.equal(finalIntervalExecution.activeTimer, undefined)
 
+    const intervalActiveSeconds = finalIntervalExecution.results.map(({ activeSeconds }) => activeSeconds)
+    const intervalMetricUrl = (resultId) =>
+      `${url}/workouts/executions/${intervalExecution.id}/results/${resultId}/metrics`
+    const confirmedIntervalMetrics = await fetch(intervalMetricUrl(finalIntervalExecution.results[0].id), {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ actualMetrics: { reps: 20, calories: 8 } }),
+    })
+    assert.equal(confirmedIntervalMetrics.status, 200)
+    const confirmedIntervalBody = await confirmedIntervalMetrics.json()
+    assert.equal(confirmedIntervalBody.result.actualMetrics.reps, 20)
+    assert.equal(confirmedIntervalBody.result.activeSeconds, intervalActiveSeconds[0])
+    const fractionalReps = await fetch(intervalMetricUrl(finalIntervalExecution.results[0].id), {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ actualMetrics: { reps: 10.5 } }),
+    })
+    assert.equal(fractionalReps.status, 400)
+    const confirmedIntervalReplay = await fetch(intervalMetricUrl(finalIntervalExecution.results[0].id), {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ actualMetrics: { reps: 20, calories: 8 } }),
+    })
+    assert.equal(confirmedIntervalReplay.status, 200)
+    const confirmedIntervalReplayBody = await confirmedIntervalReplay.json()
+    assert.equal(confirmedIntervalReplayBody.replayed, true)
+    const contradictoryIntervalMetrics = await fetch(
+      intervalMetricUrl(finalIntervalExecution.results[0].id),
+      {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ actualMetrics: { reps: 21 } }),
+      },
+    )
+    assert.equal(contradictoryIntervalMetrics.status, 409)
+
+    const interruptedIntervalMetrics = await fetch(intervalMetricUrl(finalIntervalExecution.results[3].id), {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ actualMetrics: { reps: 4 } }),
+    })
+    assert.equal(interruptedIntervalMetrics.status, 200)
+    const interruptedMetricBody = await interruptedIntervalMetrics.json()
+    assert.equal(interruptedMetricBody.result.status, 'interrupted')
+    assert.equal(interruptedMetricBody.result.actualMetrics.reps, 4)
+    assert.equal(interruptedMetricBody.result.activeSeconds, intervalActiveSeconds[3])
+
+    const skippedMetricAttempt = await fetch(intervalMetricUrl(finalIntervalExecution.results[2].id), {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ actualMetrics: { reps: 1 } }),
+    })
+    assert.equal(skippedMetricAttempt.status, 409)
+    const unsupportedIntervalMetric = await fetch(intervalMetricUrl(finalIntervalExecution.results[1].id), {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ actualMetrics: { weightKg: 40 } }),
+    })
+    assert.equal(unsupportedIntervalMetric.status, 409)
+    const persistedIntervalMetrics = await database.query(
+      'SELECT results FROM workout_executions WHERE id = $1',
+      [intervalExecution.id],
+    )
+    assert.deepEqual(
+      persistedIntervalMetrics[0].results.map(({ activeSeconds }) => activeSeconds),
+      intervalActiveSeconds,
+    )
+    assert.deepEqual(
+      persistedIntervalMetrics[0].results.map(({ actualMetrics }) => actualMetrics),
+      [{ reps: 20, calories: 8 }, undefined, undefined, { reps: 4 }, undefined],
+    )
+    const intervalMetricsRecovery = await fetch(`${url}/workouts/executions/open`, {
+      headers: { cookie },
+    })
+    assert.equal(intervalMetricsRecovery.status, 200)
+    const recoveredIntervalMetrics = (await intervalMetricsRecovery.json()).execution.execution.results
+    assert.deepEqual(recoveredIntervalMetrics[0].actualMetrics, { reps: 20, calories: 8 })
+    assert.deepEqual(recoveredIntervalMetrics[3].actualMetrics, { reps: 4 })
+
     const intervalClose = await fetch(`${url}/workouts/executions/${intervalExecution.id}/close`, {
       method: 'POST',
       headers,
@@ -1210,6 +1289,12 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
           nextWorkAfterRest: expiredRest.status,
           persistedResultCount: persistedIntervals[0].results.length,
           persistedExecutionStatus: persistedIntervals[0].status,
+          completedMetrics: closedIntervals.execution.results[0].actualMetrics,
+          interruptedMetrics: closedIntervals.execution.results[3].actualMetrics,
+          replayedMetric: confirmedIntervalReplayBody.replayed,
+          skippedMetricStatus: skippedMetricAttempt.status,
+          unsupportedMetricStatus: unsupportedIntervalMetric.status,
+          metricsRecovery: intervalMetricsRecovery.status,
           early: afterEarlyFinish.execution.results[3],
           skipped: skippedIntervalBody.execution.results[2].status,
           closed: intervalClose.status,

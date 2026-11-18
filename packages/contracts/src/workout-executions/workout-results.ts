@@ -7,7 +7,7 @@ const PositiveMeasurementSchema = z.number().finite().positive()
 /** Actual values use the canonical exercise metrics and their established units. */
 export const ActualMetricsSchema = z
   .object({
-    reps: PositiveMeasurementSchema.optional(),
+    reps: PositiveIntegerSchema.optional(),
     weightKg: PositiveMeasurementSchema.optional(),
     durationSeconds: PositiveMeasurementSchema.optional(),
     distanceMeters: PositiveMeasurementSchema.optional(),

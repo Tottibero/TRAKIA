@@ -202,3 +202,34 @@ test('recovers the current timer from the server after reload', async () => {
     assert.equal(testFlow.writes[0].action, 'advance')
   }
 })
+
+test('keeps the HIIT review visible but refuses close while metric values await confirmation', async () => {
+  const completed = execution({
+    results: [1, 2].map((cycleIndex) => ({
+      type: 'intervals',
+      id: randomUUID(),
+      blockKey: 'hiit',
+      cycleIndex,
+      phaseKey: 'work',
+      status: 'completed',
+      actualExerciseKey: 'air-bike',
+      activeSeconds: 60,
+    })),
+  })
+  const testFlow = harness(completed)
+  testFlow.flow.setOnline(true)
+  await testFlow.flow.recover()
+  assert.equal(testFlow.flow.canReview.value, true)
+  assert.equal(testFlow.flow.canClose.value, true)
+
+  testFlow.flow.setMetricsPending(true)
+  assert.equal(testFlow.flow.canReview.value, true)
+  assert.equal(testFlow.flow.canClose.value, false)
+  await testFlow.flow.close()
+  assert.equal(testFlow.closeCalls, 0)
+
+  testFlow.flow.setMetricsPending(false)
+  assert.equal(testFlow.flow.canClose.value, true)
+  await testFlow.flow.close()
+  assert.equal(testFlow.closeCalls, 1)
+})

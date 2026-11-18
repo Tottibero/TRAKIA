@@ -13,6 +13,7 @@ import {
   startWorkoutExecutionCircuitRound,
 } from '../api/execution'
 import { invalidateTrainingPlanExecutionQueries } from '../execution-query-invalidation.js'
+import { actualMetricInputConstraints } from '../metric-input-constraints.js'
 import { createOnlineCircuitFlow } from '../online-circuit-flow'
 
 const props = defineProps<{ executionId: string; requestId?: string }>()
@@ -234,8 +235,7 @@ onBeforeUnmount(() => {
                   :id="metricId(entry.appearance.key, metric.field)"
                   class="mt-2 min-h-12 w-full rounded-md border border-white/20 bg-[#10110f] px-3 text-base text-white outline-none focus-visible:border-lime-300 focus-visible:ring-2 focus-visible:ring-lime-300/40 disabled:opacity-70"
                   type="number"
-                  min="0.01"
-                  step="any"
+                  v-bind="actualMetricInputConstraints(metric.field)"
                   inputmode="decimal"
                   :value="flow.fields[entry.appearance.key]?.[metric.field] ?? ''"
                   @input="
@@ -284,7 +284,7 @@ onBeforeUnmount(() => {
         <RouterLink
           class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-md border border-white/20 px-5 py-4 text-base font-semibold"
           :to="{ name: 'home' }"
-          >Volver a planificación</RouterLink
+          >Volver al calendario</RouterLink
         >
       </section>
       <p v-if="!flow.isOnline.value" class="mt-6 text-center text-sm text-amber-200" role="status">
