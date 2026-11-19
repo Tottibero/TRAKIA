@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { ImportValidationIssue, TrainingPlanImportReviewResponse } from '@trakia/contracts'
+import type { ImportValidationIssue } from '@trakia/contracts'
 import { useAuth } from '@/features/auth'
 import AppPageShell from '@/shared/components/AppPageShell.vue'
 import { trainingPlanHomeLocation } from '../../training-plan-calendar'
+import ImportPlanSummary from '../components/ImportPlanSummary.vue'
+import { groupImportConflicts } from '../conflict-presentation'
 import { useTrainingPlanImport } from '../useTrainingPlanImport'
 
 const importer = useTrainingPlanImport()
@@ -18,9 +20,9 @@ const {
   errorMessage,
   errorSummary,
   errorTitle,
+  exerciseNames,
   fileInput,
   fileName,
-  fileSize,
   issues,
   review,
   state,
@@ -29,64 +31,35 @@ const planningLocation = computed(() =>
   confirmedPlanStartDate.value ? trainingPlanHomeLocation(confirmedPlanStartDate.value) : undefined,
 )
 const step = computed(() => {
-  if (
-    ['ready-to-confirm', 'reviewed-with-conflicts', 'confirming', 'confirmed', 'unchanged'].includes(
-      importer.state.value,
-    )
-  )
-    return 2
+  if (['ready-to-confirm', 'confirming', 'confirmed', 'unchanged'].includes(importer.state.value)) return 2
   if (importer.review.value) return 1
   return 0
 })
-const changeSummary = computed(() => {
-  const changes = importer.review.value?.changes ?? []
-  return [
-    {
-      status: 'created',
-      label: 'Nuevos',
-      count: changes.filter((change) => change.status === 'created').length,
-    },
-    {
-      status: 'modified',
-      label: 'Modificados',
-      count: changes.filter((change) => change.status === 'modified').length,
-    },
-    {
-      status: 'unchanged',
-      label: 'Sin cambios',
-      count: changes.filter((change) => change.status === 'unchanged').length,
-    },
-    {
-      status: 'preserved',
-      label: 'Conservados',
-      count: changes.filter((change) => change.status === 'preserved').length,
-    },
-  ].filter((item) => item.count > 0)
-})
-const changeGroups = computed(() => {
-  const changes = importer.review.value?.changes ?? []
-  return [
-    { status: 'created', title: 'Elementos nuevos' },
-    { status: 'modified', title: 'Elementos modificados' },
-    { status: 'unchanged', title: 'Elementos sin cambios' },
-    { status: 'preserved', title: 'Elementos conservados' },
-  ]
-    .map((group) => ({ ...group, changes: changes.filter((change) => change.status === group.status) }))
-    .filter((group) => group.changes.length > 0)
-})
 const proposalDays = computed(() => importer.review.value?.proposal?.days ?? [])
+const hasReviewConflicts = computed(() => Boolean(review.value?.valid && review.value.conflicts.length))
+const conflictCountLabel = computed(() => {
+  const count = review.value?.conflicts.length ?? 0
+  return `${count} conflicto${count === 1 ? '' : 's'} encontrado${count === 1 ? '' : 's'}`
+})
+const conflictGroups = computed(() => {
+  if (!review.value?.valid) return []
+  const sessionDates = new Map(
+    proposalDays.value.filter((day) => day.type === 'session').map((day) => [day.key, day.date]),
+  )
+  const context = {
+    exerciseNames: exerciseNames.value,
+    sessionDates,
+    planName: review.value.proposal?.name ?? '',
+  }
+  return groupImportConflicts(review.value.conflicts, context)
+})
 const stateCopy = computed(() => {
   const copy: Record<string, string> = {
-    empty: importer.fileName.value
-      ? 'Archivo listo para revisar.'
-      : 'Selecciona un archivo JSON para empezar.',
     reading: 'Leyendo y validando el archivo…',
     'invalid-file': 'No se puede usar este archivo.',
     'invalid-json': 'No se pudo interpretar el JSON.',
     'invalid-document': 'El documento necesita correcciones antes de continuar.',
     reviewing: 'Comprobando el plan y los elementos que se conservarán…',
-    'reviewed-with-conflicts': 'La revisión encontró conflictos. No se puede confirmar.',
-    'ready-to-confirm': 'Revisión completa. Comprueba el resumen antes de confirmar.',
     confirming: 'Guardando el plan…',
     confirmed: 'Plan importado correctamente.',
     unchanged: 'El plan ya estaba al día. No se realizaron cambios.',
@@ -105,30 +78,6 @@ const issueText: Record<ImportValidationIssue['code'], string> = {
   INCOMPATIBLE_METRIC: 'Un ejercicio no admite una de las métricas indicadas.',
   INVALID_PLAN: 'La estructura o los datos del plan no son válidos.',
 }
-const conflictText: Record<string, string> = {
-  EXERCISE_DEFINITION_CONFLICT: 'La definición de este ejercicio difiere del catálogo guardado.',
-  UNRESOLVED_PERSISTED_EXERCISE_KEY: 'No se puede identificar con seguridad un ejercicio ya guardado.',
-  EXERCISE_NOT_FOUND: 'El plan combinado hace referencia a un ejercicio inexistente.',
-  INVALID_COMBINED_PLAN: 'La combinación del plan no supera la validación.',
-  PAST_SESSION_PROTECTED: 'No se pueden modificar ni añadir sesiones pasadas.',
-  SESSION_EXECUTION_PROTECTED: 'Esta sesión ya tiene una ejecución iniciada o completada.',
-  IDENTITY_TYPE_MISMATCH: 'La clave del elemento ya pertenece a otro tipo de elemento.',
-  OPERATION_ID_CONTENT_MISMATCH: 'El identificador de operación ya se usó con otros datos.',
-  STALE_IMPORT_REVIEW: 'Los datos guardados cambiaron después de la revisión.',
-  STALE_PLAN_VERSION: 'El plan cambió después de la revisión.',
-  CONCURRENT_CATALOG_OR_PLAN_CHANGE: 'El catálogo o plan cambió durante la confirmación.',
-  INVALID_OR_EXPIRED_REVIEW_RECEIPT: 'La revisión caducó o dejó de ser válida.',
-  IMPORT_CONFLICT: 'El plan tiene un conflicto que impide confirmarlo.',
-}
-const kindText: Record<string, string> = {
-  exercise: 'Ejercicio',
-  plan: 'Plan',
-  day: 'Día',
-  block: 'Bloque',
-  phase: 'Fase',
-  appearance: 'Ejercicio programado',
-}
-
 async function selectFile(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
@@ -143,22 +92,6 @@ function pathLabel(path: Array<string | number>): string {
   return path
     .map((part) => (typeof part === 'number' ? `elemento ${part + 1}` : part.replaceAll('-', ' ')))
     .join(' › ')
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} bytes`
-  return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`
-}
-
-function formatDate(value?: string): string {
-  if (!value) return ''
-  return new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
-}
-
-function planDayLabel(
-  day: NonNullable<TrainingPlanImportReviewResponse['proposal']>['days'][number],
-): string {
-  return day.type === 'session' ? `Sesión · ${day.date}` : `Descanso${day.date ? ` · ${day.date}` : ''}`
 }
 </script>
 
@@ -178,9 +111,6 @@ function planDayLabel(
       <div class="import-shell">
         <section class="import-content" aria-labelledby="import-title">
           <h1 id="import-title">Importar plan</h1>
-          <p class="import-intro">
-            Revisa qué se añadirá y qué datos existentes se conservarán antes de guardar.
-          </p>
 
           <ol class="import-steps" aria-label="Pasos de importación">
             <li :aria-current="step === 0 ? 'step' : undefined" :class="{ 'is-complete': step > 0 }">
@@ -194,32 +124,23 @@ function planDayLabel(
             </li>
           </ol>
 
-          <section class="import-section" aria-labelledby="file-heading">
-            <div class="section-heading">
-              <h2 id="file-heading">Archivo del plan</h2>
-              <p>El JSON se valida en este dispositivo y en el servidor.</p>
-            </div>
+          <input
+            id="training-plan-file"
+            ref="fileInput"
+            class="import-file-input"
+            type="file"
+            accept=".json,application/json"
+            tabindex="-1"
+            @change="selectFile"
+          />
 
-            <label class="import-file-picker" for="training-plan-file">
+          <section v-if="!hasReviewConflicts" class="import-section file-section">
+            <button class="import-file-picker" type="button" @click="importer.chooseAnotherFile">
               <span class="file-picker-action">Seleccionar archivo</span>
               <span class="file-picker-name">{{ fileName || 'Ningún archivo seleccionado' }}</span>
-              <input
-                id="training-plan-file"
-                ref="fileInput"
-                class="import-file-input"
-                type="file"
-                accept=".json,application/json"
-                aria-describedby="file-help"
-                @change="selectFile"
-              />
-            </label>
-            <p id="file-help" class="import-help">
-              Máximo 1 MiB. El contenido solo se conserva mientras esta pantalla está abierta.
-            </p>
+            </button>
 
-            <div v-if="fileName" class="file-meta" aria-live="polite">
-              <span class="file-name">{{ fileName }}</span>
-              <span>{{ formatFileSize(fileSize) }}</span>
+            <div v-if="fileName" class="file-meta">
               <button type="button" class="text-button" @click="importer.clearFile">Quitar archivo</button>
             </div>
 
@@ -235,6 +156,10 @@ function planDayLabel(
           </section>
 
           <section
+            v-if="
+              stateCopy &&
+              !['reviewed-with-conflicts', 'ready-to-confirm', 'confirmed', 'unchanged'].includes(state)
+            "
             class="import-status"
             :class="`status-${state}`"
             role="status"
@@ -264,88 +189,53 @@ function planDayLabel(
             </ul>
           </section>
 
-          <template v-if="review?.valid">
-            <section class="import-section review-section" aria-labelledby="review-heading">
-              <div class="section-heading">
-                <h2 id="review-heading">Resumen de la revisión</h2>
-                <p v-if="review.confirmable">
-                  Revisión vigente hasta {{ formatDate(review.reviewExpiresAt) }}.
-                </p>
-                <p v-else>Resuelve los conflictos antes de iniciar una nueva revisión.</p>
-              </div>
+          <section v-if="hasReviewConflicts" class="conflict-review" aria-labelledby="conflict-heading">
+            <h2 id="conflict-heading" aria-live="polite" aria-atomic="true">{{ conflictCountLabel }}</h2>
+            <p>No se puede importar el plan hasta corregirlos.</p>
 
-              <p class="preservation-note">
-                Los elementos que no aparecen en el archivo se conservarán. La importación no elimina datos.
-              </p>
-
-              <dl class="change-summary" aria-label="Resumen de cambios">
-                <div v-for="item in changeSummary" :key="item.status">
-                  <dt>{{ item.label }}</dt>
-                  <dd>{{ item.count }}</dd>
-                </div>
-                <div v-if="review.conflicts.length" class="summary-conflict">
-                  <dt>Conflictos</dt>
-                  <dd>{{ review.conflicts.length }}</dd>
-                </div>
-              </dl>
-
-              <details v-for="group in changeGroups" :key="group.status" class="change-details">
-                <summary>
-                  {{ group.title }} <span>{{ group.changes.length }}</span>
-                </summary>
+            <ul class="conflict-groups">
+              <li v-for="group in conflictGroups" :key="group.message" class="conflict-group">
+                <strong>{{ group.message }}</strong>
                 <ul>
-                  <li v-for="(change, index) in group.changes" :key="`${change.kind}-${change.key}-${index}`">
-                    <span>{{ kindText[change.kind] ?? 'Elemento' }}</span>
-                    <strong>{{ change.key }}</strong>
-                    <small>{{ pathLabel(change.path) }}</small>
+                  <li v-for="target in group.targets" :key="target.label" class="conflict-target">
+                    <span>{{ target.label }}</span>
+                    <span v-if="target.count > 1" class="conflict-target-count">× {{ target.count }}</span>
                   </li>
                 </ul>
-              </details>
+              </li>
+            </ul>
 
-              <div v-if="review.proposal" class="proposal-detail">
-                <h3>Plan combinado</h3>
-                <dl>
-                  <div>
-                    <dt>Nombre</dt>
-                    <dd>{{ review.proposal.name }}</dd>
-                  </div>
-                  <div>
-                    <dt>Periodo</dt>
-                    <dd>{{ review.proposal.startDate }} – {{ review.proposal.endDate }}</dd>
-                  </div>
-                  <div>
-                    <dt>Días</dt>
-                    <dd>{{ proposalDays.length }}</dd>
-                  </div>
-                </dl>
-                <ul class="proposal-days">
-                  <li v-for="day in proposalDays" :key="day.key">
-                    <span>{{ planDayLabel(day) }}</span>
-                  </li>
-                </ul>
-              </div>
+            <div class="conflict-actions">
+              <button class="button-primary" type="button" @click="importer.chooseAnotherFile">
+                Seleccionar otro archivo
+              </button>
+              <button
+                class="button-secondary"
+                type="button"
+                :disabled="!canReview"
+                @click="importer.reviewFile"
+              >
+                Volver a revisar
+              </button>
+            </div>
+          </section>
 
-              <div v-if="review.conflicts.length" class="conflict-list" aria-labelledby="conflict-heading">
-                <h3 id="conflict-heading">Conflictos que bloquean la importación</h3>
-                <ul>
-                  <li
-                    v-for="(conflict, index) in review.conflicts"
-                    :key="`${conflict.code}-${conflict.key}-${index}`"
-                  >
-                    <strong>{{
-                      conflictText[conflict.code] ?? 'Este elemento no se puede importar.'
-                    }}</strong>
-                    <span>{{ conflict.key }} · {{ pathLabel(conflict.path) }}</span>
-                  </li>
-                </ul>
-              </div>
-            </section>
-
-            <section class="import-confirm" aria-labelledby="confirm-heading">
-              <div>
-                <h2 id="confirm-heading">Confirmar importación</h2>
-                <p>La confirmación guarda el plan combinado como una única operación.</p>
-              </div>
+          <section v-else-if="review?.valid" class="review-ready" aria-labelledby="review-ready-heading">
+            <h2 id="review-ready-heading">
+              {{
+                state === 'confirmed'
+                  ? 'Plan importado'
+                  : state === 'unchanged'
+                    ? 'El plan ya estaba al día'
+                    : 'Plan listo para importar'
+              }}
+            </h2>
+            <ImportPlanSummary
+              v-if="review.proposal"
+              :plan="review.proposal"
+              :exercise-names="exerciseNames"
+            />
+            <div class="review-actions">
               <button
                 v-if="canConfirm || state === 'confirming'"
                 class="button-primary"
@@ -355,9 +245,6 @@ function planDayLabel(
               >
                 {{ state === 'confirming' ? 'Guardando…' : 'Confirmar plan' }}
               </button>
-              <p v-else-if="review.conflicts.length" class="confirm-blocked">
-                La confirmación está desactivada hasta resolver los conflictos.
-              </p>
               <button
                 v-else-if="state === 'request-error' && canRetryConfirmation"
                 class="button-primary"
@@ -373,8 +260,8 @@ function planDayLabel(
               >
                 Ver planificación
               </RouterLink>
-            </section>
-          </template>
+            </div>
+          </section>
 
           <section v-if="state === 'stale-or-expired'" class="recovery-actions">
             <button class="button-primary" type="button" :disabled="!canReview" @click="importer.reviewFile">
@@ -435,7 +322,7 @@ function planDayLabel(
 .import-content {
   width: min(100%, 50rem);
   margin-inline: auto;
-  padding-top: clamp(2rem, 7vw, 4.5rem);
+  padding-top: clamp(1.5rem, 5vw, 4rem);
 }
 
 h1,
@@ -446,27 +333,18 @@ p {
 }
 
 h1 {
-  margin-bottom: 0.75rem;
-  font-size: clamp(2rem, 8vw, 3rem);
+  margin-bottom: 0.5rem;
+  font-size: 1.875rem;
   line-height: 1.05;
   letter-spacing: -0.045em;
-}
-
-.import-intro {
-  max-width: 42rem;
-  margin-bottom: 2rem;
-  color: var(--trakia-muted);
-  font-size: 1rem;
-  line-height: 1.6;
 }
 
 .import-steps {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
-  margin: 0 0 2rem;
-  padding: 0 0 1rem;
-  border-bottom: 1px solid var(--trakia-border);
+  margin: 0 0 1rem;
+  padding: 0;
   list-style: none;
 }
 
@@ -507,16 +385,21 @@ h1 {
   border-bottom: 1px solid var(--trakia-border);
 }
 
+.file-section {
+  display: grid;
+  gap: 0.75rem;
+  padding-block: 0;
+  border-bottom: 0;
+}
+
 .section-heading h2,
-.import-confirm h2,
 .import-errors h2 {
   margin-bottom: 0.5rem;
   font-size: 1.125rem;
   font-weight: 650;
 }
 
-.section-heading p,
-.import-confirm p {
+.section-heading p {
   margin-bottom: 1rem;
   color: var(--trakia-muted);
   font-size: 0.875rem;
@@ -524,17 +407,12 @@ h1 {
 }
 
 .import-file-input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
+  display: none;
 }
 
 .import-file-picker {
-  position: relative;
   min-height: 3.25rem;
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -543,58 +421,34 @@ h1 {
   background: var(--trakia-surface);
   padding: 0.5rem 0.625rem;
   color: var(--trakia-text);
-  font-size: 0.875rem;
+  font: inherit;
   cursor: pointer;
-  overflow: hidden;
+  text-align: left;
 }
 
 .file-picker-action {
-  min-height: 2.25rem;
-  display: inline-flex;
   flex: 0 0 auto;
-  align-items: center;
-  border: 0;
-  border-radius: 0.35rem;
-  background: var(--trakia-surface-raised);
-  padding-inline: 0.75rem;
   color: var(--trakia-text);
   font-weight: 600;
 }
 
 .file-picker-name {
   min-width: 0;
+  color: var(--trakia-muted);
   overflow-wrap: anywhere;
-  color: var(--trakia-muted);
-}
-
-.import-file-picker:focus-within {
-  outline: 3px solid var(--trakia-focus);
-  outline-offset: 3px;
-}
-
-.import-help {
-  margin: 0.625rem 0 0;
-  color: var(--trakia-muted);
-  font-size: 0.8125rem;
-  line-height: 1.5;
 }
 
 .file-meta {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
-  margin-top: 1rem;
+  justify-content: flex-end;
+  margin-top: -0.5rem;
   color: var(--trakia-muted);
   font-size: 0.8125rem;
-  font-variant-numeric: tabular-nums;
 }
 
-.file-name {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  color: var(--trakia-text);
-  font-weight: 600;
+.file-section > .button-primary {
+  margin-top: 0;
 }
 
 .text-button {
@@ -627,12 +481,12 @@ h1 {
 }
 
 .button-primary {
-  background: var(--trakia-accent);
-  color: var(--trakia-accent-foreground);
+  background: var(--trakia-accent-action);
+  color: var(--trakia-accent-action-foreground);
 }
 
 .button-primary:hover:not(:disabled) {
-  background: var(--trakia-accent-hover);
+  background: var(--trakia-accent-action-hover);
 }
 
 .button-secondary {
@@ -680,7 +534,6 @@ h1 {
   background: var(--trakia-success);
 }
 
-.status-reviewed-with-conflicts .status-indicator,
 .status-stale-or-expired .status-indicator {
   background: var(--trakia-warning);
 }
@@ -692,8 +545,7 @@ h1 {
   background: var(--trakia-danger);
 }
 
-.import-errors,
-.conflict-list {
+.import-errors {
   margin-block: 1rem;
   padding: 1rem;
   border: 1px solid var(--trakia-danger-border);
@@ -702,22 +554,17 @@ h1 {
   color: var(--trakia-text);
 }
 
-.import-errors h2,
-.conflict-list h3 {
+.import-errors h2 {
   margin-bottom: 0.5rem;
   color: var(--trakia-danger);
   font-size: 1rem;
 }
 
-.import-errors p,
-.conflict-list li strong {
+.import-errors p {
   line-height: 1.5;
 }
 
-.import-errors ul,
-.conflict-list ul,
-.change-details ul,
-.proposal-days {
+.import-errors ul {
   display: grid;
   gap: 0.75rem;
   margin: 0.75rem 0 0;
@@ -725,156 +572,99 @@ h1 {
   list-style: none;
 }
 
-.import-errors li,
-.conflict-list li {
+.import-errors li {
   display: grid;
   gap: 0.25rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--trakia-danger-border);
 }
 
-.import-errors li span,
-.conflict-list li span {
+.import-errors li span {
   color: var(--trakia-danger-muted);
   font-size: 0.8125rem;
   overflow-wrap: anywhere;
 }
 
-.preservation-note {
-  margin: 0 0 1rem;
-  color: var(--trakia-success);
-  font-size: 0.875rem;
-  line-height: 1.55;
+.conflict-review {
+  margin-top: 0.5rem;
 }
 
-.change-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem 1rem;
-  margin: 1.25rem 0;
-}
-
-.change-summary div {
-  min-width: 0;
-  padding-block: 0.75rem;
-  border-top: 1px solid var(--trakia-border);
-}
-
-.change-summary dt,
-.proposal-detail dt {
-  color: var(--trakia-muted);
-  font-size: 0.8125rem;
-}
-
-.change-summary dd {
-  margin: 0.2rem 0 0;
-  color: var(--trakia-text);
-  font-size: 1.25rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.change-summary .summary-conflict dd {
-  color: var(--trakia-warning);
-}
-
-.change-details {
-  border-top: 1px solid var(--trakia-border);
-}
-
-.change-details:last-of-type {
-  border-bottom: 1px solid var(--trakia-border);
-}
-
-.change-details summary {
-  min-height: 3rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  color: var(--trakia-text);
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.change-details summary span {
-  color: var(--trakia-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.change-details li {
-  display: grid;
-  grid-template-columns: minmax(6.5rem, 0.4fr) minmax(0, 1fr);
-  gap: 0.25rem 0.75rem;
-  padding-block: 0.5rem;
-  border-top: 1px solid var(--trakia-border);
-  font-size: 0.8125rem;
-}
-
-.change-details li span,
-.change-details li small {
-  color: var(--trakia-muted);
-}
-
-.change-details li strong,
-.change-details li small {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.change-details li small {
-  grid-column: 1 / -1;
-  font-size: 0.75rem;
-}
-
-.proposal-detail {
-  margin-top: 1.75rem;
-}
-
-.proposal-detail h3,
-.conflict-list h3 {
-  font-size: 1rem;
+.conflict-review h2,
+.review-ready h2 {
+  margin-bottom: 0.375rem;
+  font-size: 1.125rem;
   font-weight: 650;
 }
 
-.proposal-detail dl {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem 1rem;
-  margin: 0;
-}
-
-.proposal-detail dl div {
-  min-width: 0;
-}
-
-.proposal-detail dd {
-  margin: 0.25rem 0 0;
-  overflow-wrap: anywhere;
-  color: var(--trakia-text);
-  font-size: 0.875rem;
-}
-
-.proposal-days li {
-  padding-top: 0.625rem;
-  border-top: 1px solid var(--trakia-border);
+.conflict-review > p {
+  margin-bottom: 0;
   color: var(--trakia-muted);
-  font-size: 0.8125rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
 }
 
-.import-confirm {
+.conflict-groups {
   display: grid;
-  gap: 0.25rem;
-  padding-block: 1.5rem;
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
 }
 
-.import-confirm h2,
-.import-confirm p {
-  margin-bottom: 0.25rem;
+.conflict-group > strong {
+  font-size: 0.9375rem;
+  line-height: 1.45;
 }
 
-.confirm-blocked {
-  color: var(--trakia-warning) !important;
+.conflict-group ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.conflict-target {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--trakia-danger-border);
+  background: var(--trakia-danger-surface);
+  padding: 0.375rem 0.625rem;
+  color: var(--trakia-danger);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.conflict-target-count {
+  color: var(--trakia-danger-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.conflict-actions,
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.conflict-actions .button-primary,
+.conflict-actions .button-secondary,
+.review-actions .button-primary,
+.review-actions .button-secondary {
+  min-height: 2.75rem;
+  margin-top: 0;
+}
+
+.review-ready {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
 }
 
 .recovery-actions {
@@ -905,20 +695,11 @@ h1 {
     width: min(100%, 34rem);
   }
 
-  .change-summary {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .import-confirm {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 1.5rem;
-  }
-
-  .import-confirm .button-primary,
-  .import-confirm .button-secondary {
-    min-width: 13rem;
-    margin-top: 0;
+  .conflict-actions .button-primary,
+  .conflict-actions .button-secondary,
+  .review-actions .button-primary,
+  .review-actions .button-secondary {
+    min-width: 11rem;
   }
 }
 

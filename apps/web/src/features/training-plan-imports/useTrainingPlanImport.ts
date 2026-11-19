@@ -44,6 +44,9 @@ export function useTrainingPlanImport() {
   const fileName = ref('')
   const fileSize = ref(0)
   const document = ref<TrainingPlanImportV1>()
+  const exerciseNames = computed(
+    () => new Map((document.value?.exercises ?? []).map(({ key, name }) => [key, name])),
+  )
   const issues = ref<ImportValidationIssue[]>([])
   const review = ref<TrainingPlanImportReviewResponse>()
   const confirmation = ref<TrainingPlanImportConfirmationResponse>()
@@ -258,6 +261,7 @@ export function useTrainingPlanImport() {
     errorMessage,
     errorSummary,
     errorTitle,
+    exerciseNames,
     fileInput,
     fileName,
     fileSize,

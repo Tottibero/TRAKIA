@@ -16,6 +16,14 @@ colors:
   focus: "#FE514A"
   success: "#B8D9A5"
   warning: "#F3D28A"
+  info: "#A8C7FA"
+  session: "#D0BCFF"
+  exercise: "#8BE9FD"
+  circuit: "#F0ABFC"
+  error: "#FF958A"
+  error-border: "#75483F"
+  error-surface: "#211A18"
+  error-secondary: "#E0B5AC"
 typography:
   caption:
     fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
@@ -121,6 +129,12 @@ The palette pairs near-black charcoal with warm white and the original TRAKIA re
 - **Focus Red** (#FE514A): Visible keyboard focus ring.
 - **Soft Green** (#B8D9A5): Success status with a text label.
 - **Warm Amber** (#F3D28A): In-progress or warning status with a text label.
+- **Soft Blue** (#A8C7FA): Informational emphasis on dark surfaces; use with its visible metric label.
+- **Soft Violet** (#D0BCFF): Session count emphasis on dark surfaces.
+- **Soft Cyan** (#8BE9FD): Exercise count emphasis on dark surfaces.
+- **Soft Fuchsia** (#F0ABFC): Circuit count emphasis on dark surfaces.
+- **Soft Error** (#FF958A): Error text on the dark error surface (#211A18), paired with its muted border (#75483F).
+- **Error Secondary** (#E0B5AC): Secondary text inside error surfaces.
 
 ### Named Rules
 **The Accent Restraint Rule.** TRAKIA red marks a meaningful action, focus, or state; it does not fill large background regions or carry meaning by color alone.
@@ -154,6 +168,10 @@ The system is flat by default. Depth comes from tonal surface changes and thin b
 Controls use moderate corners (8px). Surfaces may use 12px corners where a distinct container improves grouping. Prefer dividers and open lists when cards would add repeated framing. Borders are subtle and do not replace focus indication.
 
 Status pills use the full pill radius (999px) with visible text. Pending uses a neutral grey fill; completed uses a muted soft-green fill, check icon, and label; in-progress uses a restrained warm-amber fill and label. Color never replaces the status text.
+
+Conflict targets in the plan importer use an 8px radius, 1px muted error border, dark error surface, and light error text. Keep this treatment scoped to affected-item pills; calendar status pills retain their own variants.
+
+Import confirmation metric pills keep the raised-charcoal surface and 8px control radius. Tint each pill's raised-charcoal background with its foreground color: soft violet for sessions, soft cyan for exercises, soft fuchsia for circuits, warm amber for time, soft green for rounds, and soft blue for repetitions. Retain the metric text so color is a secondary scanning cue.
 
 ## Components
 
