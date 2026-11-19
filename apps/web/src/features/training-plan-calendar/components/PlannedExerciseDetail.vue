@@ -28,14 +28,14 @@ type ExerciseData = {
 const props = withDefaults(
   defineProps<{
     appearance: PlannedExercise
-    unitLabel?: 'Serie' | 'Ronda'
-    unitCount?: number
+    variationLabel?: 'Serie' | 'Ronda'
+    setCount?: number
     indexedOverrides?: IndexedOverrides
     exerciseHeadingLevel?: 'h3' | 'h4'
   }>(),
   {
-    unitLabel: undefined,
-    unitCount: undefined,
+    variationLabel: undefined,
+    setCount: undefined,
     indexedOverrides: () => [],
     exerciseHeadingLevel: 'h3',
   },
@@ -44,16 +44,10 @@ const props = withDefaults(
 const appearance = computed(() => props.appearance as ExerciseData)
 const displayName = (exercise: TrainingPlanReadExercise) => exercise.name ?? 'Nombre no disponible'
 const mainTargets = computed(() =>
-  resolveDisplayedTargets({
-    targets: appearance.value.targets,
-    exercise: appearance.value.exercise,
-  }),
+  resolveDisplayedTargets({ targets: appearance.value.targets, exercise: appearance.value.exercise }),
 )
-const targetOverridesByIndex = computed(() => props.indexedOverrides ?? [])
-const unitLabelLower = computed(() => props.unitLabel?.toLocaleLowerCase('es-ES') ?? '')
-const unitLabelPlural = computed(() => `${unitLabelLower.value}${props.unitCount === 1 ? '' : 's'}`)
 const adjustedTargets = computed(() =>
-  targetOverridesByIndex.value.map(({ index, targetOverrides }) => ({
+  (props.indexedOverrides ?? []).map(({ index, targetOverrides }) => ({
     index,
     targets: resolveDisplayedTargets({
       targets: appearance.value.targets,
@@ -61,9 +55,6 @@ const adjustedTargets = computed(() =>
       indexedOverrides: targetOverrides,
     }),
   })),
-)
-const unchangedUnits = computed(() =>
-  Math.max(0, (props.unitCount ?? 0) - new Set(targetOverridesByIndex.value.map(({ index }) => index)).size),
 )
 
 function alternativeTargets(alternative: NonNullable<ExerciseData['alternatives']>[number]) {
@@ -76,7 +67,7 @@ function alternativeTargets(alternative: NonNullable<ExerciseData['alternatives'
 }
 
 function alternativeAdjustedTargets(alternative: NonNullable<ExerciseData['alternatives']>[number]) {
-  return targetOverridesByIndex.value.map(({ index, targetOverrides }) => ({
+  return (props.indexedOverrides ?? []).map(({ index, targetOverrides }) => ({
     index,
     targets: resolveDisplayedTargets({
       targets: appearance.value.targets,
@@ -91,143 +82,294 @@ function alternativeAdjustedTargets(alternative: NonNullable<ExerciseData['alter
 function targetMessage(result: ReturnType<typeof resolveDisplayedTargets>, alternative = false) {
   if (result.compatibilityUnavailable) {
     return alternative
-      ? 'No se pudo verificar la compatibilidad de los objetivos heredados. Se muestran solo los ajustes explícitos.'
-      : 'Las métricas del catálogo no están disponibles; se muestran los objetivos explícitos del plan.'
+      ? 'Compatibilidad no disponible; solo se muestran ajustes explícitos.'
+      : 'Métricas no disponibles; se muestran los objetivos explícitos del plan.'
   }
   if (result.incompatibleValues && result.values.length === 0)
     return 'Los objetivos declarados no son compatibles con las métricas disponibles.'
-  if (result.values.length === 0) return 'Sin objetivos definidos para esta unidad.'
+  if (result.values.length === 0) return 'Sin objetivos definidos.'
   if (result.incompatibleValues)
     return 'Algunos objetivos no se muestran porque no son compatibles con las métricas disponibles.'
   return ''
 }
+
+function targetLabel(target: { metric: Metric; label: string; value: string }) {
+  if (target.metric === 'reps') return `${target.value} reps`
+  if (target.metric === 'weight') return target.value
+  if (target.metric === 'duration') return target.value
+  if (target.metric === 'distance') return target.value
+  if (target.metric === 'rpe') return `RPE ${target.value}`
+  return target.value
+}
+
+function toneClass(metric: Metric) {
+  return metric === 'reps' ? 'exercise-pill--reps' : metric === 'duration' ? 'exercise-pill--time' : ''
+}
+
+function unitName(index: number) {
+  return `${props.variationLabel} ${index}`
+}
 </script>
 
 <template>
-  <article class="min-w-0 py-4 first:pt-2 last:pb-2">
-    <div class="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
-      <component :is="props.exerciseHeadingLevel" class="break-words text-base font-semibold text-stone-100">
+  <article class="exercise-row">
+    <div class="exercise-row__main">
+      <component :is="props.exerciseHeadingLevel" class="exercise-row__name">
         {{ displayName(appearance.exercise) }}
       </component>
-      <p class="text-xs leading-5 text-stone-400">
-        {{ describeExerciseMetrics(appearance.exercise.supportedMetrics) }}
-      </p>
-    </div>
-    <section class="mt-3" aria-label="Objetivos generales">
-      <h4 class="text-sm font-medium text-stone-200">Objetivos</h4>
-      <dl
-        v-if="mainTargets.values.length"
-        class="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-x-5 gap-y-1 text-sm"
-      >
-        <template v-for="target in mainTargets.values" :key="target.metric">
-          <dt class="text-stone-400">{{ target.label }}</dt>
-          <dd class="text-right font-medium tabular-nums text-stone-100">{{ target.value }}</dd>
-        </template>
-      </dl>
-      <p v-else class="mt-1 text-sm leading-6 text-stone-400">{{ targetMessage(mainTargets) }}</p>
-      <p v-if="mainTargets.values.length && targetMessage(mainTargets)" class="mt-1 text-xs text-amber-200">
-        {{ targetMessage(mainTargets) }}
-      </p>
-    </section>
-
-    <section v-if="unitLabel && unitCount" class="mt-4" :aria-label="`Objetivos por ${unitLabelLower}`">
-      <h4 class="text-sm font-medium text-stone-200">{{ unitCount }} {{ unitLabelPlural }}</h4>
-      <ol v-if="adjustedTargets.length" class="mt-2 divide-y divide-white/[0.07]">
-        <li v-for="row in adjustedTargets" :key="row.index" class="py-2 first:pt-0 last:pb-0">
-          <h5 class="text-xs font-medium text-[var(--trakia-text-strong)]">
-            {{ unitLabel }} {{ row.index }}
-          </h5>
-          <dl
-            v-if="row.targets.values.length"
-            class="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-x-5 gap-y-1 text-sm"
-          >
-            <template v-for="target in row.targets.values" :key="target.metric">
-              <dt class="text-stone-400">{{ target.label }}</dt>
-              <dd class="text-right font-medium tabular-nums text-stone-100">{{ target.value }}</dd>
-            </template>
-          </dl>
-          <p v-else class="mt-1 text-sm leading-6 text-stone-400">{{ targetMessage(row.targets) }}</p>
-          <p
-            v-if="row.targets.values.length && targetMessage(row.targets)"
-            class="mt-1 text-xs text-amber-200"
-          >
-            {{ targetMessage(row.targets) }}
-          </p>
+      <ul v-if="mainTargets.values.length || setCount" class="exercise-row__pills" aria-label="Objetivos">
+        <li v-if="setCount" class="exercise-pill exercise-pill--neutral">{{ setCount }} series</li>
+        <li
+          v-for="target in mainTargets.values"
+          :key="target.metric"
+          class="exercise-pill"
+          :class="toneClass(target.metric)"
+        >
+          {{ targetLabel(target) }}
         </li>
-      </ol>
-      <p v-if="unchangedUnits > 0" class="mt-2 text-xs leading-5 text-stone-400">
-        Las otras {{ unchangedUnits }} {{ unitLabelPlural }} mantienen los objetivos generales.
-      </p>
-    </section>
+      </ul>
+      <p v-else class="exercise-row__message">{{ targetMessage(mainTargets) }}</p>
+    </div>
+
+    <p v-if="mainTargets.values.length && targetMessage(mainTargets)" class="exercise-row__warning">
+      {{ targetMessage(mainTargets) }}
+    </p>
+
+    <details v-if="adjustedTargets.length && variationLabel" class="exercise-disclosure">
+      <summary>
+        Objetivos distintos por {{ variationLabel.toLocaleLowerCase('es-ES') }}
+        <span aria-hidden="true">· {{ adjustedTargets.length }}</span>
+      </summary>
+      <ul class="exercise-disclosure__rows">
+        <li v-for="row in adjustedTargets" :key="row.index" class="exercise-disclosure__row">
+          <span class="exercise-disclosure__label">{{ unitName(row.index) }}</span>
+          <ul v-if="row.targets.values.length" class="exercise-row__pills">
+            <li
+              v-for="target in row.targets.values"
+              :key="target.metric"
+              class="exercise-pill"
+              :class="toneClass(target.metric)"
+            >
+              {{ targetLabel(target) }}
+            </li>
+          </ul>
+          <span v-else class="exercise-row__message">{{ targetMessage(row.targets) }}</span>
+        </li>
+      </ul>
+    </details>
 
     <details
       v-for="alternative in appearance.alternatives ?? []"
       :key="alternative.key"
-      class="group mt-3 border-t border-white/[0.08]"
+      class="exercise-disclosure"
     >
-      <summary
-        class="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 py-2 text-sm text-[var(--trakia-text-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] [&::-webkit-details-marker]:hidden"
-      >
-        <span class="min-w-0 break-words">Alternativa · {{ displayName(alternative.exercise) }}</span>
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 20 20"
-          class="size-4 shrink-0 text-stone-400 transition-transform duration-150 group-open:rotate-90"
-          fill="none"
-        >
-          <path d="m7 4.5 5.5 5.5L7 15.5" stroke="currentColor" stroke-width="1.6" />
-        </svg>
-      </summary>
-      <div class="pb-3 pl-3 pr-1">
-        <p class="text-xs leading-5 text-stone-400">
-          {{ describeExerciseMetrics(alternative.exercise.supportedMetrics) }}
-        </p>
-        <h4 class="mt-3 text-sm font-medium text-stone-200">Objetivos de la alternativa</h4>
-        <dl
+      <summary>Alternativa · {{ displayName(alternative.exercise) }}</summary>
+      <div class="exercise-disclosure__content">
+        <ul
           v-if="alternativeTargets(alternative).values.length"
-          class="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-x-5 gap-y-1 text-sm"
+          class="exercise-row__pills"
+          aria-label="Objetivos"
         >
-          <template v-for="target in alternativeTargets(alternative).values" :key="target.metric">
-            <dt class="text-stone-400">{{ target.label }}</dt>
-            <dd class="text-right font-medium tabular-nums text-stone-100">{{ target.value }}</dd>
-          </template>
-        </dl>
-        <p v-else class="mt-1 text-sm leading-6 text-stone-400">
-          {{ targetMessage(alternativeTargets(alternative), true) }}
-        </p>
+          <li
+            v-for="target in alternativeTargets(alternative).values"
+            :key="target.metric"
+            class="exercise-pill"
+            :class="toneClass(target.metric)"
+          >
+            {{ targetLabel(target) }}
+          </li>
+        </ul>
+        <p v-else class="exercise-row__message">{{ targetMessage(alternativeTargets(alternative), true) }}</p>
         <p
           v-if="
             alternativeTargets(alternative).values.length &&
             targetMessage(alternativeTargets(alternative), true)
           "
-          class="mt-1 text-xs text-amber-200"
+          class="exercise-row__warning"
         >
           {{ targetMessage(alternativeTargets(alternative), true) }}
         </p>
-        <ol v-if="alternativeAdjustedTargets(alternative).length" class="mt-3 divide-y divide-white/[0.07]">
+        <ul v-if="alternativeAdjustedTargets(alternative).length" class="exercise-disclosure__rows">
           <li
             v-for="row in alternativeAdjustedTargets(alternative)"
             :key="row.index"
-            class="py-2 first:pt-0 last:pb-0"
+            class="exercise-disclosure__row"
           >
-            <h5 class="text-xs font-medium text-[var(--trakia-text-strong)]">
-              {{ unitLabel }} {{ row.index }}
-            </h5>
-            <dl
-              v-if="row.targets.values.length"
-              class="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-x-5 gap-y-1 text-sm"
-            >
-              <template v-for="target in row.targets.values" :key="target.metric">
-                <dt class="text-stone-400">{{ target.label }}</dt>
-                <dd class="text-right font-medium tabular-nums text-stone-100">{{ target.value }}</dd>
-              </template>
-            </dl>
-            <p v-else class="mt-1 text-sm leading-6 text-stone-400">
-              {{ targetMessage(row.targets, true) }}
-            </p>
+            <span class="exercise-disclosure__label">{{ unitName(row.index) }}</span>
+            <ul v-if="row.targets.values.length" class="exercise-row__pills">
+              <li
+                v-for="target in row.targets.values"
+                :key="target.metric"
+                class="exercise-pill"
+                :class="toneClass(target.metric)"
+              >
+                {{ targetLabel(target) }}
+              </li>
+            </ul>
+            <span v-else class="exercise-row__message">{{ targetMessage(row.targets, true) }}</span>
           </li>
-        </ol>
+        </ul>
+        <p class="exercise-row__metrics">
+          {{ describeExerciseMetrics(alternative.exercise.supportedMetrics) }}
+        </p>
       </div>
     </details>
   </article>
 </template>
+
+<style scoped>
+.exercise-row {
+  min-width: 0;
+  padding: 0.5rem 0;
+}
+
+.exercise-row__main {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem 0.75rem;
+}
+
+.exercise-row__name {
+  min-width: 0;
+  flex: 1 1 9rem;
+  margin: 0;
+  color: var(--trakia-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.exercise-row__pills {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  margin: 0 0 0 auto;
+  padding: 0;
+  list-style: none;
+}
+
+.exercise-pill {
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--trakia-radius-control);
+  background: var(--trakia-surface-raised);
+  padding: 0.125rem 0.375rem;
+  color: var(--trakia-text-strong);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.exercise-pill--reps {
+  background: color-mix(in srgb, var(--trakia-info) 18%, var(--trakia-surface-raised));
+  color: var(--trakia-info);
+}
+
+.exercise-pill--time {
+  background: color-mix(in srgb, var(--trakia-warning) 18%, var(--trakia-surface-raised));
+  color: var(--trakia-warning);
+}
+
+.exercise-pill--neutral {
+  background: var(--trakia-surface-raised);
+  color: var(--trakia-text-strong);
+}
+
+.exercise-row__message,
+.exercise-row__warning,
+.exercise-row__metrics {
+  margin: 0.25rem 0 0;
+  color: var(--trakia-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.exercise-row__warning {
+  color: var(--trakia-warning);
+}
+
+.exercise-disclosure {
+  margin-top: 0.375rem;
+  border-top: 1px solid color-mix(in srgb, var(--trakia-border) 70%, transparent);
+}
+
+.exercise-disclosure > summary {
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  list-style: none;
+  color: var(--trakia-text-strong);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.exercise-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.exercise-disclosure > summary::after {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: 0 0 auto;
+  margin-left: auto;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: '';
+  transform: rotate(45deg) translateY(-2px);
+}
+
+.exercise-disclosure[open] > summary::after {
+  transform: rotate(225deg) translate(-2px, -1px);
+}
+
+.exercise-disclosure__rows {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0 0 0.5rem;
+  list-style: none;
+}
+
+.exercise-disclosure__row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.5rem;
+}
+
+.exercise-disclosure__label {
+  flex: 0 0 auto;
+  color: var(--trakia-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.exercise-disclosure__content {
+  display: grid;
+  gap: 0.25rem;
+  padding-bottom: 0.5rem;
+}
+
+.exercise-disclosure__content > .exercise-row__pills {
+  justify-content: flex-start;
+  margin-left: 0;
+}
+
+.exercise-row__metrics {
+  margin-top: 0;
+}
+</style>

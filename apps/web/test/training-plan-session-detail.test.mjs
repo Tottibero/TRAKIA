@@ -20,7 +20,7 @@ const mainExercise = {
 }
 
 test('session detail uses civil dates and metric-specific labels and units', () => {
-  assert.equal(formatSessionDate('2026-11-14'), 'Sábado, 14 de noviembre de 2026')
+  assert.equal(formatSessionDate('2026-11-23'), 'L 23-11')
   assert.equal(formatDuration(90), '1 min 30 s')
   assert.equal(describeExerciseMetrics(['reps', 'weight']), 'Repeticiones · Carga')
   assert.equal(describeExerciseMetrics(null), 'Métricas compatibles no disponibles')

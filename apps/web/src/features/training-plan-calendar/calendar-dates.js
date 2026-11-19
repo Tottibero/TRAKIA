@@ -1,20 +1,10 @@
-const MADRID_TIME_ZONE = 'Europe/Madrid'
+export { getMadridCivilDate, getNextMadridMidnight } from '../../shared/utils/madrid-civil-date.js'
+
 const compactWeekDate = new Intl.DateTimeFormat('es-ES', {
   day: 'numeric',
   month: 'short',
   timeZone: 'UTC',
 })
-const madridDateTime = new Intl.DateTimeFormat('en-GB', {
-  timeZone: MADRID_TIME_ZONE,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-})
-
 function utcDate(value) {
   return new Date(`${value}T00:00:00.000Z`)
 }
@@ -35,31 +25,10 @@ function firstString(value) {
   return undefined
 }
 
-function timezoneOffsetAt(epochMilliseconds) {
-  const wholeSecond = Math.floor(epochMilliseconds / 1000) * 1000
-  const parts = Object.fromEntries(
-    madridDateTime.formatToParts(new Date(wholeSecond)).map(({ type, value }) => [type, value]),
-  )
-  const localAsUtc = Date.UTC(
-    Number(parts.year),
-    Number(parts.month) - 1,
-    Number(parts.day),
-    Number(parts.hour),
-    Number(parts.minute),
-    Number(parts.second),
-  )
-  return localAsUtc - wholeSecond
-}
-
 export function isPlanDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
   const date = utcDate(value)
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
-}
-
-export function getMadridCivilDate(now = new Date()) {
-  const fields = dateFields(now instanceof Date ? now : new Date(now), MADRID_TIME_ZONE)
-  return `${fields.year}-${fields.month}-${fields.day}`
 }
 
 export function addCivilDays(value, amount) {
@@ -152,14 +121,4 @@ export function formatCompactWeekRange(from, to) {
     return `${startLabel} ${startParts.year} — ${endLabel} ${endParts.year}`
   }
   return `${startLabel} — ${endLabel}`
-}
-
-export function getNextMadridMidnight(now = Date.now()) {
-  const nextDate = addCivilDays(getMadridCivilDate(now), 1)
-  const targetAsUtc = Date.parse(`${nextDate}T00:00:00.000Z`)
-  let estimate = targetAsUtc
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    estimate = targetAsUtc - timezoneOffsetAt(estimate)
-  }
-  return estimate
 }

@@ -14,6 +14,7 @@ import {
   TrainingPlanService,
 } from '../dist/modules/training-plans/training-plans.module.js'
 import { WorkoutsModule } from '../dist/modules/workouts/workouts.module.js'
+import { WorkoutExecutionRecord } from '../dist/modules/workouts/workout-execution.entity.js'
 import {
   getIntegrationDatabaseUrl,
   getIntegrationProcessEnvironment,
@@ -34,6 +35,28 @@ async function availablePort() {
   if (!address || typeof address === 'string') throw new Error('Could not determine a free port.')
   await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
   return address.port
+}
+
+function madridCivilDate(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Madrid',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
+
+function addCivilDays(value, amount) {
+  const date = new Date(`${value}T00:00:00.000Z`)
+  date.setUTCDate(date.getUTCDate() + amount)
+  return date.toISOString().slice(0, 10)
+}
+
+function mondayOfCivilWeek(value) {
+  const weekday = new Date(`${value}T00:00:00.000Z`).getUTCDay()
+  return addCivilDays(value, weekday === 0 ? -6 : 1 - weekday)
 }
 
 test('authenticated workout execution HTTP flow confirms one-set closure, two-set rest, and account isolation', async () => {
@@ -117,16 +140,18 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
       supportedMetrics: ['duration', 'distance', 'reps', 'calories'],
     })
     const plans = app.get(TrainingPlanService)
+    const today = madridCivilDate()
+    const yesterday = addCivilDays(today, -1)
     const plan = await plans.create(prefix, {
       key: `${prefix}-plan`,
       name: 'Press banca integración HTTP',
-      startDate: '2026-11-01',
-      endDate: '2026-11-30',
+      startDate: yesterday,
+      endDate: addCivilDays(today, 1),
       days: [
-        ...['monday', 'tuesday'].map((key, index) => ({
+        ...['monday', 'tuesday'].map((key) => ({
           type: 'session',
           key,
-          date: `2026-11-${String(16 + index).padStart(2, '0')}`,
+          date: today,
           blocks: [
             {
               type: 'sets',
@@ -139,7 +164,7 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
         {
           type: 'session',
           key: 'wednesday',
-          date: '2026-11-18',
+          date: today,
           blocks: [
             {
               type: 'circuit',
@@ -163,7 +188,7 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
         {
           type: 'session',
           key: 'thursday',
-          date: '2026-11-19',
+          date: today,
           blocks: [
             {
               type: 'intervals',
@@ -223,7 +248,7 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
         {
           type: 'session',
           key: 'friday',
-          date: '2026-11-20',
+          date: today,
           blocks: [
             {
               type: 'circuit',
@@ -240,7 +265,7 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
         {
           type: 'session',
           key: 'saturday',
-          date: '2026-11-21',
+          date: today,
           blocks: [
             {
               type: 'circuit',
@@ -248,6 +273,19 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
               mode: 'amrap',
               maxDurationSeconds: 3,
               exercises: [{ key: 'expiry-squat', exerciseKey: squatKey, targets: { reps: 12 } }],
+            },
+          ],
+        },
+        {
+          type: 'session',
+          key: 'past',
+          date: yesterday,
+          blocks: [
+            {
+              type: 'sets',
+              key: 'past-block',
+              restBetweenSetsSeconds: 60,
+              exercises: [{ key: 'past-press', exerciseKey: benchKey, sets: 1 }],
             },
           ],
         },
@@ -267,6 +305,17 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
     const headers = { cookie, 'content-type': 'application/json' }
 
     assert.equal((await fetch(`${url}/workouts/executions/open`)).status, 401)
+    const rejectedPastStart = await fetch(`${url}/workouts/executions/start`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ requestId: randomUUID(), planId: plan.id, sessionId: sessionIds.past }),
+    })
+    assert.equal(rejectedPastStart.status, 409)
+    assert.equal((await rejectedPastStart.json()).code, 'PLANNED_DATE_MISMATCH')
+    assert.equal(
+      await database.getRepository(WorkoutExecutionRecord).countBy({ sessionId: sessionIds.past }),
+      0,
+    )
     const startedResponse = await fetch(`${url}/workouts/executions/start`, {
       method: 'POST',
       headers,
@@ -978,13 +1027,13 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
       0,
     )
     const circuitCalendarResponse = await fetch(
-      `${url}/training-plans/calendar?from=2026-11-16&to=2026-11-22`,
+      `${url}/training-plans/calendar?from=${mondayOfCivilWeek(today)}&to=${addCivilDays(mondayOfCivilWeek(today), 6)}`,
       { headers: { cookie } },
     )
     assert.equal(circuitCalendarResponse.status, 200)
     const circuitCalendar = await circuitCalendarResponse.json()
     const circuitCalendarEntry = circuitCalendar.days
-      .find(({ date }) => date === '2026-11-18')
+      .find(({ date }) => date === today)
       .entries.find(({ sessionKey }) => sessionKey === 'wednesday')
     assert.equal(
       circuitCalendarEntry.execution.summary.activeSeconds,

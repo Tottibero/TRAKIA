@@ -11,19 +11,22 @@ import {
   WorkoutExecutionRestNotFinishedError,
   WorkoutExecutionCircuitRoundConflictError,
   WorkoutExecutionSessionProtectedError,
+  WorkoutExecutionPlannedDateMismatchError,
   WorkoutExecutionStartService,
 } from '../dist/modules/workouts/workout-execution-start.service.js'
+import { getMadridCivilDate } from '../dist/shared/madrid-civil-date.js'
 
 const userId = '24983cfb-a1cb-455a-ac1e-5cc6210c629b'
 const deviceId = 'e6374ec9-342a-4fce-88f1-a1e175bc95b5'
 const planId = '9a316ce8-868b-43dd-8f54-5e3a75a84989'
 const sessionId = 'e9fda47c-ce0b-4baa-8315-7bb01b0e0f6c'
 const requestId = 'be61ac38-b0ea-42d7-bf7c-c0d35c7ee882'
+const today = getMadridCivilDate(new Date())
 
 const session = {
   type: 'session',
   key: 'monday',
-  date: '2026-11-16',
+  date: today,
   blocks: [
     {
       type: 'sets',
@@ -75,6 +78,10 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
     query: async (...args) => {
       calls.push(['query', ...args])
       if (String(args[0]).includes('clock_timestamp')) {
+        if (String(args[0]).includes('AS "pausedAt"'))
+          return [{ pausedAt: new Date(rows[0].startedAt.getTime() + 10_000) }]
+        if (String(args[0]).includes('AS "resumedAt"'))
+          return [{ resumedAt: new Date(rows[0].startedAt.getTime() + 20_000) }]
         if (String(args[0]).includes('AS "startedAt"'))
           return [{ startedAt: new Date('2026-11-16T10:00:00.000Z') }]
         if (String(args[0]).includes('AS "confirmedAt"')) {
@@ -136,7 +143,7 @@ test('online circuit rounds persist one duration for N exercises and gate the ne
   const circuitSession = {
     type: 'session',
     key: 'monday',
-    date: '2026-11-16',
+    date: today,
     blocks: [
       {
         type: 'circuit',
@@ -200,6 +207,12 @@ test('online circuit rounds persist one duration for N exercises and gate the ne
 
 const request = { requestId, planId, sessionId }
 
+function addCivilDays(value, amount) {
+  const date = new Date(`${value}T00:00:00.000Z`)
+  date.setUTCDate(date.getUTCDate() + amount)
+  return date.toISOString().slice(0, 10)
+}
+
 function closeOperation(execution, overrides = {}) {
   return {
     operationType: 'close_execution',
@@ -238,6 +251,90 @@ test('start reserves a backend snapshot after account and shared session locks w
   assert.ok(
     calls.findIndex((call) => Array.isArray(call) && call[0] === 'session-lock') < calls.indexOf('save'),
   )
+})
+
+test('planned sessions reject yesterday and tomorrow without reserving or creating an execution', async () => {
+  const now = new Date('2026-11-19T12:00:00.000Z')
+  const madridToday = getMadridCivilDate(now)
+  for (const date of [addCivilDays(madridToday, -1), addCivilDays(madridToday, 1)]) {
+    const { calls, rows, service } = createHarness({ plannedSession: { ...session, date } })
+    await assert.rejects(
+      service.start(userId, request, () => now),
+      WorkoutExecutionPlannedDateMismatchError,
+    )
+    assert.equal(rows.length, 0)
+    assert.equal(calls.includes('save'), false)
+    assert.equal(
+      calls.some((call) => Array.isArray(call) && call[0] === 'session-lock'),
+      false,
+    )
+  }
+})
+
+test('Madrid civil dates remain correct across winter midnight and DST transitions', () => {
+  assert.equal(getMadridCivilDate(new Date('2026-11-19T22:59:59.000Z')), '2026-11-19')
+  assert.equal(getMadridCivilDate(new Date('2026-11-19T23:00:00.000Z')), '2026-11-20')
+  assert.equal(getMadridCivilDate(new Date('2026-03-28T22:59:59.000Z')), '2026-03-28')
+  assert.equal(getMadridCivilDate(new Date('2026-03-28T23:00:00.000Z')), '2026-03-29')
+  assert.equal(getMadridCivilDate(new Date('2026-10-24T21:59:59.000Z')), '2026-10-24')
+  assert.equal(getMadridCivilDate(new Date('2026-10-24T22:00:00.000Z')), '2026-10-25')
+})
+
+test('a planned session starts on its Madrid calendar date and the same request replays after midnight', async () => {
+  const startInstant = new Date('2026-11-19T22:59:59.000Z')
+  const nextDayInstant = new Date('2026-11-19T23:00:01.000Z')
+  assert.equal(getMadridCivilDate(startInstant), '2026-11-19')
+  assert.equal(getMadridCivilDate(nextDayInstant), '2026-11-20')
+  const { rows, service } = createHarness({
+    plannedSession: { ...session, date: getMadridCivilDate(startInstant) },
+  })
+  const started = await service.start(userId, request, () => startInstant)
+  const replay = await service.start(userId, request, () => nextDayInstant)
+  assert.equal(replay.execution.id, started.execution.id)
+  assert.equal(rows.length, 1)
+  assert.equal((await service.findOpen(userId)).execution.execution.id, started.execution.id)
+})
+
+test('an open execution can save results, pause, resume and close after its planned date passes', async () => {
+  const startInstant = new Date('2026-11-19T22:59:59.000Z')
+  const plannedSession = { ...session, date: getMadridCivilDate(startInstant) }
+  const { rows, service } = createHarness({ plannedSession })
+  const started = await service.start(userId, request, () => startInstant)
+  plannedSession.date = addCivilDays(plannedSession.date, -1)
+
+  const result = {
+    type: 'sets',
+    id: 'd652903a-8660-4151-a5d5-812485a968e2',
+    blockKey: 'main',
+    plannedExerciseKey: 'squat',
+    unit: { kind: 'planned', setIndex: 1 },
+    actualExerciseKey: 'back-squat',
+    status: 'performed',
+    actualMetrics: { reps: 5, weightKg: 80 },
+  }
+  await service.recordResult(userId, started.execution.id, { result })
+  const paused = await service.pauseExecution(userId, started.execution.id)
+  const resumed = await service.resumeExecution(userId, started.execution.id, {
+    pauseStartedAt: paused.execution.pauses[0].startedAt,
+  })
+  assert.equal(resumed.execution.status, 'in_progress')
+  const closed = await service.closeOnlineExecution(userId, started.execution.id, {
+    completionType: 'planned',
+  })
+  assert.equal(closed.execution.status, 'completed')
+  assert.deepEqual(closed.execution.results, [result])
+  assert.equal(rows[0].status, 'completed')
+})
+
+test('sessions without a planned date are not rejected by the planned-date rule', async () => {
+  const { rows, service } = createHarness({
+    plannedSession: { ...session, date: undefined },
+  })
+  await assert.rejects(
+    service.start(userId, request, () => new Date('2026-11-19T12:00:00.000Z')),
+    (error) => !(error instanceof WorkoutExecutionPlannedDateMismatchError),
+  )
+  assert.equal(rows.length, 0)
 })
 
 test('replaying the same request returns the stored execution without inserting a second row', async () => {

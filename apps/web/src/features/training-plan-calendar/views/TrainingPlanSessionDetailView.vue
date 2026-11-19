@@ -6,7 +6,7 @@ import AppPageShell from '@/shared/components/AppPageShell.vue'
 import { useAuth } from '@/features/auth'
 import { TrainingPlanSessionPathParamsSchema } from '@trakia/contracts'
 import { useTrainingPlanSession } from '../useTrainingPlanSession'
-import WorkoutStartAction from '@/features/workout-execution/components/WorkoutStartAction.vue'
+import { WorkoutStartAction } from '@/features/workout-execution'
 import SessionBlockDetail from '../components/SessionBlockDetail.vue'
 import { formatSessionDate } from '../session-detail-presentation.js'
 import { getMadridCivilDate, parseWeekStart, resolveExpandedDates } from '../calendar-dates.js'
@@ -66,17 +66,19 @@ const initialErrorMessage = computed(() =>
         {{ auth.isLoggingOut.value ? 'Saliendo…' : 'Cerrar sesión' }}
       </button>
     </template>
-    <main class="bg-[var(--trakia-background)] px-4 py-4 text-[var(--trakia-text)] sm:px-8 sm:py-6">
+    <main
+      class="session-detail-page bg-[var(--trakia-background)] px-4 py-4 text-[var(--trakia-text)] sm:px-8 sm:py-6"
+    >
       <div class="mx-auto max-w-3xl">
         <nav class="pt-6" aria-label="Navegación de la sesión">
           <RouterLink
-            class="inline-flex min-h-11 items-center gap-2 rounded-sm pr-3 text-sm font-medium text-[var(--trakia-text-strong)] underline decoration-[var(--trakia-border)] underline-offset-4 transition hover:text-[var(--trakia-text)] hover:decoration-[var(--trakia-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)]"
+            class="inline-flex min-h-11 items-center gap-2 rounded-sm pr-3 text-sm font-medium text-[var(--trakia-muted)] underline decoration-[var(--trakia-border)] underline-offset-4 transition hover:text-[var(--trakia-text)] hover:decoration-[var(--trakia-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)]"
             :to="homeLocation"
           >
             <svg aria-hidden="true" viewBox="0 0 20 20" class="size-4" fill="none">
               <path d="m12.5 4.5-5.5 5.5 5.5 5.5" stroke="currentColor" stroke-width="1.7" />
             </svg>
-            Volver a la planificación
+            Volver al calendario
           </RouterLink>
         </nav>
 
@@ -144,11 +146,9 @@ const initialErrorMessage = computed(() =>
             Actualizando detalle…
           </p>
 
-          <header class="pb-5 pt-7 sm:pb-7 sm:pt-9">
+          <header class="pb-4 pt-5">
             <div class="flex flex-wrap items-start justify-between gap-3">
-              <h1
-                class="min-w-0 flex-1 break-words text-3xl font-semibold tracking-[-0.035em] text-[var(--trakia-text)] sm:text-4xl"
-              >
+              <h1 class="min-w-0 flex-1 break-words text-base font-medium text-[var(--trakia-text)]">
                 {{ sessionQuery.data.value.plan.name }}
               </h1>
               <span
@@ -159,17 +159,24 @@ const initialErrorMessage = computed(() =>
               </span>
             </div>
             <time
-              class="mt-2 block text-sm text-[var(--trakia-muted)]"
+              class="mt-1 block text-sm text-[var(--trakia-muted)]"
               :datetime="sessionQuery.data.value.session.date"
             >
               {{ formatSessionDate(sessionQuery.data.value.session.date) }}
             </time>
           </header>
 
-          <section aria-label="Detalle de los bloques de la sesión" class="border-y border-white/10">
+          <section aria-label="Detalle de los bloques de la sesión" class="session-detail-blocks">
             <ol>
-              <li v-for="block in sessionQuery.data.value.session.blocks" :key="block.key">
-                <SessionBlockDetail :block="block" />
+              <li v-for="(block, blockIndex) in sessionQuery.data.value.session.blocks" :key="block.key">
+                <SessionBlockDetail
+                  :block="block"
+                  :block-number="
+                    sessionQuery.data.value.session.blocks
+                      .slice(0, blockIndex + 1)
+                      .filter((item) => item.type === 'circuit' && item.mode === 'rounds').length
+                  "
+                />
               </li>
             </ol>
           </section>
@@ -177,6 +184,7 @@ const initialErrorMessage = computed(() =>
           <WorkoutStartAction
             :plan-id="sessionQuery.data.value.plan.id"
             :session-id="sessionQuery.data.value.session.id"
+            :planned-date="sessionQuery.data.value.session.date"
             :execution="sessionQuery.data.value.session.execution"
             :show-summary="route.query.view === 'summary'"
           />
@@ -185,3 +193,15 @@ const initialErrorMessage = computed(() =>
     </main>
   </AppPageShell>
 </template>
+
+<style scoped>
+.session-detail-page {
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+}
+
+.session-detail-blocks > ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+</style>

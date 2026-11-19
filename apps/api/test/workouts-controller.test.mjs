@@ -4,6 +4,7 @@ import { WorkoutsController } from '../dist/modules/workouts/workouts.controller
 import {
   WorkoutExecutionOpenExistsError,
   WorkoutExecutionSessionNotFoundError,
+  WorkoutExecutionPlannedDateMismatchError,
 } from '../dist/modules/workouts/workout-execution-start.service.js'
 
 const legacyDeviceId = 'e6374ec9-342a-4fce-88f1-a1e175bc95b5'
@@ -111,6 +112,21 @@ test('workouts controller rejects malformed inputs and classifies predictable co
     ),
     { status: 404 },
   )
+})
+
+test('workouts controller returns a domain conflict for starts outside the scheduled date', async () => {
+  const controller = new WorkoutsController({
+    start: async () => {
+      throw new WorkoutExecutionPlannedDateMismatchError()
+    },
+  })
+  await assert.rejects(controller.start({ authUserId: 'user' }, request), {
+    status: 409,
+    response: {
+      code: 'PLANNED_DATE_MISMATCH',
+      message: 'A planned workout session can only be started on its scheduled date in Europe/Madrid.',
+    },
+  })
 })
 
 test('workouts controller authenticates and validates result recording inputs', async () => {
