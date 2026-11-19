@@ -1,6 +1,6 @@
 <template>
   <main v-if="isStarting" class="session-loading" role="status" aria-live="polite">
-    <span class="loading-mark" aria-hidden="true">T</span>
+    <img class="loading-mark" src="/brand/trackia.png" alt="TRAKIA" width="1536" height="1024" />
     <p>Comprobando tu sesión…</p>
   </main>
   <RouterView v-else />

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ImportValidationIssue, TrainingPlanImportReviewResponse } from '@trakia/contracts'
+import AppPageShell from '@/shared/components/AppPageShell.vue'
 import { trainingPlanHomeLocation } from '../../training-plan-calendar'
 import { useTrainingPlanImport } from '../useTrainingPlanImport'
 
@@ -160,251 +161,252 @@ function planDayLabel(
 </script>
 
 <template>
-  <main class="import-page">
-    <div class="import-shell">
-      <header class="import-toolbar">
-        <RouterLink class="import-brand" to="/" aria-label="TRAKIA, inicio"
-          >TRAKIA<span aria-hidden="true">.</span></RouterLink
-        >
-        <RouterLink class="import-back" to="/">Volver al inicio</RouterLink>
-      </header>
-
-      <section class="import-content" aria-labelledby="import-title">
-        <h1 id="import-title">Importar plan</h1>
-        <p class="import-intro">
-          Revisa qué se añadirá y qué datos existentes se conservarán antes de guardar.
-        </p>
-
-        <ol class="import-steps" aria-label="Pasos de importación">
-          <li :aria-current="step === 0 ? 'step' : undefined" :class="{ 'is-complete': step > 0 }">
-            <span class="step-mark">1</span><span>Archivo</span>
-          </li>
-          <li :aria-current="step === 1 ? 'step' : undefined" :class="{ 'is-complete': step > 1 }">
-            <span class="step-mark">2</span><span>Revisión</span>
-          </li>
-          <li :aria-current="step === 2 ? 'step' : undefined">
-            <span class="step-mark">3</span><span>Confirmación</span>
-          </li>
-        </ol>
-
-        <section class="import-section" aria-labelledby="file-heading">
-          <div class="section-heading">
-            <h2 id="file-heading">Archivo del plan</h2>
-            <p>El JSON se valida en este dispositivo y en el servidor.</p>
-          </div>
-
-          <label class="import-file-picker" for="training-plan-file">
-            <span class="file-picker-action">Seleccionar archivo</span>
-            <span class="file-picker-name">{{ fileName || 'Ningún archivo seleccionado' }}</span>
-            <input
-              id="training-plan-file"
-              ref="fileInput"
-              class="import-file-input"
-              type="file"
-              accept=".json,application/json"
-              aria-describedby="file-help"
-              @change="selectFile"
-            />
-          </label>
-          <p id="file-help" class="import-help">
-            Máximo 1 MiB. El contenido solo se conserva mientras esta pantalla está abierta.
+  <AppPageShell>
+    <template #actions>
+      <RouterLink class="app-shell__action" to="/">Volver al inicio</RouterLink>
+    </template>
+    <main class="import-page">
+      <div class="import-shell">
+        <section class="import-content" aria-labelledby="import-title">
+          <h1 id="import-title">Importar plan</h1>
+          <p class="import-intro">
+            Revisa qué se añadirá y qué datos existentes se conservarán antes de guardar.
           </p>
 
-          <div v-if="fileName" class="file-meta" aria-live="polite">
-            <span class="file-name">{{ fileName }}</span>
-            <span>{{ formatFileSize(fileSize) }}</span>
-            <button type="button" class="text-button" @click="importer.clearFile">Quitar archivo</button>
-          </div>
-
-          <button
-            v-if="fileName && (state === 'empty' || state === 'reviewed-with-conflicts')"
-            class="button-primary"
-            type="button"
-            :disabled="!canReview"
-            @click="importer.reviewFile"
-          >
-            {{ review ? 'Volver a revisar' : 'Revisar plan' }}
-          </button>
-        </section>
-
-        <section
-          class="import-status"
-          :class="`status-${state}`"
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          <span class="status-indicator" aria-hidden="true"></span>
-          <p>{{ stateCopy }}</p>
-        </section>
-
-        <section
-          v-if="errorMessage || issues.length"
-          ref="errorSummary"
-          class="import-errors"
-          tabindex="-1"
-          aria-labelledby="error-heading"
-        >
-          <h2 id="error-heading">
-            {{ issues.length ? 'Revisa estas incidencias del documento' : errorTitle }}
-          </h2>
-          <p v-if="errorMessage">{{ errorMessage }}</p>
-          <ul v-if="issues.length">
-            <li v-for="(issue, index) in issues" :key="`${issue.code}-${index}`">
-              <strong>{{ issueMessage(issue) }}</strong>
-              <span>{{ pathLabel(issue.path) }}</span>
+          <ol class="import-steps" aria-label="Pasos de importación">
+            <li :aria-current="step === 0 ? 'step' : undefined" :class="{ 'is-complete': step > 0 }">
+              <span class="step-mark">1</span><span>Archivo</span>
             </li>
-          </ul>
-        </section>
+            <li :aria-current="step === 1 ? 'step' : undefined" :class="{ 'is-complete': step > 1 }">
+              <span class="step-mark">2</span><span>Revisión</span>
+            </li>
+            <li :aria-current="step === 2 ? 'step' : undefined">
+              <span class="step-mark">3</span><span>Confirmación</span>
+            </li>
+          </ol>
 
-        <template v-if="review?.valid">
-          <section class="import-section review-section" aria-labelledby="review-heading">
+          <section class="import-section" aria-labelledby="file-heading">
             <div class="section-heading">
-              <h2 id="review-heading">Resumen de la revisión</h2>
-              <p v-if="review.confirmable">
-                Revisión vigente hasta {{ formatDate(review.reviewExpiresAt) }}.
-              </p>
-              <p v-else>Resuelve los conflictos antes de iniciar una nueva revisión.</p>
+              <h2 id="file-heading">Archivo del plan</h2>
+              <p>El JSON se valida en este dispositivo y en el servidor.</p>
             </div>
 
-            <p class="preservation-note">
-              Los elementos que no aparecen en el archivo se conservarán. La importación no elimina datos.
+            <label class="import-file-picker" for="training-plan-file">
+              <span class="file-picker-action">Seleccionar archivo</span>
+              <span class="file-picker-name">{{ fileName || 'Ningún archivo seleccionado' }}</span>
+              <input
+                id="training-plan-file"
+                ref="fileInput"
+                class="import-file-input"
+                type="file"
+                accept=".json,application/json"
+                aria-describedby="file-help"
+                @change="selectFile"
+              />
+            </label>
+            <p id="file-help" class="import-help">
+              Máximo 1 MiB. El contenido solo se conserva mientras esta pantalla está abierta.
             </p>
 
-            <dl class="change-summary" aria-label="Resumen de cambios">
-              <div v-for="item in changeSummary" :key="item.status">
-                <dt>{{ item.label }}</dt>
-                <dd>{{ item.count }}</dd>
-              </div>
-              <div v-if="review.conflicts.length" class="summary-conflict">
-                <dt>Conflictos</dt>
-                <dd>{{ review.conflicts.length }}</dd>
-              </div>
-            </dl>
+            <div v-if="fileName" class="file-meta" aria-live="polite">
+              <span class="file-name">{{ fileName }}</span>
+              <span>{{ formatFileSize(fileSize) }}</span>
+              <button type="button" class="text-button" @click="importer.clearFile">Quitar archivo</button>
+            </div>
 
-            <details v-for="group in changeGroups" :key="group.status" class="change-details">
-              <summary>
-                {{ group.title }} <span>{{ group.changes.length }}</span>
-              </summary>
-              <ul>
-                <li v-for="(change, index) in group.changes" :key="`${change.kind}-${change.key}-${index}`">
-                  <span>{{ kindText[change.kind] ?? 'Elemento' }}</span>
-                  <strong>{{ change.key }}</strong>
-                  <small>{{ pathLabel(change.path) }}</small>
-                </li>
-              </ul>
-            </details>
+            <button
+              v-if="fileName && (state === 'empty' || state === 'reviewed-with-conflicts')"
+              class="button-primary"
+              type="button"
+              :disabled="!canReview"
+              @click="importer.reviewFile"
+            >
+              {{ review ? 'Volver a revisar' : 'Revisar plan' }}
+            </button>
+          </section>
 
-            <div v-if="review.proposal" class="proposal-detail">
-              <h3>Plan combinado</h3>
-              <dl>
-                <div>
-                  <dt>Nombre</dt>
-                  <dd>{{ review.proposal.name }}</dd>
+          <section
+            class="import-status"
+            :class="`status-${state}`"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <span class="status-indicator" aria-hidden="true"></span>
+            <p>{{ stateCopy }}</p>
+          </section>
+
+          <section
+            v-if="errorMessage || issues.length"
+            ref="errorSummary"
+            class="import-errors"
+            tabindex="-1"
+            aria-labelledby="error-heading"
+          >
+            <h2 id="error-heading">
+              {{ issues.length ? 'Revisa estas incidencias del documento' : errorTitle }}
+            </h2>
+            <p v-if="errorMessage">{{ errorMessage }}</p>
+            <ul v-if="issues.length">
+              <li v-for="(issue, index) in issues" :key="`${issue.code}-${index}`">
+                <strong>{{ issueMessage(issue) }}</strong>
+                <span>{{ pathLabel(issue.path) }}</span>
+              </li>
+            </ul>
+          </section>
+
+          <template v-if="review?.valid">
+            <section class="import-section review-section" aria-labelledby="review-heading">
+              <div class="section-heading">
+                <h2 id="review-heading">Resumen de la revisión</h2>
+                <p v-if="review.confirmable">
+                  Revisión vigente hasta {{ formatDate(review.reviewExpiresAt) }}.
+                </p>
+                <p v-else>Resuelve los conflictos antes de iniciar una nueva revisión.</p>
+              </div>
+
+              <p class="preservation-note">
+                Los elementos que no aparecen en el archivo se conservarán. La importación no elimina datos.
+              </p>
+
+              <dl class="change-summary" aria-label="Resumen de cambios">
+                <div v-for="item in changeSummary" :key="item.status">
+                  <dt>{{ item.label }}</dt>
+                  <dd>{{ item.count }}</dd>
                 </div>
-                <div>
-                  <dt>Periodo</dt>
-                  <dd>{{ review.proposal.startDate }} – {{ review.proposal.endDate }}</dd>
-                </div>
-                <div>
-                  <dt>Días</dt>
-                  <dd>{{ proposalDays.length }}</dd>
+                <div v-if="review.conflicts.length" class="summary-conflict">
+                  <dt>Conflictos</dt>
+                  <dd>{{ review.conflicts.length }}</dd>
                 </div>
               </dl>
-              <ul class="proposal-days">
-                <li v-for="day in proposalDays" :key="day.key">
-                  <span>{{ planDayLabel(day) }}</span>
-                </li>
-              </ul>
-            </div>
 
-            <div v-if="review.conflicts.length" class="conflict-list" aria-labelledby="conflict-heading">
-              <h3 id="conflict-heading">Conflictos que bloquean la importación</h3>
-              <ul>
-                <li
-                  v-for="(conflict, index) in review.conflicts"
-                  :key="`${conflict.code}-${conflict.key}-${index}`"
-                >
-                  <strong>{{ conflictText[conflict.code] ?? 'Este elemento no se puede importar.' }}</strong>
-                  <span>{{ conflict.key }} · {{ pathLabel(conflict.path) }}</span>
-                </li>
-              </ul>
-            </div>
+              <details v-for="group in changeGroups" :key="group.status" class="change-details">
+                <summary>
+                  {{ group.title }} <span>{{ group.changes.length }}</span>
+                </summary>
+                <ul>
+                  <li v-for="(change, index) in group.changes" :key="`${change.kind}-${change.key}-${index}`">
+                    <span>{{ kindText[change.kind] ?? 'Elemento' }}</span>
+                    <strong>{{ change.key }}</strong>
+                    <small>{{ pathLabel(change.path) }}</small>
+                  </li>
+                </ul>
+              </details>
+
+              <div v-if="review.proposal" class="proposal-detail">
+                <h3>Plan combinado</h3>
+                <dl>
+                  <div>
+                    <dt>Nombre</dt>
+                    <dd>{{ review.proposal.name }}</dd>
+                  </div>
+                  <div>
+                    <dt>Periodo</dt>
+                    <dd>{{ review.proposal.startDate }} – {{ review.proposal.endDate }}</dd>
+                  </div>
+                  <div>
+                    <dt>Días</dt>
+                    <dd>{{ proposalDays.length }}</dd>
+                  </div>
+                </dl>
+                <ul class="proposal-days">
+                  <li v-for="day in proposalDays" :key="day.key">
+                    <span>{{ planDayLabel(day) }}</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div v-if="review.conflicts.length" class="conflict-list" aria-labelledby="conflict-heading">
+                <h3 id="conflict-heading">Conflictos que bloquean la importación</h3>
+                <ul>
+                  <li
+                    v-for="(conflict, index) in review.conflicts"
+                    :key="`${conflict.code}-${conflict.key}-${index}`"
+                  >
+                    <strong>{{
+                      conflictText[conflict.code] ?? 'Este elemento no se puede importar.'
+                    }}</strong>
+                    <span>{{ conflict.key }} · {{ pathLabel(conflict.path) }}</span>
+                  </li>
+                </ul>
+              </div>
+            </section>
+
+            <section class="import-confirm" aria-labelledby="confirm-heading">
+              <div>
+                <h2 id="confirm-heading">Confirmar importación</h2>
+                <p>La confirmación guarda el plan combinado como una única operación.</p>
+              </div>
+              <button
+                v-if="canConfirm || state === 'confirming'"
+                class="button-primary"
+                type="button"
+                :disabled="state === 'confirming'"
+                @click="importer.confirm"
+              >
+                {{ state === 'confirming' ? 'Guardando…' : 'Confirmar plan' }}
+              </button>
+              <p v-else-if="review.conflicts.length" class="confirm-blocked">
+                La confirmación está desactivada hasta resolver los conflictos.
+              </p>
+              <button
+                v-else-if="state === 'request-error' && canRetryConfirmation"
+                class="button-primary"
+                type="button"
+                @click="importer.retryConfirmation"
+              >
+                Reintentar confirmación segura
+              </button>
+              <RouterLink
+                v-else-if="confirmedPlanStartDate && planningLocation"
+                class="button-secondary"
+                :to="planningLocation"
+              >
+                Ver planificación
+              </RouterLink>
+            </section>
+          </template>
+
+          <section v-if="state === 'stale-or-expired'" class="recovery-actions">
+            <button class="button-primary" type="button" :disabled="!canReview" @click="importer.reviewFile">
+              Revisar de nuevo
+            </button>
           </section>
 
-          <section class="import-confirm" aria-labelledby="confirm-heading">
-            <div>
-              <h2 id="confirm-heading">Confirmar importación</h2>
-              <p>La confirmación guarda el plan combinado como una única operación.</p>
-            </div>
-            <button
-              v-if="canConfirm || state === 'confirming'"
-              class="button-primary"
-              type="button"
-              :disabled="state === 'confirming'"
-              @click="importer.confirm"
-            >
-              {{ state === 'confirming' ? 'Guardando…' : 'Confirmar plan' }}
+          <section v-if="state === 'invalid-document'" class="recovery-actions">
+            <button class="button-secondary" type="button" @click="chooseAnotherFile">
+              Seleccionar otro archivo
             </button>
-            <p v-else-if="review.conflicts.length" class="confirm-blocked">
-              La confirmación está desactivada hasta resolver los conflictos.
-            </p>
-            <button
-              v-else-if="state === 'request-error' && canRetryConfirmation"
-              class="button-primary"
-              type="button"
-              @click="importer.retryConfirmation"
-            >
-              Reintentar confirmación segura
-            </button>
-            <RouterLink
-              v-else-if="confirmedPlanStartDate && planningLocation"
-              class="button-secondary"
-              :to="planningLocation"
-            >
-              Ver planificación
+          </section>
+
+          <section v-if="state === 'request-error' && !canRetryConfirmation" class="recovery-actions">
+            <RouterLink v-if="errorKind === 'permission'" class="button-secondary" to="/">
+              Volver al inicio
             </RouterLink>
+            <button
+              v-else
+              class="button-secondary"
+              type="button"
+              :disabled="!canReview"
+              @click="importer.reviewFile"
+            >
+              Reintentar revisión
+            </button>
           </section>
-        </template>
-
-        <section v-if="state === 'stale-or-expired'" class="recovery-actions">
-          <button class="button-primary" type="button" :disabled="!canReview" @click="importer.reviewFile">
-            Revisar de nuevo
-          </button>
         </section>
-
-        <section v-if="state === 'invalid-document'" class="recovery-actions">
-          <button class="button-secondary" type="button" @click="chooseAnotherFile">
-            Seleccionar otro archivo
-          </button>
-        </section>
-
-        <section v-if="state === 'request-error' && !canRetryConfirmation" class="recovery-actions">
-          <RouterLink v-if="errorKind === 'permission'" class="button-secondary" to="/">
-            Volver al inicio
-          </RouterLink>
-          <button
-            v-else
-            class="button-secondary"
-            type="button"
-            :disabled="!canReview"
-            @click="importer.reviewFile"
-          >
-            Reintentar revisión
-          </button>
-        </section>
-      </section>
-    </div>
-  </main>
+      </div>
+    </main>
+  </AppPageShell>
 </template>
 
 <style scoped>
 .import-page {
-  min-height: 100svh;
+  min-height: calc(100dvh - var(--trakia-shell-header-height) - env(safe-area-inset-top));
   overflow-x: clip;
   background: var(--trakia-background);
   color: var(--trakia-text);
-  padding: 0 1rem 3rem;
+  padding: 0 max(1rem, env(safe-area-inset-left)) max(3rem, env(safe-area-inset-bottom))
+    max(1rem, env(safe-area-inset-right));
 }
 
 .import-shell {
@@ -412,28 +414,6 @@ function planDayLabel(
   margin-inline: auto;
 }
 
-.import-toolbar {
-  min-height: 4.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  border-bottom: 1px solid var(--trakia-border);
-}
-
-.import-brand {
-  color: var(--trakia-text);
-  font-size: 1rem;
-  font-weight: 800;
-  letter-spacing: 0.2em;
-  text-decoration: none;
-}
-
-.import-brand span {
-  color: var(--trakia-accent);
-}
-
-.import-back,
 .text-button {
   min-height: 2.75rem;
   display: inline-flex;
@@ -567,7 +547,7 @@ h1 {
   align-items: center;
   border: 0;
   border-radius: 0.35rem;
-  background: #2c3026;
+  background: var(--trakia-surface-raised);
   padding-inline: 0.75rem;
   color: var(--trakia-text);
   font-weight: 600;
@@ -640,7 +620,7 @@ h1 {
 
 .button-primary {
   background: var(--trakia-accent);
-  color: #20231d;
+  color: var(--trakia-accent-foreground);
 }
 
 .button-primary:hover:not(:disabled) {
@@ -708,9 +688,9 @@ h1 {
 .conflict-list {
   margin-block: 1rem;
   padding: 1rem;
-  border: 1px solid #75483f;
+  border: 1px solid var(--trakia-danger-border);
   border-radius: 0.5rem;
-  background: #211a18;
+  background: var(--trakia-danger-surface);
   color: var(--trakia-text);
 }
 
@@ -742,12 +722,12 @@ h1 {
   display: grid;
   gap: 0.25rem;
   padding-top: 0.75rem;
-  border-top: 1px solid #513831;
+  border-top: 1px solid var(--trakia-danger-border);
 }
 
 .import-errors li span,
 .conflict-list li span {
-  color: #e0b5ac;
+  color: var(--trakia-danger-muted);
   font-size: 0.8125rem;
   overflow-wrap: anywhere;
 }
@@ -819,7 +799,7 @@ h1 {
   grid-template-columns: minmax(6.5rem, 0.4fr) minmax(0, 1fr);
   gap: 0.25rem 0.75rem;
   padding-block: 0.5rem;
-  border-top: 1px solid #2e302b;
+  border-top: 1px solid var(--trakia-border);
   font-size: 0.8125rem;
 }
 

@@ -24,9 +24,10 @@
 | [HC-05-09-06](HC-05-09-06.md) | Completada | HIIT online aceptado manualmente: transiciones, estados, pausas, recarga y 56 s efectivos. Checks finales satisfactorios; anchos exactos 375/390 px no medidos. |
 | [HC-05-09-06a](HC-05-09-06a.md) | Completada | Métricas HIIT aceptadas manualmente: 26 reps, RPE 10 y resultados por intervalo. «Volver al calendario» tiene pruebas automatizadas; smoke manual posterior del enlace pendiente. |
 | [HC-05-09-07](HC-05-09-07.md) | Completada | AMRAP online; propietario acepta ejecución, rondas completas, métricas por ejercicio/ronda y persistencia. `pnpm check`, arquitectura e integración `trakia_test` satisfactorias; escenarios de pausa, recarga, cierre anticipado y parcial quedan fuera del smoke aceptado. |
+| [HC-05-10-01](HC-05-10-01.md) | En revisión | Tokens y shell visual; login con marca centrada, CTA rojo AA y toggle de contraseña. `pnpm check` y arquitectura pasan; Chrome a 375/390 px pendiente. |
 
 Las fichas HC-05-01–08 conservan las decisiones y prioridades implementadas históricamente. Para HC-05-09, el recorrido vertical online mínimo (09-03), la primera serie desde PWA (09-03a) y el cierre online (09-03b) están completados. HC-05-09-04 especifica ahora los tiempos online en tareas incrementales; la integración posterior de circuitos, HIIT y AMRAP y la retirada segura del almacenamiento heredado quedan para fichas posteriores.
 
-Diseño: [ejecutor-diseno.md](ejecutor-diseno.md).
+Diseño: [ejecutor-diseno.md](ejecutor-diseno.md). Propuesta integral UX/UI y correcciones del propietario: [HC-05-10](HC-05-10-propuesta-ux.md).
 
 HC-05-09-02 fija el objetivo online y mantiene intacto el historial de HC-05-01–08. HC-05-08 continúa en revisión y su trabajo pendiente se preserva; HC-05-09-07 está completada tras el smoke aceptado por el propietario.
