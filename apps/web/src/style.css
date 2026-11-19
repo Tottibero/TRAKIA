@@ -24,6 +24,7 @@
   --trakia-warning: #f3d28a;
   --trakia-success: #b8d9a5;
   --trakia-shell-header-height: 4.5rem;
+  --trakia-bottom-nav-height: 4.25rem;
   --trakia-space-1: 0.25rem;
   --trakia-space-2: 0.5rem;
   --trakia-space-3: 0.75rem;
@@ -85,6 +86,7 @@ body {
   flex-direction: column;
   background: var(--trakia-background);
   color: var(--trakia-text);
+  padding-bottom: 0;
 }
 
 .app-shell__header {
@@ -94,6 +96,10 @@ body {
     max(1rem, env(safe-area-inset-left));
   border-bottom: 1px solid var(--trakia-border);
   background: var(--trakia-background);
+}
+
+.app-shell__header--calendar {
+  border-bottom: 0;
 }
 
 .app-shell__header-inner {
@@ -106,12 +112,24 @@ body {
   margin-inline: auto;
 }
 
+.app-shell__brand {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.625rem;
+}
+
 .app-shell__logo {
   display: block;
   width: 6rem;
   height: 4rem;
   flex: 0 0 auto;
-  border-radius: 0.25rem;
+}
+
+.app-shell__brand--calendar .app-shell__logo {
+  width: 4.75rem;
+  height: auto;
 }
 
 .app-shell__logo img {
@@ -119,6 +137,21 @@ body {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.app-shell__wordmark {
+  display: inline;
+  color: var(--trakia-text);
+  font-size: 1rem;
+  font-weight: 700;
+  font-kerning: normal;
+  letter-spacing: -0.025em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.app-shell__wordmark-accent {
+  color: var(--trakia-accent);
 }
 
 .app-shell__actions {
@@ -160,8 +193,85 @@ body {
 
 .app-shell > main {
   width: 100%;
-  min-height: calc(100dvh - var(--trakia-shell-header-height) - env(safe-area-inset-top));
   flex: 1 0 auto;
+}
+
+.app-primary-navigation {
+  position: fixed;
+  z-index: 20;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  min-height: calc(var(--trakia-bottom-nav-height) + env(safe-area-inset-bottom));
+  padding: 0 max(0.5rem, env(safe-area-inset-right)) env(safe-area-inset-bottom)
+    max(0.5rem, env(safe-area-inset-left));
+  border-top: 1px solid var(--trakia-border);
+  background: var(--trakia-background);
+}
+
+.app-primary-navigation__inner {
+  display: grid;
+  width: min(100%, 36rem);
+  min-height: var(--trakia-bottom-nav-height);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-inline: auto;
+}
+
+.app-primary-navigation__link {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 3.75rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  color: var(--trakia-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  touch-action: manipulation;
+}
+
+.app-primary-navigation__link svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.app-primary-navigation__link:hover,
+.app-primary-navigation__link.is-active {
+  color: var(--trakia-text);
+}
+
+.app-primary-navigation__link.is-active::before {
+  position: absolute;
+  top: -1px;
+  width: 2rem;
+  height: 2px;
+  background: var(--trakia-accent);
+  content: '';
+}
+
+.app-primary-navigation__link:focus-visible {
+  z-index: 1;
+  outline: 2px solid var(--trakia-focus);
+  outline-offset: -4px;
+}
+
+.app-shell__nav-spacer {
+  width: 100%;
+  height: calc(var(--trakia-bottom-nav-height) + env(safe-area-inset-bottom));
+  flex: 0 0 auto;
+}
+
+body:has(input:focus, textarea:focus, select:focus) .app-primary-navigation {
+  visibility: hidden;
 }
 
 .session-loading {

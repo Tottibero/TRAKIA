@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ImportValidationIssue, TrainingPlanImportReviewResponse } from '@trakia/contracts'
+import { useAuth } from '@/features/auth'
 import AppPageShell from '@/shared/components/AppPageShell.vue'
 import { trainingPlanHomeLocation } from '../../training-plan-calendar'
 import { useTrainingPlanImport } from '../useTrainingPlanImport'
 
 const importer = useTrainingPlanImport()
+const auth = useAuth()
 const {
   canConfirm,
   canRetryConfirmation,
@@ -163,7 +165,14 @@ function planDayLabel(
 <template>
   <AppPageShell>
     <template #actions>
-      <RouterLink class="app-shell__action" to="/">Volver al inicio</RouterLink>
+      <button
+        class="app-shell__action"
+        type="button"
+        :disabled="auth.isLoggingOut.value"
+        @click="auth.logout()"
+      >
+        {{ auth.isLoggingOut.value ? 'Saliendo…' : 'Cerrar sesión' }}
+      </button>
     </template>
     <main class="import-page">
       <div class="import-shell">
@@ -401,7 +410,6 @@ function planDayLabel(
 
 <style scoped>
 .import-page {
-  min-height: calc(100dvh - var(--trakia-shell-header-height) - env(safe-area-inset-top));
   overflow-x: clip;
   background: var(--trakia-background);
   color: var(--trakia-text);

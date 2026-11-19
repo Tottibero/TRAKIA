@@ -1,4 +1,9 @@
 const MADRID_TIME_ZONE = 'Europe/Madrid'
+const compactWeekDate = new Intl.DateTimeFormat('es-ES', {
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'UTC',
+})
 const madridDateTime = new Intl.DateTimeFormat('en-GB', {
   timeZone: MADRID_TIME_ZONE,
   year: 'numeric',
@@ -111,6 +116,11 @@ export function formatDayHeading(value) {
   return `${weekday.charAt(0).toLocaleUpperCase('es-ES')}${weekday.slice(1)}, ${day}`
 }
 
+export function formatDayAbbreviation(value) {
+  const date = utcDate(value)
+  return new Intl.DateTimeFormat('es-ES', { weekday: 'short', timeZone: 'UTC' }).format(date).replace('.', '')
+}
+
 export function formatWeekRange(from, to) {
   const start = utcDate(from)
   const end = utcDate(to)
@@ -128,6 +138,20 @@ export function formatWeekRange(from, to) {
     return `${startDay} de ${startMonth} – ${endDay} de ${endMonth} de ${endParts.year}`
   }
   return `${startDay} de ${startMonth} de ${startParts.year} – ${endDay} de ${endMonth} de ${endParts.year}`
+}
+
+export function formatCompactWeekRange(from, to) {
+  const start = utcDate(from)
+  const end = utcDate(to)
+  const startParts = dateFields(start)
+  const endParts = dateFields(end)
+  const startLabel = compactWeekDate.format(start).replace(/\.$/, '')
+  const endLabel = compactWeekDate.format(end).replace(/\.$/, '')
+
+  if (startParts.year !== endParts.year) {
+    return `${startLabel} ${startParts.year} — ${endLabel} ${endParts.year}`
+  }
+  return `${startLabel} — ${endLabel}`
 }
 
 export function getNextMadridMidnight(now = Date.now()) {

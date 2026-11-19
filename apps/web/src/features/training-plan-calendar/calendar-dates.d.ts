@@ -9,5 +9,7 @@ export function parseWeekStart(queryValue: unknown): PlanDate | undefined
 export function resolveExpandedDates(queryValue: unknown, weekStart: PlanDate, today: PlanDate): PlanDate[]
 export function serializeExpandedDates(values: PlanDate[]): PlanDate[] | ''
 export function formatDayHeading(value: PlanDate): string
+export function formatDayAbbreviation(value: PlanDate): string
 export function formatWeekRange(from: PlanDate, to: PlanDate): string
+export function formatCompactWeekRange(from: PlanDate, to: PlanDate): string
 export function getNextMadridMidnight(now?: number): number

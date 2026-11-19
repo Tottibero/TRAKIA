@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-19T08:47:21Z",
+  "title": "Design System: TRAKIA",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "TRAKIA Red",
+        "canonical": "#FE271F",
+        "tonalRamp": ["#300806", "#4A0C09", "#650F0B", "#80130E", "#9B1712", "#B61B16", "#D01F19", "#FE514A"]
+      },
+      "primary-foreground": {
+        "role": "neutral",
+        "displayName": "Accent Foreground",
+        "canonical": "#170B0A",
+        "tonalRamp": ["#170B0A", "#2F1715", "#472320", "#60302B", "#793D36", "#924A42", "#AB574E", "#C4645A"]
+      },
+      "primary-action": {
+        "role": "primary",
+        "displayName": "Action Red",
+        "canonical": "#C81F19",
+        "tonalRamp": ["#310A08", "#4A0C09", "#640F0C", "#7D130F", "#971612", "#B01A16", "#C81F19", "#F05B55"]
+      },
+      "action-foreground": {
+        "role": "neutral",
+        "displayName": "Action Text",
+        "canonical": "#FFFFFF",
+        "tonalRamp": ["#333333", "#4A4A4A", "#626262", "#797979", "#919191", "#A9A9A9", "#D0D0D0", "#FFFFFF"]
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Charcoal Base",
+        "canonical": "#0B0C0C",
+        "tonalRamp": ["#0B0C0C", "#141616", "#1C1F1F", "#303434", "#898C89", "#B2B3AE", "#D8D6D0", "#F4F1EB"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Charcoal Surface",
+        "canonical": "#141616",
+        "tonalRamp": ["#0B0C0C", "#141616", "#1C1F1F", "#303434", "#898C89", "#B2B3AE", "#D8D6D0", "#F4F1EB"]
+      },
+      "surface-raised": {
+        "role": "neutral",
+        "displayName": "Raised Charcoal",
+        "canonical": "#1C1F1F",
+        "tonalRamp": ["#0B0C0C", "#141616", "#1C1F1F", "#303434", "#898C89", "#B2B3AE", "#D8D6D0", "#F4F1EB"]
+      },
+      "foreground": {
+        "role": "neutral",
+        "displayName": "Warm White",
+        "canonical": "#F4F1EB",
+        "tonalRamp": ["#0B0C0C", "#141616", "#1C1F1F", "#303434", "#898C89", "#B2B3AE", "#D8D6D0", "#F4F1EB"]
+      },
+      "foreground-secondary": {
+        "role": "neutral",
+        "displayName": "Warm Grey",
+        "canonical": "#B2B3AE",
+        "tonalRamp": ["#0B0C0C", "#141616", "#1C1F1F", "#303434", "#898C89", "#B2B3AE", "#D8D6D0", "#F4F1EB"]
+      },
+      "foreground-tertiary": {
+        "role": "neutral",
+        "displayName": "Muted Grey",
+        "canonical": "#898C89",
+        "tonalRamp": ["#0B0C0C", "#141616", "#1C1F1F", "#303434", "#898C89", "#B2B3AE", "#D8D6D0", "#F4F1EB"]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Graphite Border",
+        "canonical": "#303434",
+        "tonalRamp": ["#0B0C0C", "#141616", "#1C1F1F", "#303434", "#898C89", "#B2B3AE", "#D8D6D0", "#F4F1EB"]
+      },
+      "focus": {
+        "role": "primary",
+        "displayName": "Focus Red",
+        "canonical": "#FE514A",
+        "tonalRamp": ["#300806", "#4A0C09", "#650F0B", "#80130E", "#9B1712", "#B61B16", "#D01F19", "#FE514A"]
+      },
+      "success": {
+        "role": "tertiary",
+        "displayName": "Soft Green",
+        "canonical": "#B8D9A5",
+        "tonalRamp": ["#162010", "#2A3A1F", "#3F552E", "#56733D", "#70924F", "#8DB260", "#A3C880", "#B8D9A5"]
+      },
+      "warning": {
+        "role": "secondary",
+        "displayName": "Warm Amber",
+        "canonical": "#F3D28A",
+        "tonalRamp": ["#30240D", "#493612", "#654A18", "#805F20", "#9C752A", "#B88C39", "#D4AC5B", "#F3D28A"]
+      }
+    },
+    "typographyMeta": {
+      "body": { "displayName": "Body", "purpose": "Training content and operative instructions." },
+      "title": { "displayName": "Title", "purpose": "Screen titles and primary activity names." }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "state-transition",
+        "value": "160ms ease",
+        "purpose": "Brief feedback on interaction state changes."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action",
+      "kind": "button",
+      "refersTo": "primary-action",
+      "description": "High-priority action with white text on the darker action red.",
+      "html": "<button class=\"ds-primary-action\" type=\"button\">Iniciar sesión</button>",
+      "css": ".ds-primary-action { min-height: 44px; border: 0; border-radius: 8px; background: #C81F19; padding: 0 16px; color: #FFFFFF; font: 600 16px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: background-color 160ms ease; } .ds-primary-action:hover { background: #AD1A15; } .ds-primary-action:focus-visible { outline: 2px solid #FE514A; outline-offset: 3px; }"
+    },
+    {
+      "name": "Quiet Action",
+      "kind": "button",
+      "description": "Secondary action on the dark background, used for contextual controls.",
+      "html": "<button class=\"ds-quiet-action\" type=\"button\">Cerrar sesión</button>",
+      "css": ".ds-quiet-action { min-height: 44px; border: 0; border-radius: 8px; background: transparent; padding: 0 12px; color: #B2B3AE; font: 600 14px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: color 160ms ease; } .ds-quiet-action:hover { color: #F4F1EB; } .ds-quiet-action:focus-visible { outline: 2px solid #FE514A; outline-offset: 3px; }"
+    },
+    {
+      "name": "Primary Navigation Item",
+      "kind": "nav",
+      "description": "Quiet, labeled navigation item with a contrasting active state.",
+      "html": "<a class=\"ds-nav-item\" href=\"#\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"3.5\" y=\"5\" width=\"17\" height=\"16\" rx=\"2\"/><path d=\"M16 3.5v3M8 3.5v3M3.5 9.5h17\"/></svg><span>Calendario</span></a>",
+      "css": ".ds-nav-item { position: relative; display: flex; min-height: 60px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-radius: 8px; color: #B2B3AE; font: 600 12px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; text-decoration: none; } .ds-nav-item svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; } .ds-nav-item[aria-current=page] { color: #F4F1EB; } .ds-nav-item[aria-current=page]::before { position: absolute; top: 0; width: 24px; height: 2px; background: #FE271F; content: ''; } .ds-nav-item:focus-visible { outline: 2px solid #FE514A; outline-offset: 3px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Operar con calma y precisión.",
+    "overview": "TRAKIA is a mobile-first training tool. Its visual language keeps the workout and the next useful action easy to find. Dark charcoal surfaces, warm white text, measured spacing, and restrained red accents make the interface direct without adding visual noise. The approved direction is the charcoal, warm-white, and TRAKIA-red palette recorded in the HC-05-10 UX proposal. The existing PNG is the official mark and must remain byte-for-byte intact. The isolated calendar composition and status treatment are approved for implementation; the session detail still needs its own visual proposal and approval.",
+    "keyCharacteristics": [
+      "Calm, precise, and operational.",
+      "Flat charcoal surfaces with clear typographic hierarchy.",
+      "Red used as a deliberate accent, not as a page-wide fill.",
+      "Real training information stays primary; no decorative metrics or duplicated explanations."
+    ],
+    "rules": [
+      {
+        "name": "The Accent Restraint Rule",
+        "body": "TRAKIA red marks a meaningful action, focus, or state; it does not fill large background regions or carry meaning by color alone.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Do use the approved charcoal, warm-white, and TRAKIA-red palette.",
+      "Do remove technical identifiers, duplicate data, and explanations that the interface makes unnecessary.",
+      "Do pair status colors with clear text.",
+      "Do use visible focus and responsive layouts at narrow widths.",
+      "Do treat page-specific designs as proposals until their visual review is approved."
+    ],
+    "donts": [
+      "Don't change the official PNG or create derivative marks without approval.",
+      "Don't add decorative sports effects, invented metrics, nested cards, gradients, or heavy shadows.",
+      "Don't add product capabilities or change sports logic during a visual redesign.",
+      "Don't use color as the sole status signal."
+    ]
+  }
+}

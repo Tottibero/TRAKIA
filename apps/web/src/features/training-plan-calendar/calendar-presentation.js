@@ -10,6 +10,31 @@ function durationLabel(seconds) {
   return `${minutes} min ${remainingSeconds} s`
 }
 
+export function getCalendarSessionPresentation(status) {
+  if (status === 'completed') {
+    return { label: 'Completada', tone: 'complete', action: 'Resultados', view: 'summary' }
+  }
+  if (status === 'in_progress') {
+    return { label: 'En curso', tone: 'in-progress', action: 'Ver sesión', view: 'session' }
+  }
+  if (status === 'paused') {
+    return { label: 'En pausa', tone: 'paused', action: 'Ver sesión', view: 'session' }
+  }
+  return { label: 'Pendiente', tone: 'pending', action: 'Ver sesión', view: 'session' }
+}
+
+export function describeCalendarDay(day, { hasData, hasError }) {
+  if (!hasData) return hasError ? 'No disponible' : 'Cargando'
+  if (day.entries.length === 0) return 'Sin sesiones ni descansos'
+
+  const sessions = day.entries.filter((entry) => entry.type === 'session').length
+  const rests = day.entries.filter((entry) => entry.type === 'rest').length
+  const parts = []
+  if (sessions > 0) parts.push(`${sessions} ${sessions === 1 ? 'sesión' : 'sesiones'}`)
+  if (rests > 0) parts.push(`${rests} ${rests === 1 ? 'descanso' : 'descansos'}`)
+  return parts.join(' · ')
+}
+
 export function describeCalendarBlock(block) {
   if (block.type === 'sets') {
     return {

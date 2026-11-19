@@ -25,6 +25,7 @@
 | [HC-05-09-06a](HC-05-09-06a.md) | Completada | Métricas HIIT aceptadas manualmente: 26 reps, RPE 10 y resultados por intervalo. «Volver al calendario» tiene pruebas automatizadas; smoke manual posterior del enlace pendiente. |
 | [HC-05-09-07](HC-05-09-07.md) | Completada | AMRAP online; propietario acepta ejecución, rondas completas, métricas por ejercicio/ronda y persistencia. `pnpm check`, arquitectura e integración `trakia_test` satisfactorias; escenarios de pausa, recarga, cierre anticipado y parcial quedan fuera del smoke aceptado. |
 | [HC-05-10-01](HC-05-10-01.md) | Completada | Tokens y shell visual; login con marca centrada, CTA rojo AA y toggle de contraseña. `pnpm check` y arquitectura pasan; el propietario acepta la limitación de Chrome documentada. |
+| [HC-05-10-02](HC-05-10-02.md) | Completada | Calendario y estilos visuales aceptados por el propietario; wordmark compactado. Limitación de inspección/capturas Chrome documentada y aceptada. |
 
 Las fichas HC-05-01–08 conservan las decisiones y prioridades implementadas históricamente. Para HC-05-09, el recorrido vertical online mínimo (09-03), la primera serie desde PWA (09-03a) y el cierre online (09-03b) están completados. HC-05-09-04 especifica ahora los tiempos online en tareas incrementales; la integración posterior de circuitos, HIIT y AMRAP y la retirada segura del almacenamiento heredado quedan para fichas posteriores.
 

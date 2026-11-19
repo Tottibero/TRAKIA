@@ -48,11 +48,14 @@
 ## Diseño frontend de TRAKIA
 
 - Desde HC-03-07, aplica este flujo a tareas HC que cambien la interfaz o la experiencia de usuario; reutilízalo en los bloques posteriores que tengan alcance frontend. No se aplica a cambios exclusivamente de backend, contratos o infraestructura.
+- Antes de implementar cambios visuales, consulta `DESIGN.md` y prepara una propuesta de la superficie afectada en una maqueta HTML/CSS aislada o una vista de demostración sin conexiones reales. Muestra los estados y tamaños móviles relevantes y registra las decisiones pendientes.
+- No modifiques componentes productivos de una nueva pantalla o rediseño hasta que el propietario apruebe la propuesta visual correspondiente. La aprobación de la dirección global no sustituye la revisión de la superficie específica. Conserva los cambios de trabajo existentes durante esta pausa; no los reviertas como parte del proceso de diseño.
 - Usa las cuatro skills de diseño de forma complementaria, respetando sus instrucciones propias y el alcance de la tarea. No sustituyen `trakia-task`, la auditoría de `trakia-architecture` ni las decisiones de ADR-015.
 - Para nuevas superficies o decisiones visuales amplias, consulta `ui-ux-pro-max` con `--design-system`; para cambios acotados, usa solo las búsquedas de dominio o stack que resuelvan la cuestión concreta. Comprueba que los resultados encajan con TRAKIA antes de aplicarlos y no persistas propuestas sin validar.
 - Usa `frontend-design` para convertir la dirección aprobada en una interfaz funcional, accesible, adaptable y coherente con la arquitectura existente.
 - Recurre a `ui-design-system` cuando la tarea cree o cambie tokens, componentes compartidos o documentación de sistema. Parte de los tokens y componentes vigentes; no generes ni sustituyas un sistema paralelo preventivamente.
 - Usa Impeccable para cargar el contexto visual y la guía de calidad aplicable, y para la revisión/refinamiento final. En refinamientos conserva la identidad existente fuera del alcance; cualquier rediseño debe estar autorizado por la tarea.
+- Para HC-05-10, la propuesta del calendario está aprobada y su implementación se autorizó. El detalle de sesión requiere una aprobación visual específica antes de futuros rediseños, salvo autorización expresa del propietario para el cambio concreto.
 - La inspección visual y las comprobaciones de calidad se ajustan a la superficie y al alcance definidos por la tarea. Las recomendaciones de las skills no amplían ese alcance ni prevalecen sobre requisitos, ADR o convenciones del repositorio.
 
 ## Arquitectura modular
