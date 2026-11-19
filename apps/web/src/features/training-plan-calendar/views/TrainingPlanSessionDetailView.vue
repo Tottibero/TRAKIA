@@ -9,12 +9,7 @@ import { useTrainingPlanSession } from '../useTrainingPlanSession'
 import WorkoutStartAction from '@/features/workout-execution/components/WorkoutStartAction.vue'
 import SessionBlockDetail from '../components/SessionBlockDetail.vue'
 import { formatSessionDate } from '../session-detail-presentation.js'
-import {
-  getMadridCivilDate,
-  parseWeekStart,
-  resolveExpandedDates,
-  serializeExpandedDates,
-} from '../calendar-dates.js'
+import { getMadridCivilDate, parseWeekStart, resolveExpandedDates } from '../calendar-dates.js'
 
 const route = useRoute()
 const auth = useAuth()
@@ -29,9 +24,25 @@ const sessionId = computed(() => (pathParams.value.success ? pathParams.value.da
 const sessionQuery = useTrainingPlanSession(planId, sessionId)
 const homeLocation = computed(() => {
   const week = parseWeekStart(route.query.week)
-  if (!week) return { name: 'home' }
+  const day = typeof route.query.day === 'string' ? route.query.day : undefined
+  if (!week) return { name: 'home', query: day ? { day } : undefined }
   const expanded = resolveExpandedDates(route.query.expanded, week, getMadridCivilDate())
-  return { name: 'home', query: { week, expanded: serializeExpandedDates(expanded) } }
+  const selectedDay = day ?? expanded[0]
+  return { name: 'home', query: { week, ...(selectedDay ? { day: selectedDay } : {}) } }
+})
+const sessionStatus = computed(() => {
+  const status = sessionQuery.data.value?.session.execution?.status
+  if (status === 'in_progress') return 'En curso'
+  if (status === 'paused') return 'En pausa'
+  if (status === 'completed') return 'Finalizada'
+  return 'Pendiente'
+})
+const sessionStatusClass = computed(() => {
+  const status = sessionQuery.data.value?.session.execution?.status
+  if (status === 'completed') return 'bg-[var(--trakia-surface)] text-[var(--trakia-success)]'
+  if (status === 'in_progress' || status === 'paused')
+    return 'bg-[var(--trakia-surface)] text-[var(--trakia-warning)]'
+  return 'bg-[var(--trakia-surface)] text-[var(--trakia-muted)]'
 })
 const isNotFound = computed(
   () => sessionQuery.error.value instanceof ApiError && sessionQuery.error.value.status === 404,
@@ -55,13 +66,11 @@ const initialErrorMessage = computed(() =>
         {{ auth.isLoggingOut.value ? 'Saliendo…' : 'Cerrar sesión' }}
       </button>
     </template>
-    <main
-      class="min-h-[calc(100dvh-var(--trakia-shell-header-height))] bg-[var(--trakia-background)] px-4 py-4 text-[var(--trakia-text)] sm:px-8 sm:py-6"
-    >
+    <main class="bg-[var(--trakia-background)] px-4 py-4 text-[var(--trakia-text)] sm:px-8 sm:py-6">
       <div class="mx-auto max-w-3xl">
         <nav class="pt-6" aria-label="Navegación de la sesión">
           <RouterLink
-            class="inline-flex min-h-11 items-center gap-2 rounded-sm pr-3 text-sm font-medium text-stone-300 underline decoration-white/30 underline-offset-4 transition hover:text-lime-200 hover:decoration-lime-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+            class="inline-flex min-h-11 items-center gap-2 rounded-sm pr-3 text-sm font-medium text-[var(--trakia-text-strong)] underline decoration-[var(--trakia-border)] underline-offset-4 transition hover:text-[var(--trakia-text)] hover:decoration-[var(--trakia-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)]"
             :to="homeLocation"
           >
             <svg aria-hidden="true" viewBox="0 0 20 20" class="size-4" fill="none">
@@ -81,11 +90,11 @@ const initialErrorMessage = computed(() =>
         </div>
         <div
           v-else-if="sessionQuery.isPending.value && !sessionQuery.data.value"
-          class="mt-6 flex min-h-14 items-center gap-3 rounded-md border border-white/10 bg-white/[0.035] px-4 text-sm text-stone-300"
+          class="mt-6 flex min-h-14 items-center gap-3 rounded-md border border-[var(--trakia-border)] bg-[var(--trakia-surface)] px-4 text-sm text-[var(--trakia-muted)]"
           role="status"
           aria-live="polite"
         >
-          <span class="size-3 animate-pulse rounded-full bg-lime-300" aria-hidden="true"></span>
+          <span class="size-2 animate-pulse rounded-full bg-[var(--trakia-accent)]" aria-hidden="true"></span>
           Cargando detalle de la sesión…
         </div>
         <section
@@ -136,21 +145,31 @@ const initialErrorMessage = computed(() =>
           </p>
 
           <header class="pb-5 pt-7 sm:pb-7 sm:pt-9">
-            <h1 class="break-words text-3xl font-semibold tracking-[-0.035em] text-stone-50 sm:text-4xl">
-              {{ sessionQuery.data.value.plan.name }}
-            </h1>
-            <p class="mt-2 break-words text-base text-stone-300">
-              Sesión <span class="text-stone-500">·</span> {{ sessionQuery.data.value.session.key }}
-            </p>
-            <time class="mt-1 block text-sm text-stone-400" :datetime="sessionQuery.data.value.session.date">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <h1
+                class="min-w-0 flex-1 break-words text-3xl font-semibold tracking-[-0.035em] text-[var(--trakia-text)] sm:text-4xl"
+              >
+                {{ sessionQuery.data.value.plan.name }}
+              </h1>
+              <span
+                class="inline-flex min-h-8 items-center rounded-full px-3 text-xs font-semibold"
+                :class="sessionStatusClass"
+              >
+                {{ sessionStatus }}
+              </span>
+            </div>
+            <time
+              class="mt-2 block text-sm text-[var(--trakia-muted)]"
+              :datetime="sessionQuery.data.value.session.date"
+            >
               {{ formatSessionDate(sessionQuery.data.value.session.date) }}
             </time>
           </header>
 
           <section aria-label="Detalle de los bloques de la sesión" class="border-y border-white/10">
             <ol>
-              <li v-for="(block, index) in sessionQuery.data.value.session.blocks" :key="block.key">
-                <SessionBlockDetail :block="block" :index="index" />
+              <li v-for="block in sessionQuery.data.value.session.blocks" :key="block.key">
+                <SessionBlockDetail :block="block" />
               </li>
             </ol>
           </section>

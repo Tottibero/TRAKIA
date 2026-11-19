@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   addCivilDays,
+  formatCompactWeekRange,
   formatDayHeading,
   formatWeekRange,
   getMadridCivilDate,
@@ -12,7 +13,12 @@ import {
   resolveExpandedDates,
   serializeExpandedDates,
 } from '../src/features/training-plan-calendar/calendar-dates.js'
-import { describeCalendarBlock } from '../src/features/training-plan-calendar/calendar-presentation.js'
+import {
+  describeCalendarBlock,
+  describeCalendarDay,
+  getCalendarSessionPresentation,
+} from '../src/features/training-plan-calendar/calendar-presentation.js'
+import { trainingPlanHomeLocation } from '../src/features/training-plan-calendar/calendar-queries.js'
 
 test('calendar week is Monday through Sunday across a year boundary', () => {
   assert.equal(mondayOfCivilWeek('2027-01-03'), '2026-12-28')
@@ -68,6 +74,60 @@ test('civil date labels use Spanish date words without local device timezone con
   assert.equal(formatDayHeading('2026-11-09'), 'Lunes, 9')
   assert.equal(formatWeekRange('2026-11-09', '2026-11-15'), '9–15 de noviembre de 2026')
   assert.equal(formatWeekRange('2026-12-28', '2027-01-03'), '28 de diciembre de 2026 – 3 de enero de 2027')
+  assert.equal(formatCompactWeekRange('2026-11-16', '2026-11-22'), '16 nov — 22 nov')
+  assert.equal(formatCompactWeekRange('2026-12-28', '2027-01-03'), '28 dic 2026 — 3 ene 2027')
+})
+
+test('calendar day and session summaries preserve readable, accessible states', () => {
+  const sessionDay = {
+    date: '2026-11-18',
+    entries: [{ type: 'session' }, { type: 'session' }, { type: 'rest' }],
+  }
+  assert.equal(describeCalendarDay(sessionDay, { hasData: true, hasError: false }), '2 sesiones · 1 descanso')
+  assert.equal(
+    describeCalendarDay({ date: '2026-11-19', entries: [] }, { hasData: true, hasError: false }),
+    'Sin sesiones ni descansos',
+  )
+  assert.equal(
+    describeCalendarDay({ date: '2026-11-19', entries: [] }, { hasData: false, hasError: true }),
+    'No disponible',
+  )
+  assert.equal(
+    describeCalendarDay({ date: '2026-11-19', entries: [] }, { hasData: false, hasError: false }),
+    'Cargando',
+  )
+
+  assert.deepEqual(getCalendarSessionPresentation(undefined), {
+    label: 'Pendiente',
+    tone: 'pending',
+    action: 'Ver sesión',
+    view: 'session',
+  })
+  assert.deepEqual(getCalendarSessionPresentation('completed'), {
+    label: 'Completada',
+    tone: 'complete',
+    action: 'Resultados',
+    view: 'summary',
+  })
+  assert.deepEqual(getCalendarSessionPresentation('in_progress'), {
+    label: 'En curso',
+    tone: 'in-progress',
+    action: 'Ver sesión',
+    view: 'session',
+  })
+  assert.deepEqual(getCalendarSessionPresentation('paused'), {
+    label: 'En pausa',
+    tone: 'paused',
+    action: 'Ver sesión',
+    view: 'session',
+  })
+})
+
+test('calendar navigation resolves any selected civil date to its home week', () => {
+  assert.deepEqual(trainingPlanHomeLocation('2026-11-18'), {
+    name: 'home',
+    query: { week: '2026-11-16' },
+  })
 })
 
 test('calendar summaries preserve block type and do not expose missing exercise IDs', () => {

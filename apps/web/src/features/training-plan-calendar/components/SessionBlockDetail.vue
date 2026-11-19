@@ -5,7 +5,7 @@ import type { TrainingPlanReadExercise } from '@trakia/contracts'
 import PlannedExerciseDetail from './PlannedExerciseDetail.vue'
 import { describeSessionBlock, formatDuration } from '../session-detail-presentation.js'
 
-const props = defineProps<{ block: TrainingPlanReadBlock; index: number }>()
+const props = defineProps<{ block: TrainingPlanReadBlock }>()
 const description = computed(() => describeSessionBlock(props.block))
 
 type Metric = NonNullable<TrainingPlanReadExercise['supportedMetrics']>[number]
@@ -65,8 +65,8 @@ const exercises = computed<ExerciseRow[]>(() => {
 <template>
   <article class="border-t border-white/10 py-5 first:border-t-0 sm:py-6">
     <header class="flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-5">
-      <h2 class="min-w-0 break-words text-lg font-semibold text-lime-200">
-        Bloque {{ index + 1 }} <span class="text-stone-500">·</span> {{ description.heading }}
+      <h2 class="min-w-0 break-words text-lg font-semibold text-[var(--trakia-text)]">
+        {{ description.heading }}
       </h2>
       <ul class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-stone-400">
         <li v-for="detail in description.details" :key="detail">{{ detail }}</li>

@@ -113,21 +113,6 @@ function targetMessage(result: ReturnType<typeof resolveDisplayedTargets>, alter
         {{ describeExerciseMetrics(appearance.exercise.supportedMetrics) }}
       </p>
     </div>
-    <p
-      v-if="appearance.exercise.catalogKeyResolution === 'ambiguous'"
-      class="mt-1 text-xs text-amber-200"
-      role="status"
-    >
-      Clave de catálogo no disponible por referencias ambiguas.
-    </p>
-    <p
-      v-else-if="appearance.exercise.catalogKeyResolution === 'unavailable'"
-      class="mt-1 text-xs text-stone-400"
-      role="status"
-    >
-      Referencia de catálogo no disponible.
-    </p>
-
     <section class="mt-3" aria-label="Objetivos generales">
       <h4 class="text-sm font-medium text-stone-200">Objetivos</h4>
       <dl
@@ -149,7 +134,7 @@ function targetMessage(result: ReturnType<typeof resolveDisplayedTargets>, alter
       <h4 class="text-sm font-medium text-stone-200">{{ unitCount }} {{ unitLabelPlural }}</h4>
       <ol v-if="adjustedTargets.length" class="mt-2 divide-y divide-white/[0.07]">
         <li v-for="row in adjustedTargets" :key="row.index" class="py-2 first:pt-0 last:pb-0">
-          <h5 class="text-xs font-medium uppercase tracking-wide text-lime-200">
+          <h5 class="text-xs font-medium text-[var(--trakia-text-strong)]">
             {{ unitLabel }} {{ row.index }}
           </h5>
           <dl
@@ -181,7 +166,7 @@ function targetMessage(result: ReturnType<typeof resolveDisplayedTargets>, alter
       class="group mt-3 border-t border-white/[0.08]"
     >
       <summary
-        class="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 py-2 text-sm text-stone-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 [&::-webkit-details-marker]:hidden"
+        class="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 py-2 text-sm text-[var(--trakia-text-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] [&::-webkit-details-marker]:hidden"
       >
         <span class="min-w-0 break-words">Alternativa · {{ displayName(alternative.exercise) }}</span>
         <svg
@@ -196,20 +181,6 @@ function targetMessage(result: ReturnType<typeof resolveDisplayedTargets>, alter
       <div class="pb-3 pl-3 pr-1">
         <p class="text-xs leading-5 text-stone-400">
           {{ describeExerciseMetrics(alternative.exercise.supportedMetrics) }}
-        </p>
-        <p
-          v-if="alternative.exercise.catalogKeyResolution === 'ambiguous'"
-          class="mt-1 text-xs text-amber-200"
-          role="status"
-        >
-          Clave de catálogo no disponible por referencias ambiguas.
-        </p>
-        <p
-          v-else-if="alternative.exercise.catalogKeyResolution === 'unavailable'"
-          class="mt-1 text-xs text-stone-400"
-          role="status"
-        >
-          Referencia de catálogo no disponible.
         </p>
         <h4 class="mt-3 text-sm font-medium text-stone-200">Objetivos de la alternativa</h4>
         <dl
@@ -239,7 +210,7 @@ function targetMessage(result: ReturnType<typeof resolveDisplayedTargets>, alter
             :key="row.index"
             class="py-2 first:pt-0 last:pb-0"
           >
-            <h5 class="text-xs font-medium uppercase tracking-wide text-lime-200">
+            <h5 class="text-xs font-medium text-[var(--trakia-text-strong)]">
               {{ unitLabel }} {{ row.index }}
             </h5>
             <dl

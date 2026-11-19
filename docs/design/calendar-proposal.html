@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0c0c" />
+    <title>TRAKIA — Propuesta de calendario</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --background: #0b0c0c;
+        --surface: #141616;
+        --surface-raised: #1c1f1f;
+        --text: #f4f1eb;
+        --muted: #b2b3ae;
+        --muted-subtle: #898c89;
+        --border: #303434;
+        --accent: #fe271f;
+        --focus: #fe514a;
+        --action: #c81f19;
+        --status-success: #b8d9a5;
+        --status-progress: #f3d28a;
+        --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-family: var(--font);
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      *, *::before, *::after { box-sizing: border-box; }
+      html { min-width: 320px; min-height: 100%; background: var(--background); scroll-padding: 1rem; }
+      body {
+        min-width: 320px;
+        min-height: 100dvh;
+        margin: 0;
+        background: var(--background);
+        color: var(--text);
+        font-size: 16px;
+        line-height: 1.5;
+      }
+      button, a { font: inherit; }
+      button { color: inherit; }
+      button:focus-visible, a:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 3px;
+      }
+      ::selection { background: var(--accent); color: #170b0a; }
+
+      .app-header {
+        min-height: calc(4.5rem + env(safe-area-inset-top));
+        padding: env(safe-area-inset-top) max(1.25rem, env(safe-area-inset-right)) 0 max(1.25rem, env(safe-area-inset-left));
+      }
+      .app-header__inner {
+        display: flex;
+        width: min(100%, 68rem);
+        min-height: 4.5rem;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-inline: auto;
+      }
+      .brand-lockup { display: inline-flex; min-width: 0; flex: 0 1 auto; align-items: center; gap: 0.625rem; }
+      .brand { display: block; width: 4.75rem; height: auto; flex: 0 0 auto; }
+      .wordmark { display: inline; color: var(--text); font-size: 1rem; font-weight: 700; letter-spacing: -0.025em; line-height: 1; white-space: nowrap; }
+      .wordmark__accent { color: var(--accent); }
+      .quiet-action {
+        display: inline-flex;
+        min-height: 2.75rem;
+        align-items: center;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        padding: 0 0.5rem;
+        color: var(--muted);
+        font-size: 0.875rem;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        transition: color 160ms ease;
+      }
+      .quiet-action:hover { color: var(--text); }
+
+      main {
+        width: min(100%, 34rem);
+        margin-inline: auto;
+        padding: 1.5rem 1.25rem calc(6.5rem + env(safe-area-inset-bottom));
+      }
+      .calendar-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        min-height: 2.75rem;
+        margin-bottom: 1rem;
+      }
+      .week-controls { display: flex; align-items: center; gap: 0.5rem; }
+      .icon-button {
+        display: grid;
+        width: 2.75rem;
+        height: 2.75rem;
+        flex: 0 0 auto;
+        place-items: center;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--text);
+        cursor: pointer;
+        transition: border-color 160ms ease, background-color 160ms ease;
+      }
+      .icon-button:hover { border-color: var(--muted-subtle); background: var(--surface); }
+      .icon-button svg { width: 1.125rem; height: 1.125rem; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .week-label {
+        min-width: 0;
+        margin: 0;
+        color: var(--text);
+        font-size: 1.125rem;
+        font-weight: 650;
+        line-height: 1.25;
+        letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums;
+      }
+      .week-label .dash { padding-inline: 0.3rem; color: var(--muted-subtle); }
+
+      .day-strip {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 0.5rem;
+        border-radius: 12px;
+        background: var(--surface);
+        padding: 0.5rem;
+      }
+      .day-button {
+        position: relative;
+        display: flex;
+        min-width: 0;
+        height: 4.5rem;
+        min-height: 4.5rem;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.25rem;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease;
+      }
+      .day-button:hover { color: var(--text); border-color: var(--border); }
+      .day-button[aria-pressed="true"] { color: var(--text); border-color: var(--accent); background: var(--surface); }
+      .day-button[data-today="true"]:not([aria-pressed="true"]) { color: var(--text); border-color: var(--text); }
+      .day-name { font-size: 0.6875rem; font-weight: 600; line-height: 1; text-transform: uppercase; }
+      .day-number { font-size: 1rem; font-weight: 650; line-height: 1.25; font-variant-numeric: tabular-nums; }
+      .day-caption { min-height: 0.75rem; color: var(--muted); font-size: 0.5625rem; font-weight: 600; line-height: 1; }
+      .day-button[data-today="true"] .day-caption { color: var(--text); }
+      .day-dot { position: absolute; bottom: 0.3rem; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+
+      .selected-day { padding-top: 1.25rem; }
+      .selected-day__head {
+        display: flex;
+        min-height: 2.75rem;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding-bottom: 0.75rem;
+      }
+      h2 { margin: 0; font-size: 1.125rem; font-weight: 650; line-height: 1.35; letter-spacing: -0.015em; }
+      .session-content { min-height: 12.5rem; }
+      .session-list { display: grid; gap: 0.625rem; margin: 0; border-radius: 12px; background: var(--surface-raised); padding: 0.75rem 0.875rem; list-style: none; }
+      .session-list[hidden] { display: none; }
+      .session-row {
+        display: flex;
+        min-height: 5rem;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.5rem 0;
+      }
+      .session-copy { min-width: 0; }
+      .session-name { margin: 0; overflow-wrap: anywhere; font-size: 1rem; font-weight: 600; line-height: 1.4; }
+      .session-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        min-height: 1.5rem;
+        margin: 0.375rem 0 0;
+        border: 0;
+        border-radius: 999px;
+        background: var(--surface);
+        padding: 0.125rem 0.5rem;
+        color: var(--muted);
+        font-size: 0.75rem;
+        font-weight: 550;
+        line-height: 1.2;
+      }
+      .session-status--pending { background: var(--surface); color: var(--muted); }
+      .session-status--complete { background: rgba(184, 217, 165, 0.1); color: var(--status-success); }
+      .session-status--in-progress { background: rgba(243, 210, 138, 0.1); color: var(--status-progress); }
+      .session-status svg { width: 0.75rem; height: 0.75rem; flex: 0 0 auto; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .session-action {
+        display: inline-flex;
+        min-height: 2.75rem;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        gap: 0.375rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+        padding: 0 0.625rem;
+        color: var(--text);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: background-color 160ms ease, border-color 160ms ease;
+      }
+      .session-action:hover { border-color: var(--muted-subtle); background: var(--surface-raised); }
+      .session-action svg { width: 0.875rem; height: 0.875rem; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .empty-state { min-height: 12.5rem; display: flex; align-items: flex-start; padding-top: 1rem; color: var(--muted); font-size: 0.9375rem; }
+      .empty-state[hidden] { display: none; }
+
+      .bottom-nav {
+        position: fixed;
+        z-index: 2;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        min-height: calc(4.25rem + env(safe-area-inset-bottom));
+        padding: 0 max(0.5rem, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(0.5rem, env(safe-area-inset-left));
+        border-top: 1px solid var(--border);
+        background: var(--background);
+      }
+      .bottom-nav__inner {
+        display: grid;
+        width: min(100%, 34rem);
+        min-height: 4.25rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-inline: auto;
+      }
+      .nav-item {
+        position: relative;
+        display: flex;
+        min-width: 0;
+        min-height: 3.75rem;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.25rem;
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        font-size: 0.75rem;
+        font-weight: 600;
+        line-height: 1.2;
+        text-decoration: none;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .nav-item svg { width: 1.25rem; height: 1.25rem; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .nav-item[aria-current="page"] { color: var(--text); }
+      .nav-item[aria-current="page"]::before { position: absolute; top: -1px; width: 1.5rem; height: 2px; background: var(--accent); content: ''; }
+
+      @media (min-width: 640px) {
+        main { padding-top: 2rem; }
+        .day-strip { gap: 0.5rem; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="app-header__inner">
+        <div class="brand-lockup" aria-label="TRAKIA">
+          <img class="brand" src="../../apps/web/public/brand/trackia.png" alt="" width="1536" height="1024" />
+          <span class="wordmark" aria-hidden="true">TRAK<span class="wordmark__accent">IA</span></span>
+        </div>
+        <button class="quiet-action" type="button" aria-label="Cerrar sesión (demostración)">Cerrar sesión</button>
+      </div>
+    </header>
+    <main>
+      <div class="calendar-toolbar">
+        <h1 class="week-label" id="week-label" aria-live="polite"></h1>
+        <nav class="week-controls" aria-label="Navegación de semanas">
+          <button class="icon-button" id="previous-week" type="button" aria-label="Semana anterior">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 4.5-5.5 5.5 5.5 5.5" /></svg>
+          </button>
+          <button class="icon-button" id="next-week" type="button" aria-label="Semana siguiente">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 4.5 5.5 5.5-5.5 5.5" /></svg>
+          </button>
+        </nav>
+      </div>
+      <section class="day-strip" id="day-strip" role="group" aria-label="Días de la semana"></section>
+      <section class="selected-day" aria-labelledby="selected-day-title">
+        <div class="selected-day__head">
+          <h2 id="selected-day-title"></h2>
+        </div>
+        <div class="session-content">
+          <ul class="session-list" id="session-list" hidden></ul>
+          <p class="empty-state" id="empty-state" role="status" hidden></p>
+        </div>
+      </section>
+    </main>
+    <nav class="bottom-nav" aria-label="Navegación principal">
+      <div class="bottom-nav__inner">
+        <a class="nav-item" href="#calendario" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="16" rx="2" /><path d="M16 3.5v3M8 3.5v3M3.5 9.5h17" /></svg>
+          <span>Calendario</span>
+        </a>
+        <button class="nav-item" type="button" aria-label="Importar planes (demostración)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11m0 0 4-4m-4 4-4-4M4 16.5v3A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5v-3" /></svg>
+          <span>Importar planes</span>
+        </button>
+      </div>
+    </nav>
+    <script>
+      (() => {
+        const weekStartBase = new Date(Date.UTC(2026, 10, 16));
+        const sessions = {
+          '2026-11-16': [{ name: 'Fuerza · tren superior', status: 'Pendiente' }],
+          '2026-11-17': [],
+          '2026-11-18': [
+            { name: 'Fuerza · tren inferior', status: 'Pendiente' },
+            { name: 'Movilidad', status: 'Completada' },
+          ],
+          '2026-11-19': [],
+          '2026-11-20': [{ name: 'Fuerza · espalda y brazos', status: 'En curso' }],
+          '2026-11-21': [],
+          '2026-11-22': [],
+          '2026-11-23': [{ name: 'Fuerza · sesión A', status: 'Pendiente' }],
+          '2026-11-24': [],
+          '2026-11-25': [{ name: 'Fuerza · tren superior', status: 'Pendiente' }],
+          '2026-11-26': [],
+          '2026-11-27': [{ name: 'Fuerza · sesión B', status: 'Pendiente' }],
+          '2026-11-28': [],
+          '2026-11-29': [],
+        };
+        const dayNames = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
+        const fullDayNames = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+        const rangeFormatter = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+        const fullFormatter = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+        const weekLabel = document.querySelector('#week-label');
+        const strip = document.querySelector('#day-strip');
+        const heading = document.querySelector('#selected-day-title');
+        const list = document.querySelector('#session-list');
+        const empty = document.querySelector('#empty-state');
+        const params = new URLSearchParams(location.search);
+        const state = params.get('state') || 'sessions';
+        let weekOffset = state === 'next-week' ? 1 : 0;
+        let selectedIndex = state === 'empty' ? 3 : state === 'next-week' ? 0 : state === 'in-progress' ? 4 : 2;
+
+        const iso = (date) => date.toISOString().slice(0, 10);
+        const dateFor = (index) => {
+          const date = new Date(weekStartBase);
+          date.setUTCDate(date.getUTCDate() + weekOffset * 7 + index);
+          return date;
+        };
+        const prettyRange = (first, last) => {
+          const left = rangeFormatter.format(first).replace('.', '');
+          const right = rangeFormatter.format(last).replace('.', '');
+          return `${left}<span class="dash">—</span>${right}`;
+        };
+        function render() {
+          const first = dateFor(0);
+          const last = dateFor(6);
+          weekLabel.innerHTML = prettyRange(first, last);
+          strip.replaceChildren();
+          for (let i = 0; i < 7; i += 1) {
+            const date = dateFor(i);
+            const key = iso(date);
+            const items = sessions[key] || [];
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'day-button';
+            button.setAttribute('aria-pressed', String(i === selectedIndex));
+            button.setAttribute('aria-label', `${fullDayNames[i]}, ${fullFormatter.format(date)}${key === '2026-11-19' ? ', hoy' : ''}. ${items.length ? `${items.length} sesiones` : 'Sin sesiones'}`);
+            if (key === '2026-11-19') button.dataset.today = 'true';
+            button.innerHTML = `<span class="day-name">${dayNames[i]}</span><span class="day-number">${date.getUTCDate()}</span><span class="day-caption">${key === '2026-11-19' ? 'Hoy' : ''}</span>${items.length ? '<span class="day-dot" aria-hidden="true"></span>' : ''}`;
+            button.addEventListener('click', () => { selectedIndex = i; render(); });
+            strip.append(button);
+          }
+          const selected = dateFor(selectedIndex);
+          const selectedKey = iso(selected);
+          const selectedItems = sessions[selectedKey] || [];
+          heading.textContent = `${fullDayNames[selectedIndex][0].toUpperCase()}${fullDayNames[selectedIndex].slice(1)}, ${fullFormatter.format(selected)}`;
+          list.replaceChildren();
+          list.hidden = selectedItems.length === 0;
+          empty.hidden = selectedItems.length > 0;
+          empty.textContent = 'Sin sesiones planificadas.';
+          selectedItems.forEach((item) => {
+            const row = document.createElement('li');
+            row.className = 'session-row';
+            const copy = document.createElement('div');
+            copy.className = 'session-copy';
+            const name = document.createElement('p');
+            name.className = 'session-name';
+            name.textContent = item.name;
+            const status = document.createElement('p');
+            const statusClass = item.status === 'Completada' ? 'session-status--complete'
+              : item.status === 'En curso' ? 'session-status--in-progress'
+              : 'session-status--pending';
+            status.className = `session-status ${statusClass}`;
+            if (item.status === 'Completada') {
+              status.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg><span>Completada</span>';
+            } else {
+              status.textContent = item.status;
+            }
+            copy.append(name, status);
+            const action = document.createElement('button');
+            action.type = 'button';
+            action.className = 'session-action';
+            const actionLabel = item.status === 'Completada' ? 'Resultados' : 'Ver sesión';
+            action.setAttribute('aria-label', `${item.name}, ${actionLabel.toLowerCase()}`);
+            action.innerHTML = `${actionLabel} <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9m-4-4 4 4-4 4" /></svg>`;
+            row.append(copy, action);
+            list.append(row);
+          });
+        }
+        document.querySelector('#previous-week').addEventListener('click', () => { weekOffset -= 1; selectedIndex = 0; render(); });
+        document.querySelector('#next-week').addEventListener('click', () => { weekOffset += 1; selectedIndex = 0; render(); });
+        render();
+        history.scrollRestoration = 'manual';
+        window.scrollTo(0, 0);
+      })();
+    </script>
+  </body>
+</html>

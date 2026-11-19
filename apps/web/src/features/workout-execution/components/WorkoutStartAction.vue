@@ -52,14 +52,7 @@ watch(
 </script>
 
 <template>
-  <section class="py-6 sm:py-8" aria-labelledby="workout-start-title">
-    <h2 id="workout-start-title" class="text-xl font-semibold tracking-tight text-stone-100">
-      Entrenamiento
-    </h2>
-    <p v-if="presentationState !== 'completed'" class="mt-2 max-w-prose text-sm leading-6 text-stone-300">
-      El inicio necesita conexión. Una vez confirmado, podrás recuperar esta sesión desde cualquier
-      dispositivo autenticado.
-    </p>
+  <section class="py-6 sm:py-8" aria-label="Acciones de la sesión">
     <p v-if="!workoutStart.isOnline.value" class="mt-3 text-sm text-amber-200" role="status">
       Sin conexión: conéctate para iniciar el entrenamiento.
     </p>
@@ -71,48 +64,39 @@ watch(
     >
       Comprobando si hay una sesión abierta…
     </p>
-    <p
-      v-if="workoutStart.statusMessage.value"
-      class="mt-3 text-sm text-lime-200"
-      role="status"
-      aria-live="polite"
-    >
-      {{ workoutStart.statusMessage.value }}
-    </p>
     <p v-if="workoutStart.errorMessage.value" class="mt-3 text-sm text-rose-200" role="alert">
       {{ workoutStart.errorMessage.value }}
     </p>
     <template v-if="presentationState === 'completed' && closedExecution">
-      <p class="mt-5 text-sm font-semibold text-lime-200" role="status" aria-live="polite">Finalizada</p>
       <button
-        class="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-md border border-lime-200/40 px-5 py-3 text-base font-semibold text-lime-100 transition hover:bg-lime-200/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-200 sm:w-auto"
+        class="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-md border border-[var(--trakia-border)] px-5 py-3 text-base font-semibold text-[var(--trakia-text)] transition hover:border-[var(--trakia-focus)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] sm:w-auto"
         type="button"
         :aria-expanded="isSummaryVisible"
         @click="isSummaryVisible = !isSummaryVisible"
       >
-        {{ isSummaryVisible ? 'Ocultar resumen' : 'Ver resumen' }}
+        {{ isSummaryVisible ? 'Ocultar resultados' : 'Ver resultados' }}
       </button>
       <WorkoutExecutionSummary v-if="isSummaryVisible" :execution="closedExecution" />
     </template>
     <button
       v-else-if="presentationState === 'idle'"
-      class="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-3 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:bg-stone-700 disabled:text-white sm:w-auto"
+      class="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-md bg-[var(--trakia-accent-action)] px-5 py-3 text-base font-semibold text-[var(--trakia-accent-action-foreground)] transition-colors hover:bg-[var(--trakia-accent-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:bg-stone-700 disabled:text-white sm:w-auto"
       type="button"
       :disabled="!workoutStart.canStart.value"
       @click="workoutStart.start"
     >
-      {{ workoutStart.isStarting.value ? 'Iniciando…' : 'Iniciar entrenamiento' }}
+      {{ workoutStart.isStarting.value ? 'Iniciando…' : 'Iniciar sesión' }}
     </button>
     <RouterLink
       v-else-if="presentationState === 'open' && activeExecution"
-      class="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-3 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-200 sm:w-auto"
+      class="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-md bg-[var(--trakia-accent-action)] px-5 py-3 text-base font-semibold text-[var(--trakia-accent-action-foreground)] transition-colors hover:bg-[var(--trakia-accent-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] sm:w-auto"
       :to="executionLocation ?? { name: 'home' }"
     >
-      Continuar online
+      Continuar entrenamiento
     </RouterLink>
     <button
       v-if="presentationState === 'unavailable'"
-      class="mt-4 inline-flex min-h-11 items-center rounded-md border border-white/20 px-4 text-sm font-medium text-stone-200 transition hover:border-lime-200/50 hover:text-lime-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+      class="mt-4 inline-flex min-h-11 items-center rounded-md border border-[var(--trakia-border)] px-4 text-sm font-medium text-[var(--trakia-text-strong)] transition hover:border-[var(--trakia-focus)] hover:text-[var(--trakia-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-60"
       type="button"
       :disabled="!workoutStart.isOnline.value || workoutStart.isLoading.value"
       @click="workoutStart.recover"
