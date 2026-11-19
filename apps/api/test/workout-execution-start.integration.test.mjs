@@ -30,6 +30,7 @@ import {
 } from '../dist/modules/workouts/workout-execution-start.service.js'
 import { WorkoutExecutionRecord } from '../dist/modules/workouts/workout-execution.entity.js'
 import { WorkoutExecutionProtectionService } from '../dist/modules/workouts/workout-execution-protection.service.js'
+import { getMadridCivilDate } from '../dist/shared/madrid-civil-date.js'
 import { TrainingPlanService } from '../dist/modules/training-plans/training-plan.service.js'
 import { getIntegrationDatabaseUrl } from '../../../scripts/integration-database.mjs'
 
@@ -105,15 +106,18 @@ test('account-owned online workout execution persists and recovers a strength se
       supportedMetrics: ['duration'],
     })
     const plans = new TrainingPlanService(dataSource, exercises)
+    const today = getMadridCivilDate(new Date())
+    const tomorrowDate = new Date(`${today}T00:00:00.000Z`)
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
     const savedPlan = await plans.create(`online-${randomUUID()}`, {
       key: 'bench-plan',
       name: 'Press banca',
-      startDate: '2026-11-01',
-      endDate: '2026-11-30',
-      days: ['monday', 'tuesday'].map((key, index) => ({
+      startDate: today,
+      endDate: tomorrowDate.toISOString().slice(0, 10),
+      days: ['monday', 'tuesday'].map((key) => ({
         type: 'session',
         key,
-        date: `2026-11-${String(16 + index).padStart(2, '0')}`,
+        date: today,
         blocks: [
           {
             type: 'sets',

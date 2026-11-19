@@ -56,6 +56,7 @@ import {
   WorkoutExecutionSessionNotFoundError,
   WorkoutExecutionSessionChangedError,
   WorkoutExecutionSessionProtectedError,
+  WorkoutExecutionPlannedDateMismatchError,
   WorkoutExecutionSnapshotInvalidError,
   WorkoutExecutionStartService,
   WorkoutExecutionClosedError,
@@ -400,6 +401,15 @@ function invalidRequest(): BadRequestException {
 }
 
 function toHttpException(error: unknown): HttpException {
+  if (error instanceof WorkoutExecutionPlannedDateMismatchError) {
+    return new HttpException(
+      WorkoutExecutionStartErrorSchema.parse({
+        code: 'PLANNED_DATE_MISMATCH',
+        message: error.message,
+      }),
+      409,
+    )
+  }
   if (error instanceof WorkoutExecutionCloseConflictError) {
     return new HttpException(
       WorkoutExecutionStartErrorSchema.parse({ code: 'EXECUTION_CLOSED', message: error.message }),

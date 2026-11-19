@@ -4,12 +4,18 @@ import type { WorkoutExecution, WorkoutExecutionStartRequest } from '@trakia/con
 import { ApiError, ApiNetworkError } from '@/shared/api/http'
 import { getOpenWorkoutExecution, startWorkoutExecution } from './api/execution'
 import { invalidateTrainingPlanExecutionQueries } from './execution-query-invalidation.js'
+import {
+  getMadridCivilDate,
+  getNextMadridMidnight,
+  isPlannedDateToday as isPlannedDateTodayValue,
+} from './planned-session-start.js'
 import { resolveWorkoutStartState } from './workout-start-state.js'
 
 export function useWorkoutExecutionStart(
   planId: Ref<string | undefined>,
   sessionId: Ref<string | undefined>,
   sessionExecution: Ref<WorkoutExecution | null>,
+  plannedDate?: Ref<string | undefined>,
 ) {
   const queryClient = useQueryClient()
   const isOnline = shallowRef(typeof navigator === 'undefined' ? false : navigator.onLine)
@@ -20,8 +26,14 @@ export function useWorkoutExecutionStart(
   const closedExecution = shallowRef<WorkoutExecution | null>(null)
   const errorMessage = shallowRef<string | null>(null)
   const statusMessage = shallowRef<string | null>(null)
+  const currentMadridDate = shallowRef(getMadridCivilDate())
   let recovering = false
   let pendingRequest: WorkoutExecutionStartRequest | null = null
+  let localDateTimer: ReturnType<typeof setTimeout> | undefined
+
+  const isPlannedDateToday = computed(() =>
+    isPlannedDateTodayValue(plannedDate?.value, currentMadridDate.value),
+  )
 
   const canStart = computed(() =>
     Boolean(
@@ -30,6 +42,7 @@ export function useWorkoutExecutionStart(
       !isStarting.value &&
       !activeExecution.value &&
       !closedExecution.value &&
+      isPlannedDateToday.value &&
       !errorMessage.value,
     ),
   )
@@ -45,6 +58,12 @@ export function useWorkoutExecutionStart(
   const updateOnline = () => {
     isOnline.value = navigator.onLine
     if (isOnline.value) void recover()
+  }
+
+  function refreshLocalDate() {
+    currentMadridDate.value = getMadridCivilDate()
+    if (localDateTimer) clearTimeout(localDateTimer)
+    localDateTimer = setTimeout(refreshLocalDate, Math.max(1, getNextMadridMidnight() - Date.now() + 1))
   }
 
   function applySessionExecution(execution: WorkoutExecution) {
@@ -97,6 +116,7 @@ export function useWorkoutExecutionStart(
   }
 
   async function start() {
+    refreshLocalDate()
     if (!planId.value || !sessionId.value || !canStart.value) return
     isStarting.value = true
     errorMessage.value = null
@@ -125,11 +145,17 @@ export function useWorkoutExecutionStart(
   onMounted(() => {
     window.addEventListener('online', updateOnline)
     window.addEventListener('offline', updateOnline)
+    window.addEventListener('focus', refreshLocalDate)
+    document.addEventListener('visibilitychange', refreshLocalDate)
+    refreshLocalDate()
     void recover()
   })
   onBeforeUnmount(() => {
     window.removeEventListener('online', updateOnline)
     window.removeEventListener('offline', updateOnline)
+    window.removeEventListener('focus', refreshLocalDate)
+    document.removeEventListener('visibilitychange', refreshLocalDate)
+    if (localDateTimer) clearTimeout(localDateTimer)
   })
 
   return {
@@ -141,6 +167,7 @@ export function useWorkoutExecutionStart(
     isLoading: readonly(isLoading),
     isOnline: readonly(isOnline),
     isStarting: readonly(isStarting),
+    isPlannedDateToday,
     presentationState,
     recover,
     start,
@@ -158,6 +185,8 @@ function startErrorMessage(error: unknown): string {
       return 'Esta sesión ya tiene una ejecución protegida y no puede iniciarse de nuevo.'
     if (error.code === 'REQUEST_ID_CONFLICT')
       return 'El requestId ya se usó con datos distintos. Actualiza la página antes de continuar.'
+    if (error.code === 'PLANNED_DATE_MISMATCH')
+      return 'Esta sesión solo puede iniciarse en su fecha programada (Europe/Madrid).'
     if (error.status >= 500)
       return 'El servidor no pudo confirmar el inicio. Reintenta con el mismo requestId.'
     return error.message

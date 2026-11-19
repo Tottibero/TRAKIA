@@ -23,14 +23,13 @@ export function formatDuration(seconds) {
 
 export function formatSessionDate(value) {
   const date = new Date(`${value}T00:00:00.000Z`)
-  const label = new Intl.DateTimeFormat('es-ES', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
+  const weekday = new Intl.DateTimeFormat('es-ES', {
+    weekday: 'narrow',
     timeZone: 'UTC',
   }).format(date)
-  return label.charAt(0).toLocaleUpperCase('es-ES') + label.slice(1)
+  const day = date.getUTCDate()
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  return `${weekday.toLocaleUpperCase('es-ES')} ${day}-${month}`
 }
 
 export function trainingPlanSessionDetailPath(planId, sessionId) {

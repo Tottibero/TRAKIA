@@ -13,6 +13,7 @@ import { WorkoutExecutionProtectionService } from '../workouts/workouts.module.j
 import { mergeTrainingPlan, type MergeChange, type MergeConflict } from './merge-training-plan.js'
 import { canonicalJson, ImportReviewReceiptService, sha256 } from './import-review-receipt.js'
 import { DataSource, EntityManager } from 'typeorm'
+import { getMadridCivilDate } from '../../shared/madrid-civil-date.js'
 
 export interface ImportReviewConflict {
   code: string
@@ -170,7 +171,7 @@ export class TrainingPlanImportReviewService {
           message: issue.message,
         })
 
-    const today = madridDate(now)
+    const today = getMadridCivilDate(now)
     const periodChanged =
       !!existing &&
       (existing.definition.startDate !== merged.plan.startDate ||
@@ -281,17 +282,6 @@ function toDefinition(
     supportedMetrics: exercise.supportedMetrics,
     ...(exercise.externalReferences === undefined ? {} : { externalReferences: exercise.externalReferences }),
   }
-}
-
-function madridDate(date: Date): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Madrid',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date)
-  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]))
-  return `${values.year}-${values.month}-${values.day}`
 }
 
 function sameCanonical(left: unknown, right: unknown): boolean {

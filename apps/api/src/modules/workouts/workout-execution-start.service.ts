@@ -44,6 +44,7 @@ import { ExerciseCatalogService } from '../exercises/exercises.module.js'
 import { TrainingPlanService } from '../training-plans/training-plans.module.js'
 import { WorkoutExecutionRecord } from './workout-execution.entity.js'
 import { WorkoutExecutionProtectionService } from './workout-execution-protection.service.js'
+import { getMadridCivilDate } from '../../shared/madrid-civil-date.js'
 
 export class WorkoutExecutionSessionNotFoundError extends Error {
   constructor() {
@@ -56,6 +57,13 @@ export class WorkoutExecutionSessionProtectedError extends Error {
   constructor() {
     super('The planned workout session already has a protected execution.')
     this.name = 'WorkoutExecutionSessionProtectedError'
+  }
+}
+
+export class WorkoutExecutionPlannedDateMismatchError extends Error {
+  constructor() {
+    super('A planned workout session can only be started on its scheduled date in Europe/Madrid.')
+    this.name = 'WorkoutExecutionPlannedDateMismatchError'
   }
 }
 
@@ -167,7 +175,11 @@ export class WorkoutExecutionStartService {
     private readonly exercises: ExerciseCatalogService,
   ) {}
 
-  async start(userId: string, input: WorkoutExecutionStartRequest): Promise<WorkoutExecutionStartResponse> {
+  async start(
+    userId: string,
+    input: WorkoutExecutionStartRequest,
+    clock: () => Date = () => new Date(),
+  ): Promise<WorkoutExecutionStartResponse> {
     try {
       return await this.dataSource.transaction(async (manager) => {
         const repository = manager.getRepository(WorkoutExecutionRecord)
@@ -176,6 +188,7 @@ export class WorkoutExecutionStartService {
 
         const initialSession = await this.plans.findExecutionSession(input.planId, input.sessionId, manager)
         if (!initialSession) throw new WorkoutExecutionSessionNotFoundError()
+        assertPlannedSessionDate(initialSession.session.date, clock())
 
         // Lock order is account, then shared plan/session. Imports acquire only the latter.
         // The account lock serializes starts across devices; the partial unique index is the final guard.
@@ -193,6 +206,7 @@ export class WorkoutExecutionStartService {
         if (!session) throw new WorkoutExecutionSessionNotFoundError()
         if (session.planKey !== initialSession.planKey || session.sessionKey !== initialSession.sessionKey)
           throw new WorkoutExecutionSessionChangedError()
+        assertPlannedSessionDate(session.session.date, clock())
         const protectedKeys = await this.protection.findProtectedSessionKeys(
           session.planKey,
           [session.sessionKey],
@@ -1276,6 +1290,11 @@ export class WorkoutExecutionStartService {
     })
     return snapshot
   }
+}
+
+function assertPlannedSessionDate(plannedDate: string | undefined, now: Date): void {
+  if (plannedDate && plannedDate !== getMadridCivilDate(now))
+    throw new WorkoutExecutionPlannedDateMismatchError()
 }
 
 function collectExerciseKeys(session: PlannedSession): string[] {
