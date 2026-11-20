@@ -185,7 +185,8 @@ test('the online route presents only the stopwatch and metrics flow without loca
   assert.match(flow, /Siguiente serie/)
   assert.match(flow, /Siguiente ejercicio/)
   assert.match(flow, /Finalizar entrenamiento/)
-  assert.match(view, /Volver al calendario/)
+  assert.match(view, /WorkoutExecutionSummary/)
+  assert.match(view, /flow\.isClosed\.value && flow\.execution\.value/)
   assert.doesNotMatch(
     view,
     /indexedDB|execution-store|retrySynchronization|ConfirmWorkoutFinishDialog|block\.key/,

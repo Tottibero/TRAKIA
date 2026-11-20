@@ -61,7 +61,8 @@ test('the planned session date reaches the action and each execution state keeps
   assert.match(startActionView, /startAction === 'start'/)
   assert.match(startActionView, /startAction === 'scheduled-date'/)
   assert.match(startActionView, /startAction === 'continue'/)
-  assert.match(startActionView, /startAction === 'results'/)
+  assert.doesNotMatch(startActionView, /startAction === 'results'/)
+  assert.match(sessionDetailView, /WorkoutExecutionSummary/)
 })
 
 test('browser timezone does not change the Madrid civil date used to gate starts', () => {

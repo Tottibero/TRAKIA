@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, shallowRef, toRef, watch } from 'vue'
+import { computed, toRef } from 'vue'
 import type { WorkoutExecution } from '@trakia/contracts'
 import { useWorkoutExecutionStart } from '../useWorkoutExecutionStart'
 import { onlineStrengthExecutionLocation } from '../online-strength-flow'
@@ -7,14 +7,13 @@ import { onlineCircuitExecutionLocation } from '../online-circuit-flow'
 import { onlineIntervalExecutionLocation } from '../online-interval-flow'
 import { onlineAmrapExecutionLocation } from '../online-amrap-flow'
 import { resolveWorkoutStartAction } from '../planned-session-start.js'
-import WorkoutExecutionSummary from './WorkoutExecutionSummary.vue'
 
 const props = defineProps<{
   planId: string
   sessionId: string
+  sessionName: string
   plannedDate?: string
   execution: WorkoutExecution | null
-  showSummary?: boolean
 }>()
 const workoutStart = useWorkoutExecutionStart(
   toRef(props, 'planId'),
@@ -22,9 +21,7 @@ const workoutStart = useWorkoutExecutionStart(
   toRef(props, 'execution'),
   toRef(props, 'plannedDate'),
 )
-const isSummaryVisible = shallowRef(props.showSummary ?? false)
 const activeExecution = computed(() => workoutStart.activeExecution.value)
-const closedExecution = computed(() => workoutStart.closedExecution.value)
 const presentationState = computed(() => workoutStart.presentationState.value)
 const startAction = computed(() =>
   resolveWorkoutStartAction({
@@ -43,30 +40,19 @@ const executionLocation = computed(() => {
   const hasAmrap = activeExecution.value.snapshot.session.blocks.some(
     (block) => block.type === 'circuit' && block.mode === 'amrap',
   )
-  if (hasAmrap)
-    return onlineAmrapExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
-  if (hasIntervals)
-    return onlineIntervalExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
-  return hasFixedCircuit
-    ? onlineCircuitExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
-    : onlineStrengthExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
+  const location = hasAmrap
+    ? onlineAmrapExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
+    : hasIntervals
+      ? onlineIntervalExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
+      : hasFixedCircuit
+        ? onlineCircuitExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
+        : onlineStrengthExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
+  return { ...location, query: { ...location.query, sessionName: props.sessionName } }
 })
-
-watch(
-  () => props.showSummary,
-  (showSummary) => {
-    if (showSummary) isSummaryVisible.value = true
-  },
-)
 </script>
 
 <template>
-  <section aria-label="Acciones de la sesión">
-    <WorkoutExecutionSummary
-      v-if="startAction === 'results' && closedExecution && isSummaryVisible"
-      :execution="closedExecution"
-    />
-
+  <section v-if="startAction !== 'results'" aria-label="Acciones de la sesión">
     <div class="workout-action-bar">
       <div class="workout-action-bar__inner">
         <p
@@ -92,16 +78,7 @@ watch(
           {{ workoutStart.errorMessage.value }}
         </p>
         <button
-          v-if="startAction === 'results' && closedExecution"
-          class="workout-action-bar__button workout-action-bar__button--quiet"
-          type="button"
-          :aria-expanded="isSummaryVisible"
-          @click="isSummaryVisible = !isSummaryVisible"
-        >
-          {{ isSummaryVisible ? 'Ocultar resultados' : 'Ver resultados' }}
-        </button>
-        <button
-          v-else-if="startAction === 'start'"
+          v-if="startAction === 'start'"
           class="workout-action-bar__button"
           type="button"
           :disabled="!workoutStart.canStart.value"

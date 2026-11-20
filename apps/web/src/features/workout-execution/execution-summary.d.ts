@@ -5,7 +5,6 @@ export interface WorkoutExecutionSummaryResult {
   id: string
   label: string
   exerciseName: string
-  plannedDetails: string[]
   details: string[]
 }
 

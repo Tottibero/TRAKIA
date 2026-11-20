@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
-import { RouterLink } from 'vue-router'
+import { useRoute } from 'vue-router'
 import {
   closeWorkoutExecution,
   finishWorkoutExecutionCircuitRound,
@@ -14,9 +14,12 @@ import {
 } from '../api/execution'
 import { invalidateTrainingPlanExecutionQueries } from '../execution-query-invalidation.js'
 import { actualMetricInputConstraints } from '../metric-input-constraints.js'
+import WorkoutExecutionSummary from '../components/WorkoutExecutionSummary.vue'
 import { createOnlineCircuitFlow } from '../online-circuit-flow'
 
 const props = defineProps<{ executionId: string; requestId?: string }>()
+const route = useRoute()
+const sessionName = typeof route.query.sessionName === 'string' ? route.query.sessionName : 'Entrenamiento'
 const queryClient = useQueryClient()
 const flow = createOnlineCircuitFlow(
   props.executionId,
@@ -71,7 +74,10 @@ onBeforeUnmount(() => {
         Recuperando entrenamiento…
       </p>
 
-      <section v-else-if="flow.execution.value && flow.currentBlock.value" class="space-y-7 pt-2">
+      <section
+        v-else-if="flow.execution.value && flow.currentBlock.value && !flow.isClosed.value"
+        class="space-y-7 pt-2"
+      >
         <header class="text-center">
           <p class="text-xs font-semibold uppercase tracking-[0.18em] text-lime-200">
             Bloque {{ flow.currentBlock.value.key }}
@@ -279,15 +285,17 @@ onBeforeUnmount(() => {
           {{ flow.isClosing.value ? 'Cerrando…' : 'Cerrar entrenamiento' }}
         </button>
       </section>
-      <section v-else-if="flow.isClosed.value" class="pt-10 text-center">
-        <h1 class="text-2xl font-semibold text-lime-200" role="status">Entrenamiento finalizado</h1>
-        <RouterLink
-          class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-md border border-white/20 px-5 py-4 text-base font-semibold"
-          :to="{ name: 'home' }"
-          >Volver al calendario</RouterLink
-        >
-      </section>
-      <p v-if="!flow.isOnline.value" class="mt-6 text-center text-sm text-amber-200" role="status">
+      <WorkoutExecutionSummary
+        v-else-if="flow.isClosed.value && flow.execution.value"
+        :execution="flow.execution.value"
+        :session-name="sessionName"
+        class="pt-4"
+      />
+      <p
+        v-if="!flow.isOnline.value && !flow.isClosed.value"
+        class="mt-6 text-center text-sm text-amber-200"
+        role="status"
+      >
         Conéctate para continuar; los cambios solo se confirman en el servidor.
       </p>
     </div>

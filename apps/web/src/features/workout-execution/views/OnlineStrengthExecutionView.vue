@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
-import { RouterLink } from 'vue-router'
+import { useRoute } from 'vue-router'
 import type { ActualMetrics } from '@trakia/contracts'
 import { actualMetricInputConstraints } from '../metric-input-constraints.js'
 import {
@@ -16,9 +16,12 @@ import {
 } from '../api/execution'
 import { invalidateTrainingPlanExecutionQueries } from '../execution-query-invalidation.js'
 import WorkoutPlannedTargets from '../components/WorkoutPlannedTargets.vue'
+import WorkoutExecutionSummary from '../components/WorkoutExecutionSummary.vue'
 import { createOnlineStrengthFlow } from '../online-strength-flow'
 
 const props = defineProps<{ executionId: string; requestId?: string }>()
+const route = useRoute()
+const sessionName = typeof route.query.sessionName === 'string' ? route.query.sessionName : 'Entrenamiento'
 const queryClient = useQueryClient()
 const flow = createOnlineStrengthFlow(
   props.executionId,
@@ -75,7 +78,10 @@ onBeforeUnmount(() => {
         Cargando serie…
       </p>
 
-      <section v-else-if="flow.execution.value && flow.plannedUnit.value" class="pt-4">
+      <section
+        v-else-if="flow.execution.value && flow.plannedUnit.value && !flow.isClosed.value"
+        class="pt-4"
+      >
         <h1 class="text-center text-2xl font-semibold tracking-tight sm:text-3xl">
           {{ flow.plannedUnit.value.exercise.name }}
         </h1>
@@ -141,18 +147,6 @@ onBeforeUnmount(() => {
         >
           {{ flow.errorMessage.value }}
         </p>
-
-        <section v-if="flow.isClosed.value" class="mt-10 text-center" aria-labelledby="closed-title">
-          <h2 id="closed-title" class="text-lg font-semibold text-lime-200" role="status">
-            Entrenamiento finalizado
-          </h2>
-          <RouterLink
-            class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-md border border-white/20 px-5 py-4 text-base font-semibold text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200"
-            :to="{ name: 'home' }"
-          >
-            Volver al calendario
-          </RouterLink>
-        </section>
 
         <button
           v-else-if="!flow.confirmedResult.value && !flow.isPaused.value"
@@ -277,6 +271,13 @@ onBeforeUnmount(() => {
           </button>
         </section>
       </section>
+
+      <WorkoutExecutionSummary
+        v-else-if="flow.isClosed.value && flow.execution.value"
+        :execution="flow.execution.value"
+        :session-name="sessionName"
+        class="pt-4"
+      />
 
       <div v-else-if="flow.errorMessage.value" class="pt-8 text-center">
         <p class="text-sm leading-6 text-rose-200" role="alert">{{ flow.errorMessage.value }}</p>
