@@ -49,7 +49,12 @@ import {
   type GuidedUnit,
 } from './guided-planning'
 import { suggestMetrics } from './series-planning'
-import { executionDurationSeconds, finishOpenPause, formatWorkoutDuration } from './workout-review'
+import {
+  executionDurationSeconds,
+  executionDurationStart,
+  finishOpenPause,
+  formatWorkoutDuration,
+} from './workout-review'
 import { applyWorkoutCorrectionResult, createWorkoutCorrectionChanges } from './correction-results'
 
 const METRIC_FIELDS: Array<{
@@ -237,8 +242,10 @@ export function useWorkoutExecutionSession(executionId: string) {
   )
   const reviewDurationSeconds = computed(() => {
     if (!execution.value) return null
+    const startedAt = executionDurationStart(execution.value)
+    if (!startedAt) return null
     const end = execution.value.finishedAt ?? new Date(tick.value).toISOString()
-    return executionDurationSeconds(execution.value.startedAt, end, temporal.value.pauses)
+    return executionDurationSeconds(startedAt, end, temporal.value.pauses)
   })
   const reviewDurationLabel = computed(() => formatWorkoutDuration(reviewDurationSeconds.value))
   const hasSetBlocks = computed(() =>

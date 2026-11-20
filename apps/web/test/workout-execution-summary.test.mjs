@@ -42,6 +42,7 @@ const executionSessionHook = readFileSync(
   new URL('../src/features/workout-execution/useWorkoutExecutionSession.ts', import.meta.url),
   'utf8',
 )
+const routerView = readFileSync(new URL('../src/router/index.ts', import.meta.url), 'utf8')
 
 test('shared execution summary has one clear calendar link and a responsive touch target', () => {
   assert.match(summaryView, /<RouterLink/)
@@ -70,8 +71,21 @@ test('finalized session details show only the persisted execution summary and pr
   assert.match(sessionDetailView, /useTrainingPlanSession\(planId, sessionId\)/)
   assert.match(calendarEntryView, /presentation\.view === 'summary'/)
   assert.match(calendarEntryView, /name: 'training-plan-session-detail'/)
-  assert.match(startActionView, /sessionName: props\.sessionName/)
+  assert.match(startActionView, /workoutExecutionLocation\([\s\S]*props\.sessionName/)
   assert.doesNotMatch(startActionView, /Ocultar resultados|Ver resultados/)
+})
+
+test('opening shows request progress, routes directly to execution, and keeps failures separate from results', () => {
+  assert.match(startActionView, /isStarting\.value \? 'Iniciando…' : 'Iniciar sesión'/)
+  assert.match(startActionView, /await workoutStart\.start\(\)/)
+  assert.match(startActionView, /if \(workoutStart\.errorMessage\.value\)/)
+  assert.match(startActionView, /router\.push\(executionLocation\.value\)/)
+  assert.doesNotMatch(startActionView, /preparation|Comenzar entrenamiento/)
+  assert.doesNotMatch(routerView, /workout-preparation|WorkoutPreparationView/)
+  assert.match(sessionDetailView, /v-else-if="startErrorMessage"/)
+  assert.match(sessionDetailView, /No se pudo abrir la sesión/)
+  assert.match(sessionDetailView, /Volver al calendario/)
+  assert.match(sessionDetailView, /@start-error="startErrorMessage = \$event"/)
 })
 
 test('finalized summary omits planning and shows its state exactly once', () => {

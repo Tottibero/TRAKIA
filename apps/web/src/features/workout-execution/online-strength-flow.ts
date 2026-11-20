@@ -357,6 +357,7 @@ export function createOnlineStrengthFlow(
       const confirmation = await dependencies.startWorkTimer(executionId, startRequest)
       if (confirmation.activeTimer.resultId !== startRequest.resultId)
         throw new Error('La API no confirmó el inicio de esta serie.')
+      if (!confirmation.workStartedAt) throw new Error('La API no confirmó el inicio del entrenamiento.')
       if (continuingFromRest) {
         currentUnit.value = targetUnit
         clearFields()
@@ -365,7 +366,11 @@ export function createOnlineStrengthFlow(
         hasPendingFinish.value = false
         hasPendingMetrics.value = false
       }
-      execution.value = { ...execution.value!, activeTimer: confirmation.activeTimer }
+      execution.value = {
+        ...execution.value!,
+        workStartedAt: confirmation.workStartedAt,
+        activeTimer: confirmation.activeTimer,
+      }
       pendingStart = timerRequest(confirmation.activeTimer)
       dependencies.onExecutionChanged?.()
       tick()

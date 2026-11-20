@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { computed, toRef } from 'vue'
+import { useRouter } from 'vue-router'
 import type { WorkoutExecution } from '@trakia/contracts'
 import { useWorkoutExecutionStart } from '../useWorkoutExecutionStart'
-import { onlineStrengthExecutionLocation } from '../online-strength-flow'
-import { onlineCircuitExecutionLocation } from '../online-circuit-flow'
-import { onlineIntervalExecutionLocation } from '../online-interval-flow'
-import { onlineAmrapExecutionLocation } from '../online-amrap-flow'
+import { workoutExecutionLocation } from '../execution-routing'
 import { resolveWorkoutStartAction } from '../planned-session-start.js'
 
 const props = defineProps<{
@@ -15,6 +13,8 @@ const props = defineProps<{
   plannedDate?: string
   execution: WorkoutExecution | null
 }>()
+const emit = defineEmits<{ 'start-error': [message: string] }>()
+const router = useRouter()
 const workoutStart = useWorkoutExecutionStart(
   toRef(props, 'planId'),
   toRef(props, 'sessionId'),
@@ -31,24 +31,21 @@ const startAction = computed(() =>
 )
 const executionLocation = computed(() => {
   if (!activeExecution.value) return undefined
-  const hasFixedCircuit = activeExecution.value.snapshot.session.blocks.some(
-    (block) => block.type === 'circuit' && block.mode === 'rounds',
+  return workoutExecutionLocation(
+    activeExecution.value.id,
+    activeExecution.value.snapshot.session.blocks,
+    workoutStart.activeRequestId.value,
+    props.sessionName,
   )
-  const hasIntervals = activeExecution.value.snapshot.session.blocks.some(
-    (block) => block.type === 'intervals',
-  )
-  const hasAmrap = activeExecution.value.snapshot.session.blocks.some(
-    (block) => block.type === 'circuit' && block.mode === 'amrap',
-  )
-  const location = hasAmrap
-    ? onlineAmrapExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
-    : hasIntervals
-      ? onlineIntervalExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
-      : hasFixedCircuit
-        ? onlineCircuitExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
-        : onlineStrengthExecutionLocation(activeExecution.value.id, workoutStart.activeRequestId.value)
-  return { ...location, query: { ...location.query, sessionName: props.sessionName } }
 })
+async function startSession() {
+  await workoutStart.start()
+  if (workoutStart.errorMessage.value) {
+    emit('start-error', workoutStart.errorMessage.value)
+    return
+  }
+  if (executionLocation.value) await router.push(executionLocation.value)
+}
 </script>
 
 <template>
@@ -82,7 +79,7 @@ const executionLocation = computed(() => {
           class="workout-action-bar__button"
           type="button"
           :disabled="!workoutStart.canStart.value"
-          @click="workoutStart.start"
+          @click="startSession"
         >
           {{ workoutStart.isStarting.value ? 'Iniciando…' : 'Iniciar sesión' }}
         </button>

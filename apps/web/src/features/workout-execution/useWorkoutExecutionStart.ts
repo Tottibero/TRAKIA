@@ -135,8 +135,8 @@ export function useWorkoutExecutionStart(
       statusMessage.value = 'Inicio confirmado por el servidor.'
       void invalidateTrainingPlanExecutionQueries(queryClient)
     } catch (error) {
-      errorMessage.value = startErrorMessage(error)
       if (error instanceof ApiError && error.code === 'OPEN_EXECUTION_EXISTS') await recover()
+      errorMessage.value = startErrorMessage(error)
     } finally {
       isStarting.value = false
     }

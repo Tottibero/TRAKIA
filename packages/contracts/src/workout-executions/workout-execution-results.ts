@@ -64,6 +64,7 @@ export const WorkoutExecutionWorkTimerStartResponseSchema = z
         startedAt: z.iso.datetime({ offset: true }),
       })
       .strict(),
+    workStartedAt: z.iso.datetime({ offset: true }),
     replayed: z.boolean(),
   })
   .strict()

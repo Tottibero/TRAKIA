@@ -326,6 +326,14 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
     responseBodies.push({ status: startedResponse.status, body: started })
     assert.equal(started.execution.id.length, 36)
     assert.equal(started.execution.status, 'in_progress')
+    assert.equal(started.execution.workStartedAt, null)
+    assert.equal(started.execution.activeTimer, undefined)
+
+    const preparedRecovery = await fetch(`${url}/workouts/executions/open`, { headers: { cookie } })
+    assert.equal(preparedRecovery.status, 200)
+    const preparedRecoveryBody = await preparedRecovery.json()
+    assert.equal(preparedRecoveryBody.execution.execution.workStartedAt, null)
+    assert.equal(preparedRecoveryBody.execution.execution.activeTimer, undefined)
 
     const startReplay = await fetch(`${url}/workouts/executions/start`, {
       method: 'POST',
@@ -363,29 +371,35 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
       plannedExerciseKey: result.plannedExerciseKey,
       unit: result.unit,
     }
-    const timerResponse = await fetch(timerUrl, {
+    const prematurePauseResponse = await fetch(`${url}/workouts/executions/${started.execution.id}/pause`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(timerRequest),
+      body: JSON.stringify({}),
     })
+    assert.equal(prematurePauseResponse.status, 409)
+    assert.equal((await prematurePauseResponse.json()).code, 'WORK_NOT_STARTED')
+    const [timerResponse, timerReplay] = await Promise.all(
+      Array.from({ length: 2 }, () =>
+        fetch(timerUrl, { method: 'POST', headers, body: JSON.stringify(timerRequest) }),
+      ),
+    )
     assert.equal(timerResponse.status, 200)
+    assert.equal(timerReplay.status, 200)
     const timer = await timerResponse.json()
+    const timerReplayBody = await timerReplay.json()
     responseBodies.push({ status: timerResponse.status, body: timer })
     assert.equal(timer.activeTimer.kind, 'work')
     assert.equal(timer.activeTimer.resultId, result.id)
-    assert.equal(timer.replayed, false)
-
-    const timerReplay = await fetch(timerUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(timerRequest),
-    })
-    assert.equal(timerReplay.status, 200)
-    assert.equal((await timerReplay.json()).activeTimer.startedAt, timer.activeTimer.startedAt)
-    const timerRow = await database.query('SELECT active_timer FROM workout_executions WHERE id = $1', [
-      started.execution.id,
-    ])
+    assert.equal(timer.workStartedAt, timer.activeTimer.startedAt)
+    assert.equal(timerReplayBody.workStartedAt, timer.workStartedAt)
+    assert.equal(timerReplayBody.activeTimer.startedAt, timer.activeTimer.startedAt)
+    assert.deepEqual([timer.replayed, timerReplayBody.replayed].sort(), [false, true])
+    const timerRow = await database.query(
+      'SELECT active_timer, work_started_at FROM workout_executions WHERE id = $1',
+      [started.execution.id],
+    )
     assert.deepEqual(timerRow[0].active_timer, timer.activeTimer)
+    assert.equal(timerRow[0].work_started_at.toISOString(), timer.workStartedAt)
     const timerRecovery = await fetch(`${url}/workouts/executions/open`, { headers: { cookie } })
     assert.equal(timerRecovery.status, 200)
     const timerRecoveryBody = await timerRecovery.json()
@@ -873,6 +887,7 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
     assert.equal(roundOneStartResponse.status, 200)
     const roundOneStart = await roundOneStartResponse.json()
     assert.equal(roundOneStart.execution.activeTimer.kind, 'circuitRound')
+    assert.equal(roundOneStart.execution.workStartedAt, roundOneStart.execution.activeTimer.startedAt)
     const roundOneReplay = await fetch(`${circuitBaseUrl}/start`, {
       method: 'POST',
       headers,
@@ -1063,6 +1078,7 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
     assert.equal(amrapStartedResponse.status, 200)
     const amrapStarted = await amrapStartedResponse.json()
     assert.ok(amrapStarted.execution.amrap.startedAt)
+    assert.equal(amrapStarted.execution.workStartedAt, amrapStarted.execution.amrap.startedAt)
     assert.equal(amrapStarted.execution.amrap.rounds.length, 0)
     assert.equal(
       (
@@ -1299,6 +1315,8 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
       body: JSON.stringify({ blockKey: 'amrap-expiry', action: 'start' }),
     })
     assert.equal(expiryStart.status, 200)
+    const expiryStarted = await expiryStart.json()
+    assert.equal(expiryStarted.execution.workStartedAt, expiryStarted.execution.amrap.startedAt)
     await database.query(
       `UPDATE workout_executions SET amrap = jsonb_set(amrap, '{startedAt}', to_jsonb($2::text)) WHERE id = $1`,
       [expiryExecution.id, new Date(Date.now() - 10_000).toISOString()],
@@ -1346,7 +1364,9 @@ test('authenticated workout execution HTTP flow confirms one-set closure, two-se
       body: JSON.stringify(workOne),
     })
     assert.equal(intervalWorkStart.status, 200)
-    assert.equal((await intervalWorkStart.json()).execution.activeTimer.kind, 'intervalWork')
+    const intervalStarted = await intervalWorkStart.json()
+    assert.equal(intervalStarted.execution.activeTimer.kind, 'intervalWork')
+    assert.equal(intervalStarted.execution.workStartedAt, intervalStarted.execution.activeTimer.startedAt)
     const intervalWorkStartReplay = await fetch(intervalUrl, {
       method: 'POST',
       headers,

@@ -68,6 +68,7 @@ import {
   WorkoutExecutionPauseConflictError,
   WorkoutExecutionCircuitRoundConflictError,
   WorkoutExecutionAmrapConflictError,
+  WorkoutExecutionWorkNotStartedError,
 } from './workout-execution-start.service.js'
 
 interface AuthenticatedWorkoutRequest {
@@ -401,6 +402,12 @@ function invalidRequest(): BadRequestException {
 }
 
 function toHttpException(error: unknown): HttpException {
+  if (error instanceof WorkoutExecutionWorkNotStartedError) {
+    return new HttpException(
+      WorkoutExecutionStartErrorSchema.parse({ code: 'WORK_NOT_STARTED', message: error.message }),
+      409,
+    )
+  }
   if (error instanceof WorkoutExecutionPlannedDateMismatchError) {
     return new HttpException(
       WorkoutExecutionStartErrorSchema.parse({

@@ -56,6 +56,7 @@ function execution(results = [], activeTimer = undefined, sets = 3, secondExerci
     },
     status: 'in_progress',
     startedAt: '2026-11-16T08:00:00.000Z',
+    workStartedAt: null,
     pauses: [],
     ...(activeTimer ? { activeTimer } : {}),
     results,
@@ -96,7 +97,11 @@ function dependencies(overrides = {}) {
   return {
     getOpen: async () => openResponse(execution()),
     getByRequest: async (id) => ({ requestId: id, execution: execution() }),
-    startWorkTimer: async (_id, input) => ({ activeTimer: workTimer(input.resultId), replayed: false }),
+    startWorkTimer: async (_id, input) => ({
+      activeTimer: workTimer(input.resultId),
+      workStartedAt: startedAt,
+      replayed: false,
+    }),
     recordResult: async (_id, input) => ({ result: makeResult(input), replayed: false }),
     recordMetrics: async (_id, id, input) => ({
       result: { ...makeResult({ result: { ...setResult(id) } }), actualMetrics: input.actualMetrics },
@@ -272,12 +277,14 @@ test('finishing starts a confirmed rest, metrics save during it, and expiry wait
             resolveSecondStart = () =>
               resolve({
                 activeTimer: workTimer(input.resultId, new Date().toISOString(), 2),
+                workStartedAt: startedAt,
                 replayed: false,
               })
           })
         }
         return {
           activeTimer: workTimer(input.resultId, new Date().toISOString(), input.unit.setIndex),
+          workStartedAt: startedAt,
           replayed: false,
         }
       },
@@ -463,7 +470,8 @@ test('start waits for server confirmation and restores elapsed time from its tim
       startWorkTimer: async (_id, input) => {
         submitted = input
         return new Promise((resolve) => {
-          resolveStart = () => resolve({ activeTimer: workTimer(input.resultId), replayed: false })
+          resolveStart = () =>
+            resolve({ activeTimer: workTimer(input.resultId), workStartedAt: startedAt, replayed: false })
         })
       },
     }),
@@ -474,6 +482,7 @@ test('start waits for server confirmation and restores elapsed time from its tim
   const startPromise = flow.start()
   assert.equal(flow.isStarting.value, true)
   assert.equal(flow.execution.value.activeTimer, undefined)
+  assert.equal(flow.execution.value.workStartedAt, null)
   assert.deepEqual(submitted, {
     resultId,
     blockKey: 'bench-block',
@@ -482,6 +491,7 @@ test('start waits for server confirmation and restores elapsed time from its tim
   })
   resolveStart()
   assert.equal(await startPromise, true)
+  assert.equal(flow.execution.value.workStartedAt, startedAt)
   flow.tick(Date.parse(startedAt) + 65_500)
   assert.equal(flow.timerDisplay.value, '01:05')
 })
@@ -546,7 +556,7 @@ test('failed timer start retries with the same identity and never shows an activ
       startWorkTimer: async (_id, input) => {
         requests.push(input)
         if (requests.length === 1) throw new Error('network unavailable')
-        return { activeTimer: workTimer(input.resultId), replayed: true }
+        return { activeTimer: workTimer(input.resultId), workStartedAt: startedAt, replayed: true }
       },
     }),
   )
@@ -689,7 +699,11 @@ test('saving a result exposes manual continuation, preserves its duration, and d
       getOpen: async () => openResponse(execution([saved])),
       startWorkTimer: async (_id, input) => {
         calls.push(input)
-        return { activeTimer: workTimer(input.resultId, startedAt, input.unit.setIndex), replayed: false }
+        return {
+          activeTimer: workTimer(input.resultId, startedAt, input.unit.setIndex),
+          workStartedAt: startedAt,
+          replayed: false,
+        }
       },
     }),
   )
@@ -840,7 +854,7 @@ test('offline operations cannot start or persist a result', async () => {
     dependencies({
       startWorkTimer: async () => {
         writes += 1
-        return { activeTimer: workTimer(), replayed: false }
+        return { activeTimer: workTimer(), workStartedAt: startedAt, replayed: false }
       },
     }),
   )

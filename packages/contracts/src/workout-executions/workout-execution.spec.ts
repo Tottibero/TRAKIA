@@ -122,6 +122,25 @@ describe('WorkoutExecutionSchema', () => {
     expect(WorkoutExecutionSchema.safeParse(execution()).success).toBe(true)
   })
 
+  it('accepts a reserved execution without an effective workout start', () => {
+    expect(WorkoutExecutionSchema.safeParse(execution({ workStartedAt: null })).success).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(execution({ workStartedAt: '2026-11-13T08:59:59Z' })).success,
+    ).toBe(false)
+  })
+
+  it('requires completed executions to have started effective work', () => {
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          status: 'completed',
+          finishedAt: '2026-11-13T10:00:00Z',
+          workStartedAt: null,
+        }),
+      ).success,
+    ).toBe(false)
+  })
+
   it('accepts a server-timestamped active work timer and keeps it distinct from result time', () => {
     const timer = {
       kind: 'work',

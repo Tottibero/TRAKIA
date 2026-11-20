@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, shallowRef } from 'vue'
 import { useRoute } from 'vue-router'
 import { ApiError } from '@/shared/api/http'
 import AppPageShell from '@/shared/components/AppPageShell.vue'
@@ -22,6 +22,7 @@ const pathParams = computed(() =>
 const planId = computed(() => (pathParams.value.success ? pathParams.value.data.planId : undefined))
 const sessionId = computed(() => (pathParams.value.success ? pathParams.value.data.sessionId : undefined))
 const sessionQuery = useTrainingPlanSession(planId, sessionId)
+const startErrorMessage = shallowRef<string | null>(null)
 const homeLocation = computed(() => {
   const week = parseWeekStart(route.query.week)
   const day = typeof route.query.day === 'string' ? route.query.day : undefined
@@ -90,6 +91,25 @@ const initialErrorMessage = computed(() =>
           La dirección no identifica una sesión válida. Vuelve a la planificación para abrir una sesión
           disponible.
         </div>
+        <section
+          v-else-if="startErrorMessage"
+          class="mx-auto mt-8 max-w-md rounded-md border border-[var(--trakia-danger-border)] bg-[var(--trakia-danger-surface)] p-5 text-center"
+          role="alert"
+          aria-labelledby="session-start-error-title"
+        >
+          <h1 id="session-start-error-title" class="text-lg font-semibold text-[var(--trakia-text)]">
+            No se pudo abrir la sesión
+          </h1>
+          <p class="mt-3 text-sm leading-6 text-[var(--trakia-danger-muted)]">
+            {{ startErrorMessage }}
+          </p>
+          <RouterLink
+            class="mt-6 inline-flex min-h-11 items-center justify-center rounded-[var(--trakia-radius-control)] bg-[var(--trakia-accent-action)] px-4 text-sm font-semibold text-[var(--trakia-accent-action-foreground)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)]"
+            :to="homeLocation"
+          >
+            Volver al calendario
+          </RouterLink>
+        </section>
         <div
           v-else-if="sessionQuery.isPending.value && !sessionQuery.data.value"
           class="mt-6 flex min-h-14 items-center gap-3 rounded-md border border-[var(--trakia-border)] bg-[var(--trakia-surface)] px-4 text-sm text-[var(--trakia-muted)]"
@@ -195,6 +215,7 @@ const initialErrorMessage = computed(() =>
               :session-name="sessionQuery.data.value.plan.name"
               :planned-date="sessionQuery.data.value.session.date"
               :execution="sessionQuery.data.value.session.execution"
+              @start-error="startErrorMessage = $event"
             />
           </template>
         </template>

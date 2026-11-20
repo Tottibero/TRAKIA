@@ -220,6 +220,7 @@ const WorkoutExecutionFields = {
   snapshot: WorkoutExecutionSnapshotSchema,
   status: WorkoutStatusSchema,
   startedAt: ResultTimestampSchema,
+  workStartedAt: ResultTimestampSchema.nullable().optional(),
   finishedAt: ResultTimestampSchema.optional(),
   feeling: WorkoutFeelingSchema.optional(),
   observations: FinalObservationsSchema.optional(),
@@ -264,6 +265,20 @@ export const WorkoutExecutionSchema = z
         code: 'custom',
         path: ['finishedAt'],
         message: 'Execution end cannot precede its start',
+      })
+    }
+    if (execution.workStartedAt && Date.parse(execution.workStartedAt) < Date.parse(execution.startedAt)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['workStartedAt'],
+        message: 'Effective workout start cannot precede execution opening',
+      })
+    }
+    if (execution.status === 'completed' && execution.workStartedAt === null) {
+      context.addIssue({
+        code: 'custom',
+        path: ['workStartedAt'],
+        message: 'Completed executions require an effective workout start',
       })
     }
     if (execution.status === 'completed' && execution.activeTimer !== undefined) {

@@ -116,6 +116,13 @@ export class WorkoutExecutionClosedError extends Error {
   }
 }
 
+export class WorkoutExecutionWorkNotStartedError extends Error {
+  constructor() {
+    super('The effective workout has not started yet.')
+    this.name = 'WorkoutExecutionWorkNotStartedError'
+  }
+}
+
 export class WorkoutExecutionCloseConflictError extends Error {
   constructor() {
     super('The workout execution is already closed with different final details.')
@@ -232,6 +239,7 @@ export class WorkoutExecutionStartService {
           activeTimer: null,
           status: 'in_progress',
           startedAt: new Date(),
+          workStartedAt: null,
           finishedAt: null,
         })
         return toStartResponse(await repository.save(record))
@@ -270,6 +278,8 @@ export class WorkoutExecutionStartService {
         lock: { mode: 'pessimistic_write' },
       })
       if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.workStartedAt === null && input.action !== 'start')
+        throw new WorkoutExecutionWorkNotStartedError()
       if (record.status !== 'in_progress' && record.status !== 'paused')
         throw new WorkoutExecutionClosedError()
       const block = plannedAmrapCircuit(record.snapshot, input.blockKey)
@@ -285,6 +295,7 @@ export class WorkoutExecutionStartService {
           throw new WorkoutExecutionAmrapConflictError()
         const [{ startedAt }] = await manager.query('SELECT clock_timestamp() AS "startedAt"')
         record.amrap = { blockKey: block.key, startedAt: new Date(startedAt).toISOString(), rounds: [] }
+        record.workStartedAt ??= new Date(startedAt)
         await repository.save(record)
         return { execution: toExecution(record), replayed: false }
       }
@@ -386,6 +397,7 @@ export class WorkoutExecutionStartService {
         lock: { mode: 'pessimistic_write' },
       })
       if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.workStartedAt === null) throw new WorkoutExecutionWorkNotStartedError()
       if (record.status === 'paused') return { execution: toExecution(record), replayed: true }
       if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
 
@@ -422,6 +434,7 @@ export class WorkoutExecutionStartService {
         lock: { mode: 'pessimistic_write' },
       })
       if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.workStartedAt === null) throw new WorkoutExecutionWorkNotStartedError()
       const pauses = record.pauses ?? []
       const current = pauses.at(-1)
       if (
@@ -466,7 +479,11 @@ export class WorkoutExecutionStartService {
 
       if (record.activeTimer?.kind === 'work') {
         if (sameWorkTimerIdentity(record.activeTimer, input))
-          return { activeTimer: record.activeTimer, replayed: true }
+          return {
+            activeTimer: record.activeTimer,
+            workStartedAt: record.workStartedAt!.toISOString(),
+            replayed: true,
+          }
         throw new WorkoutExecutionResultConflictError()
       }
 
@@ -506,8 +523,9 @@ export class WorkoutExecutionStartService {
         startedAt: new Date(startedAt).toISOString(),
       }
       record.activeTimer = activeTimer
+      record.workStartedAt ??= new Date(startedAt)
       await repository.save(record)
-      return { activeTimer, replayed: false }
+      return { activeTimer, workStartedAt: record.workStartedAt.toISOString(), replayed: false }
     })
   }
 
@@ -581,6 +599,7 @@ export class WorkoutExecutionStartService {
         roundIndex: input.roundIndex,
         startedAt: new Date(startedAt).toISOString(),
       }
+      record.workStartedAt ??= new Date(startedAt)
       await repository.save(record)
       return { execution: toExecution(record), replayed: false }
     })
@@ -598,6 +617,7 @@ export class WorkoutExecutionStartService {
         lock: { mode: 'pessimistic_write' },
       })
       if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.workStartedAt === null) throw new WorkoutExecutionWorkNotStartedError()
       if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
       const block = plannedFixedCircuit(record.snapshot, input.blockKey)
       if (!block || input.roundIndex > block.rounds) throw new WorkoutExecutionResultInvalidError()
@@ -645,6 +665,8 @@ export class WorkoutExecutionStartService {
         lock: { mode: 'pessimistic_write' },
       })
       if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.workStartedAt === null && input.action !== 'start')
+        throw new WorkoutExecutionWorkNotStartedError()
       if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
       const block = record.snapshot?.session.blocks.find(
         (candidate) => candidate.type === 'intervals' && candidate.key === input.blockKey,
@@ -701,6 +723,7 @@ export class WorkoutExecutionStartService {
           phaseKey: phase.key,
           startedAt: now.toISOString(),
         }
+        record.workStartedAt ??= now
       } else if (input.action === 'finish' || input.action === 'skip') {
         const timer = record.activeTimer
         const matchingTimer =
@@ -818,6 +841,7 @@ export class WorkoutExecutionStartService {
         lock: { mode: 'pessimistic_write' },
       })
       if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.workStartedAt === null) throw new WorkoutExecutionWorkNotStartedError()
       if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
 
       const result = input.result
@@ -928,6 +952,7 @@ export class WorkoutExecutionStartService {
         lock: { mode: 'pessimistic_write' },
       })
       if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.workStartedAt === null) throw new WorkoutExecutionWorkNotStartedError()
       if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
       if (record.activeTimer?.kind === 'rest' && record.activeTimer.resultId !== resultId)
         throw new WorkoutExecutionResultConflictError()
@@ -1021,6 +1046,7 @@ export class WorkoutExecutionStartService {
         lock: { mode: 'pessimistic_write' },
       })
       if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.workStartedAt === null) throw new WorkoutExecutionWorkNotStartedError()
 
       const responseIdentity = {
         operationId: operation.operationId,
@@ -1138,6 +1164,7 @@ export class WorkoutExecutionStartService {
       }
       if (record.status !== 'in_progress' && record.status !== 'paused')
         throw new WorkoutExecutionCloseConflictError()
+      if (record.workStartedAt === null) throw new WorkoutExecutionWorkNotStartedError()
       if (
         (record.circuitRounds ?? []).some(
           (round) =>
@@ -1195,6 +1222,7 @@ export class WorkoutExecutionStartService {
         lock: { mode: 'pessimistic_write' },
       })
       if (!record) throw new WorkoutExecutionSessionNotFoundError()
+      if (record.workStartedAt === null) throw new WorkoutExecutionWorkNotStartedError()
 
       const identity = {
         operationId: operation.operationId,
@@ -1654,6 +1682,7 @@ function toExecution(record: WorkoutExecutionRecord): WorkoutExecution {
     snapshot: record.snapshot,
     status: record.status,
     startedAt: record.startedAt.toISOString(),
+    workStartedAt: record.workStartedAt?.toISOString() ?? null,
     ...(record.finishedAt ? { finishedAt: record.finishedAt.toISOString() } : {}),
     ...(record.feeling ? { feeling: record.feeling } : {}),
     ...(record.observations !== null && record.observations !== undefined

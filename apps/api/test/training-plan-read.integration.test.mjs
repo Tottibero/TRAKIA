@@ -320,11 +320,13 @@ test('calendar and session HTTP reads are authenticated, complete, deterministic
     results,
     finishedAt,
   }) => {
+    const startedAt =
+      snapshot.session.date === '2026-12-30' ? '2026-12-30T10:00:00.000Z' : '2026-12-28T10:00:00.000Z'
     await dataSource.query(
       `INSERT INTO workout_executions
          (id, user_id, request_id, plan_id, session_id, plan_key, session_key, snapshot,
-          status, started_at, finished_at, results)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12::jsonb)`,
+          status, started_at, work_started_at, finished_at, results)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $10, $11, $12::jsonb)`,
       [
         id,
         ownerId,
@@ -335,7 +337,7 @@ test('calendar and session HTTP reads are authenticated, complete, deterministic
         snapshot.session.key,
         JSON.stringify(snapshot),
         status,
-        snapshot.session.date === '2026-12-30' ? '2026-12-30T10:00:00.000Z' : '2026-12-28T10:00:00.000Z',
+        startedAt,
         finishedAt,
         JSON.stringify(results),
       ],

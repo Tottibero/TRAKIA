@@ -1,4 +1,11 @@
-import type { WorkoutPause } from '@trakia/contracts'
+import type { WorkoutExecution, WorkoutPause } from '@trakia/contracts'
+
+export function executionDurationStart(
+  execution: Pick<WorkoutExecution, 'startedAt' | 'workStartedAt'>,
+): string | null {
+  if (execution.workStartedAt === null) return null
+  return execution.workStartedAt ?? execution.startedAt
+}
 
 export function executionDurationSeconds(
   startedAt: string,

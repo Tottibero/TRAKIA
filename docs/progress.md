@@ -68,6 +68,7 @@
 | [HC-05-10-01](tasks/HC-05/HC-05-10-01.md) | Completada | Tokens y shell; login con PNG intacto, nombre centrado, CTA rojo AA y toggle. `pnpm check` y arquitectura pasan; propietario acepta limitación de Chrome. |
 | [HC-05-10-02](tasks/HC-05/HC-05-10-02.md) | Completada | Rediseño del detalle y restricción de inicio en `Europe/Madrid`; `pnpm check`, arquitectura e integración `trakia_test` satisfactorias. Cierre autorizado por el propietario. |
 | [HC-05-10-02b](tasks/HC-05/HC-05-10-02b.md) | Completada | Inicio limitado a su fecha en `Europe/Madrid` desde frontend y API; verificaciones locales, arquitectura e integración `trakia_test` satisfactorias. Cierre autorizado por el propietario. |
+| [HC-05-10-03a](tasks/HC-05/HC-05-10-03a.md) | En revisión | Apertura online navega directamente al ejecutor; la primera acción confirma `workStartedAt` junto con el temporizador/estado inicial. Prueba manual pendiente. |
 | [HC-05-10-07](tasks/HC-05/HC-05-10-07.md) | En revisión | Resumen real al cerrar/reabrir; nombres mostrados desde JSON sin alteración y RPE con tono visual. Validación manual pendiente. |
 
 La aceptación actual de HC-01-02, HC-01-02c, HC-01-03a–HC-01-03g, HC-01-04 y HC-01-06 se registra por autorización explícita del propietario en la solicitud de cierre definitivo; no se atribuye a revisiones históricas. HC-01-01, HC-01-02b y HC-01-05a–HC-01-05e conservan sus cierres previamente documentados. Las pruebas automatizadas se distinguen de los recorridos manuales del propietario en las fichas correspondientes.

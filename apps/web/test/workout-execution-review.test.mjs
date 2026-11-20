@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { summarizeWorkoutExecution } from '../src/features/workout-execution/guided-planning.ts'
 import {
   executionDurationSeconds,
+  executionDurationStart,
   finishOpenPause,
   formatWorkoutDuration,
 } from '../src/features/workout-execution/workout-review.ts'
@@ -155,6 +156,15 @@ test('duration excludes closed and open known pauses and rejects unreliable time
   )
   assert.equal(executionDurationSeconds('invalid', '2026-11-15T11:00:00Z', []), null)
   assert.equal(formatWorkoutDuration(3661), '61 min 1 s')
+})
+
+test('total duration begins at confirmed work start and retains historical opening for legacy data', () => {
+  assert.equal(
+    executionDurationStart({ startedAt: '2026-11-15T10:00:00Z', workStartedAt: '2026-11-15T10:03:00Z' }),
+    '2026-11-15T10:03:00Z',
+  )
+  assert.equal(executionDurationStart({ startedAt: '2026-11-15T10:00:00Z', workStartedAt: null }), null)
+  assert.equal(executionDurationStart({ startedAt: '2026-11-15T10:00:00Z' }), '2026-11-15T10:00:00Z')
 })
 
 test('closing a paused execution ends its open pause at the confirmed finish time', () => {

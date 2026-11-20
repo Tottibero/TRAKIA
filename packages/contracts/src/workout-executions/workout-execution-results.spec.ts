@@ -56,6 +56,7 @@ describe('workout execution result HTTP contracts', () => {
     expect(
       WorkoutExecutionWorkTimerStartResponseSchema.safeParse({
         activeTimer: { kind: 'work', ...input, startedAt: '2026-11-16T10:00:00Z' },
+        workStartedAt: '2026-11-16T10:00:00Z',
         replayed: false,
       }).success,
     ).toBe(true)

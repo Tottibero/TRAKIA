@@ -50,6 +50,8 @@ export class WorkoutExecutionRecord {
   correctionOperations!: CorrectResultOperation[]
   @Column({ type: 'varchar' }) status!: WorkoutStatus
   @Column({ name: 'started_at', type: 'timestamptz' }) startedAt!: Date
+  @Column({ name: 'work_started_at', type: 'timestamptz', nullable: true })
+  workStartedAt!: Date | null
   @Column({ name: 'finished_at', type: 'timestamptz', nullable: true }) finishedAt!: Date | null
   @Column({ type: 'varchar', nullable: true }) feeling!: WorkoutFeeling | null
   @Column({ type: 'varchar', nullable: true }) observations!: string | null

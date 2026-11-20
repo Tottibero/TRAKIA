@@ -48,6 +48,7 @@ export const WorkoutExecutionStartErrorCodeSchema = z.enum([
   'SESSION_CHANGED',
   'SESSION_PROTECTED',
   'PLANNED_DATE_MISMATCH',
+  'WORK_NOT_STARTED',
   'OPEN_EXECUTION_EXISTS',
   'DEVICE_MISMATCH',
   'REQUEST_ID_CONFLICT',

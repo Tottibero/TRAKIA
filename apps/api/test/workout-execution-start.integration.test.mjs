@@ -16,6 +16,7 @@ import { AddWorkoutExecutionActiveTimer1795564800000 } from '../dist/database/mi
 import { AddWorkoutExecutionPauses1795651200000 } from '../dist/database/migrations/1795651200000-AddWorkoutExecutionPauses.js'
 import { AddWorkoutExecutionCircuitRounds1795737600000 } from '../dist/database/migrations/1795737600000-AddWorkoutExecutionCircuitRounds.js'
 import { AddWorkoutExecutionAmrap1795824000000 } from '../dist/database/migrations/1795824000000-AddWorkoutExecutionAmrap.js'
+import { AddWorkoutExecutionWorkStartedAt1795910400000 } from '../dist/database/migrations/1795910400000-AddWorkoutExecutionWorkStartedAt.js'
 import { CreateUsers1794441600000 } from '../dist/database/migrations/1794441600000-CreateUsers.js'
 import { ExerciseCatalogService } from '../dist/modules/exercises/exercise-catalog.service.js'
 import { Exercise } from '../dist/modules/exercises/exercise.entity.js'
@@ -75,6 +76,16 @@ test('account-owned online workout execution persists and recovers a strength se
     await new AddWorkoutExecutionPauses1795651200000().up(runner)
     await new AddWorkoutExecutionCircuitRounds1795737600000().up(runner)
     await new AddWorkoutExecutionAmrap1795824000000().up(runner)
+    const [{ id: legacyExecutionId }] = await runner.query(
+      `INSERT INTO workout_executions (plan_key, session_key, status, started_at)
+       VALUES ('legacy-plan', 'legacy-session', 'completed', '2026-11-10T09:00:00.000Z') RETURNING id`,
+    )
+    await new AddWorkoutExecutionWorkStartedAt1795910400000().up(runner)
+    const [{ started_at: legacyStartedAt, work_started_at: legacyWorkStartedAt }] = await runner.query(
+      `SELECT started_at, work_started_at FROM workout_executions WHERE id = $1`,
+      [legacyExecutionId],
+    )
+    assert.equal(legacyWorkStartedAt.toISOString(), legacyStartedAt.toISOString())
 
     const [{ id: userId }] = await runner.query(
       `INSERT INTO users (email, password_hash) VALUES ($1, 'test-hash') RETURNING id`,
@@ -144,6 +155,7 @@ test('account-owned online workout execution persists and recovers a strength se
 
     const started = await service.start(userId, startRequest)
     assert.equal(started.execution.status, 'in_progress')
+    assert.equal(started.execution.workStartedAt, null)
     assert.equal(started.execution.snapshot.session.key, 'monday')
     assert.deepEqual(await service.start(userId, startRequest), started)
     assert.equal(await repository.countBy({ userId }), 1)
@@ -179,22 +191,51 @@ test('account-owned online workout execution persists and recovers a strength se
       unit: { kind: 'planned', setIndex: 1 },
       actualExerciseKey: 'bench-press',
       status: 'performed',
-      actualMetrics: { weightKg: 40, reps: 10, rpe: 7 },
     }
-    assert.deepEqual(await service.recordResult(userId, started.execution.id, { result }), {
-      result,
-      replayed: false,
-    })
-    assert.deepEqual(await service.recordResult(userId, started.execution.id, { result }), {
-      result,
-      replayed: true,
-    })
+    const timerInput = {
+      resultId: result.id,
+      blockKey: result.blockKey,
+      plannedExerciseKey: result.plannedExerciseKey,
+      unit: result.unit,
+    }
+    await dataSource.query(`CREATE FUNCTION reject_first_work_start() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF OLD.work_started_at IS NULL AND NEW.work_started_at IS NOT NULL THEN
+          RAISE EXCEPTION 'forced first work start failure';
+        END IF;
+        RETURN NEW;
+      END;
+    $$`)
+    await dataSource.query(
+      `CREATE TRIGGER reject_first_work_start BEFORE UPDATE ON workout_executions
+       FOR EACH ROW EXECUTE FUNCTION reject_first_work_start()`,
+    )
+    await assert.rejects(
+      service.startWorkTimer(userId, started.execution.id, timerInput),
+      /forced first work start failure/,
+    )
+    const failedFirstStart = await repository.findOneByOrFail({ id: started.execution.id })
+    assert.equal(failedFirstStart.workStartedAt, null)
+    assert.equal(failedFirstStart.activeTimer, null)
+    await dataSource.query('DROP TRIGGER reject_first_work_start ON workout_executions')
+    await dataSource.query('DROP FUNCTION reject_first_work_start()')
+
+    const workStart = await service.startWorkTimer(userId, started.execution.id, timerInput)
+    assert.ok(workStart.workStartedAt)
+    assert.equal(workStart.workStartedAt, workStart.activeTimer.startedAt)
+    assert.ok(Date.parse(workStart.workStartedAt) >= Date.parse(started.execution.startedAt))
+    assert.equal((await service.startWorkTimer(userId, started.execution.id, timerInput)).replayed, true)
+    const resultConfirmation = await service.recordResult(userId, started.execution.id, { result })
+    assert.equal(resultConfirmation.result.id, result.id)
+    assert.ok(resultConfirmation.result.activeSeconds > 0)
+    assert.equal(resultConfirmation.replayed, false)
+    assert.equal((await service.recordResult(userId, started.execution.id, { result })).replayed, true)
     assert.equal(await repository.countBy({ id: started.execution.id }), 1)
     const [{ persisted }] = await dataSource.query(
       `SELECT results -> 0 AS persisted FROM workout_executions WHERE id = $1`,
       [started.execution.id],
     )
-    assert.deepEqual(persisted, result)
+    assert.deepEqual(persisted, resultConfirmation.result)
 
     await assert.rejects(
       service.recordResult(userId, started.execution.id, {
@@ -215,7 +256,7 @@ test('account-owned online workout execution persists and recovers a strength se
     )
     const recovered = await service.findOpen(userId)
     assert.equal(recovered.state, 'open')
-    assert.deepEqual(recovered.execution.execution.results, [result])
+    assert.deepEqual(recovered.execution.execution.results, [resultConfirmation.result])
     assert.equal((await service.findOpen(otherUserId)).state, 'none')
     await assert.rejects(
       service.recordResult(otherUserId, started.execution.id, { result: { ...result, id: randomUUID() } }),
@@ -223,6 +264,13 @@ test('account-owned online workout execution persists and recovers a strength se
     )
 
     const secondStart = concurrentStarts.find(({ status }) => status === 'fulfilled').value
+    const secondResult = { ...result, id: randomUUID() }
+    await service.startWorkTimer(concurrentUserId, secondStart.execution.id, {
+      resultId: secondResult.id,
+      blockKey: 'bench',
+      plannedExerciseKey: 'bench-press',
+      unit: { kind: 'planned', setIndex: 1 },
+    })
     await dataSource.query(`CREATE FUNCTION reject_workout_result() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
         IF jsonb_array_length(NEW.results) > jsonb_array_length(OLD.results) THEN
@@ -237,7 +285,7 @@ test('account-owned online workout execution persists and recovers a strength se
     )
     await assert.rejects(
       service.recordResult(concurrentUserId, secondStart.execution.id, {
-        result: { ...result, id: randomUUID(), blockKey: 'bench' },
+        result: secondResult,
       }),
       /forced result write failure/,
     )

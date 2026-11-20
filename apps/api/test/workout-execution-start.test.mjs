@@ -10,6 +10,7 @@ import {
   WorkoutExecutionResultMetricsConflictError,
   WorkoutExecutionRestNotFinishedError,
   WorkoutExecutionCircuitRoundConflictError,
+  WorkoutExecutionWorkNotStartedError,
   WorkoutExecutionSessionProtectedError,
   WorkoutExecutionPlannedDateMismatchError,
   WorkoutExecutionStartService,
@@ -22,6 +23,7 @@ const planId = '9a316ce8-868b-43dd-8f54-5e3a75a84989'
 const sessionId = 'e9fda47c-ce0b-4baa-8315-7bb01b0e0f6c'
 const requestId = 'be61ac38-b0ea-42d7-bf7c-c0d35c7ee882'
 const today = getMadridCivilDate(new Date())
+const recordsByService = new WeakMap()
 
 const session = {
   type: 'session',
@@ -91,7 +93,9 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
               confirmedAt:
                 activeTimer?.kind === 'rest' || activeTimer?.kind === 'circuitRest'
                   ? new Date(Date.parse(activeTimer.startedAt) + restElapsedMs)
-                  : new Date('2026-11-16T10:00:00.000Z'),
+                  : rows[0]?.workStartedAt === null
+                    ? new Date(rows[0].startedAt.getTime() + 1_000)
+                    : new Date('2026-11-16T10:00:00.000Z'),
             },
           ]
         }
@@ -129,15 +133,42 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
       supportedMetrics: ['reps', 'weight'],
     }),
   }
+  const service = new WorkoutExecutionStartService(repository, dataSource, protection, plans, exercises)
+  recordsByService.set(service, rows)
   return {
     calls,
     rows,
     setRestElapsedMs: (milliseconds) => {
       restElapsedMs = milliseconds
     },
-    service: new WorkoutExecutionStartService(repository, dataSource, protection, plans, exercises),
+    service,
   }
 }
+
+test('opening leaves work unstarted; the first set atomically starts work and is idempotent', async () => {
+  const { service, rows } = createHarness()
+  const reserved = await service.start(userId, request)
+  assert.equal(reserved.execution.workStartedAt, null)
+  assert.equal(rows[0].workStartedAt, null)
+  await assert.rejects(
+    service.pauseExecution(userId, reserved.execution.id),
+    WorkoutExecutionWorkNotStartedError,
+  )
+
+  const timerRequest = {
+    resultId: randomUUID(),
+    blockKey: 'main',
+    plannedExerciseKey: 'squat',
+    unit: { kind: 'planned', setIndex: 1 },
+  }
+  const started = await service.startWorkTimer(userId, reserved.execution.id, timerRequest)
+  assert.equal(started.workStartedAt, started.activeTimer.startedAt)
+  assert.equal(rows[0].workStartedAt.toISOString(), started.workStartedAt)
+  assert.equal(started.replayed, false)
+  const replay = await service.startWorkTimer(userId, reserved.execution.id, timerRequest)
+  assert.equal(replay.workStartedAt, started.workStartedAt)
+  assert.equal(replay.replayed, true)
+})
 
 test('online circuit rounds persist one duration for N exercises and gate the next round on all results and rest', async () => {
   const circuitSession = {
@@ -160,7 +191,7 @@ test('online circuit rounds persist one duration for N exercises and gate the ne
     ],
   }
   const { rows, service, setRestElapsedMs } = createHarness({ plannedSession: circuitSession })
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   const first = { blockKey: 'tri-set', roundIndex: 1 }
   const timer = await service.startCircuitRound(userId, started.execution.id, first)
   assert.equal(timer.execution.activeTimer.kind, 'circuitRound')
@@ -206,6 +237,16 @@ test('online circuit rounds persist one duration for N exercises and gate the ne
 })
 
 const request = { requestId, planId, sessionId }
+
+async function startAndBegin(service, user = userId, input = request, clock) {
+  const opened = await service.start(user, input, clock)
+  const record = recordsByService.get(service).find(({ id }) => id === opened.execution.id)
+  record.workStartedAt = new Date(record.startedAt)
+  return {
+    ...opened,
+    execution: { ...opened.execution, workStartedAt: record.workStartedAt.toISOString() },
+  }
+}
 
 function addCivilDays(value, amount) {
   const date = new Date(`${value}T00:00:00.000Z`)
@@ -299,7 +340,7 @@ test('an open execution can save results, pause, resume and close after its plan
   const startInstant = new Date('2026-11-19T22:59:59.000Z')
   const plannedSession = { ...session, date: getMadridCivilDate(startInstant) }
   const { rows, service } = createHarness({ plannedSession })
-  const started = await service.start(userId, request, () => startInstant)
+  const started = await startAndBegin(service, userId, request, () => startInstant)
   plannedSession.date = addCivilDays(plannedSession.date, -1)
 
   const result = {
@@ -347,7 +388,7 @@ test('replaying the same request returns the stored execution without inserting 
 
 test('closed session lookup returns one completed execution per requested session', async () => {
   const { rows, service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   const record = rows[0]
   record.status = 'completed'
   record.finishedAt = new Date('2026-11-16T10:01:00.000Z')
@@ -390,7 +431,7 @@ test('an account with an open execution cannot reserve another session', async (
 
 test('open execution recovery is scoped to its authenticated account and does not require a device', async () => {
   const { service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   const recovered = await service.findOpen(userId)
   assert.equal(recovered.state, 'open')
   assert.equal(recovered.execution.execution.id, started.execution.id)
@@ -402,7 +443,7 @@ test('open execution recovery is scoped to its authenticated account and does no
 
 test('account-owned request recovery returns a closed execution without a device id', async () => {
   const { service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   await service.closeOnlineExecution(userId, started.execution.id, { completionType: 'planned' })
 
   const recovered = await service.findByRequest(userId, undefined, request.requestId)
@@ -412,7 +453,7 @@ test('account-owned request recovery returns a closed execution without a device
 
 test('work timer start, completion, and identical retries persist server-measured activeSeconds', async () => {
   const { rows, service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   const timerRequest = {
     resultId: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
     blockKey: 'main',
@@ -459,7 +500,7 @@ test('work timer start, completion, and identical retries persist server-measure
 
 test('work timers advance only to the next planned strength set across one exercise', async () => {
   const { service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   const firstResultId = '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5'
   const firstTimer = {
     resultId: firstResultId,
@@ -506,7 +547,7 @@ test('work timers advance only to the next planned strength set across one exerc
 
 test('next set waits for saved metrics and the complete rest interval without changing the rest anchor', async () => {
   const { rows, service, setRestElapsedMs } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   const first = {
     type: 'sets',
     id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
@@ -549,7 +590,7 @@ test('next set waits for saved metrics and the complete rest interval without ch
 
 test('confirmed timed result metrics can be saved afterwards and replayed without overwrite', async () => {
   const { rows, service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   const result = {
     type: 'sets',
     id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
@@ -587,7 +628,7 @@ test('confirmed timed result metrics can be saved afterwards and replayed withou
 
 test('recordResult persists once and returns the stored result for an identical retry', async () => {
   const { rows, service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   const input = {
     result: {
       type: 'sets',
@@ -614,7 +655,7 @@ test('recordResult persists once and returns the stored result for an identical 
 
 test('recordResult rejects a changed identity payload and a second result for the same set', async () => {
   const { service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   const input = {
     result: {
       type: 'sets',
@@ -646,7 +687,7 @@ test('recordResult rejects a changed identity payload and a second result for th
 
 test('recordResult accepts a planned alternative and rejects an exercise outside the snapshot', async () => {
   const { service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   const validAlternative = {
     type: 'sets',
     id: '6aec8e0a-9b96-4c97-9fc1-42a7badc67ca',
@@ -689,7 +730,7 @@ test('recordResult accepts a planned alternative and rejects an exercise outside
 
 test('close execution consolidates pending results and replays the immutable operation idempotently', async () => {
   const { rows, service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   rows[0].deviceId = deviceId
   const pendingResult = {
     type: 'sets',
@@ -732,7 +773,7 @@ test('close execution consolidates pending results and replays the immutable ope
 
 test('close execution rejects a contradictory replay without changing the accepted close', async () => {
   const { rows, service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   rows[0].deviceId = deviceId
   const execution = {
     ...started.execution,
@@ -756,7 +797,7 @@ test('close execution rejects a contradictory replay without changing the accept
 
 test('online close preserves confirmed results, timestamps on the server and replays idempotently', async () => {
   const { rows, service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   const result = {
     type: 'sets',
     id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
@@ -791,7 +832,7 @@ test('online close preserves confirmed results, timestamps on the server and rep
 
 test('correctResult changes a closed result atomically and replays the same operation idempotently', async () => {
   const { rows, service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   rows[0].deviceId = deviceId
   const result = {
     type: 'sets',
@@ -857,7 +898,7 @@ test('correctResult changes a closed result atomically and replays the same oper
 
 test('correctResult rejects stale values, invalid alternatives and out-of-order operations without mutation', async () => {
   const { rows, service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   rows[0].deviceId = deviceId
   const result = {
     type: 'sets',
@@ -908,7 +949,7 @@ test('correctResult rejects stale values, invalid alternatives and out-of-order 
 
 test('close execution conflicts on result identity, workout unit, owner device and account', async () => {
   const { rows, service } = createHarness()
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   rows[0].deviceId = deviceId
   const serverResult = {
     type: 'sets',
@@ -1000,7 +1041,7 @@ test('online result recording rejects unsupported modalities and unplanned stren
     ],
   }
   const { rows, service } = createHarness({ plannedSession })
-  const started = await service.start(userId, request)
+  const started = await startAndBegin(service)
   const circuit = {
     type: 'circuit',
     id: '118a8a3f-5c2e-49e4-9ccd-f6c46ea621d5',
