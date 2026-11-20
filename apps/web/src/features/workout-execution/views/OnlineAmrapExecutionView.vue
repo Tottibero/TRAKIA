@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { useQueryClient } from '@tanstack/vue-query'
 import type { CircuitResult } from '@trakia/contracts'
 import {
@@ -20,6 +21,8 @@ import { formatDuration } from '../execution-summary.js'
 import { createOnlineAmrapFlow } from '../online-amrap-flow'
 
 const props = defineProps<{ executionId: string; requestId?: string }>()
+const route = useRoute()
+const sessionName = typeof route.query.sessionName === 'string' ? route.query.sessionName : 'Entrenamiento'
 const queryClient = useQueryClient()
 const flow = createOnlineAmrapFlow(
   props.executionId,
@@ -278,14 +281,15 @@ onBeforeUnmount(() => {
           </button>
         </template>
       </section>
-      <section v-else-if="flow.isClosed.value" class="pt-10">
-        <h1 class="text-center text-2xl font-semibold text-lime-200" role="status">
-          Entrenamiento finalizado
-        </h1>
-        <WorkoutExecutionSummary v-if="flow.execution.value" :execution="flow.execution.value" class="mt-6" />
+      <section v-else-if="flow.isClosed.value && flow.execution.value" class="pt-4">
+        <WorkoutExecutionSummary :execution="flow.execution.value" :session-name="sessionName" />
       </section>
 
-      <p v-if="!flow.isOnline.value" class="mt-6 text-center text-sm text-amber-200" role="status">
+      <p
+        v-if="!flow.isOnline.value && !flow.isClosed.value"
+        class="mt-6 text-center text-sm text-amber-200"
+        role="status"
+      >
         Conéctate para continuar; los cambios solo se confirman en el servidor.
       </p>
     </div>

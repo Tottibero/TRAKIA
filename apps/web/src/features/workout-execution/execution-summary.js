@@ -8,13 +8,27 @@ function plannedExerciseName(execution, result) {
   return execution.snapshot.exercises.find(({ key }) => key === exerciseKey)?.name ?? 'Ejercicio'
 }
 
-function resultLabel(result) {
+function resultLabel(execution, result) {
   if (result.type === 'sets') return `Serie ${result.unit.setIndex}`
   if (result.type === 'circuit') {
-    const round = result.round.kind === 'planned' ? result.round.roundIndex : result.round.roundIndex
-    return `Ronda ${round}`
+    const partialAmrapRound =
+      result.round.kind === 'amrap' &&
+      result.round.roundIndex >
+        (execution.amrap?.blockKey === result.blockKey ? execution.amrap.rounds.length : 0)
+    return `Ronda ${result.round.roundIndex}${partialAmrapRound ? ' · parcial' : ''}`
   }
-  if (result.type === 'intervals') return `Ciclo ${result.cycleIndex} · ${result.phaseKey}`
+  if (result.type === 'intervals') {
+    const block = execution.snapshot.session.blocks.find(
+      (candidate) => candidate.type === 'intervals' && candidate.key === result.blockKey,
+    )
+    const phaseIndex =
+      block?.type === 'intervals'
+        ? block.phases
+            .filter((phase) => phase.type === 'work')
+            .findIndex((phase) => phase.key === result.phaseKey) + 1
+        : 1
+    return `Ciclo ${result.cycleIndex} · Intervalo ${phaseIndex}`
+  }
   return `Ciclo ${result.cycleIndex}`
 }
 
@@ -28,29 +42,6 @@ function metricDetails(result) {
     ...(metrics.distanceMeters === undefined ? [] : [`${metrics.distanceMeters} m`]),
     ...(metrics.calories === undefined ? [] : [`${metrics.calories} kcal`]),
     ...(result.activeSeconds === undefined ? [] : [`${formatDuration(result.activeSeconds)} de trabajo`]),
-  ]
-}
-
-function plannedIntervalDetails(execution, result) {
-  if (result.type !== 'intervals') return []
-  const block = execution.snapshot.session.blocks.find(
-    (candidate) => candidate.type === 'intervals' && candidate.key === result.blockKey,
-  )
-  const phase = block?.type === 'intervals' ? block.phases.find(({ key }) => key === result.phaseKey) : null
-  if (!phase || phase.type !== 'work') return []
-  const labels = {
-    reps: 'reps',
-    weight: 'kg',
-    duration: 's',
-    distance: 'm',
-    rpe: 'RPE',
-    calories: 'kcal',
-  }
-  return [
-    `${phase.windowSeconds} s programados`,
-    ...Object.entries(phase.exercise.targets ?? {}).map(([metric, value]) =>
-      labels[metric] ? `${value} ${labels[metric]}` : `${value} ${metric}`,
-    ),
   ]
 }
 
@@ -112,9 +103,8 @@ export function summarizeClosedExecution(execution) {
         : null
     const row = {
       id: result.id,
-      label: resultLabel(result),
+      label: resultLabel(execution, result),
       exerciseName,
-      plannedDetails: plannedIntervalDetails(execution, result),
       details: [...(state ? [state] : []), ...metricDetails(result)],
     }
     if (result.status === 'skipped') {

@@ -26,24 +26,92 @@ const intervalView = readFileSync(
   new URL('../src/features/workout-execution/views/OnlineIntervalExecutionView.vue', import.meta.url),
   'utf8',
 )
+const amrapView = readFileSync(
+  new URL('../src/features/workout-execution/views/OnlineAmrapExecutionView.vue', import.meta.url),
+  'utf8',
+)
+const sessionDetailView = readFileSync(
+  new URL('../src/features/training-plan-calendar/views/TrainingPlanSessionDetailView.vue', import.meta.url),
+  'utf8',
+)
+const calendarEntryView = readFileSync(
+  new URL('../src/features/training-plan-calendar/components/CalendarEntryList.vue', import.meta.url),
+  'utf8',
+)
+const executionSessionHook = readFileSync(
+  new URL('../src/features/workout-execution/useWorkoutExecutionSession.ts', import.meta.url),
+  'utf8',
+)
 
-test('shared execution summary returns to the weekly calendar with a mobile-safe accessible link', () => {
+test('shared execution summary has one clear calendar link and a responsive touch target', () => {
   assert.match(summaryView, /<RouterLink/)
-  assert.match(summaryView, /:to="\{ name: 'home' \}"/)
+  assert.match(summaryView, /calendarTo \?\? \{ name: 'home' \}/)
   assert.match(summaryView, /Volver al calendario/)
-  assert.match(summaryView, /min-h-12 w-full/)
-  assert.match(summaryView, /focus-visible:outline-2/)
+  assert.equal((summaryView.match(/<RouterLink/g) ?? []).length, 1)
+  assert.match(summaryView, /min-height: 3rem/)
+  assert.match(summaryView, /:focus-visible/)
   assert.doesNotMatch(summaryView, /fixed|sticky/)
-  assert.match(startActionView, /<WorkoutExecutionSummary/)
+  assert.doesNotMatch(startActionView, /Ver resultados|Ocultar resultados|WorkoutExecutionSummary/)
 })
 
-test('closed strength and circuit flows keep calendar navigation and HIIT uses its shared summary link', () => {
-  for (const view of [strengthView, circuitView]) {
-    assert.match(view, /<RouterLink/)
-    assert.match(view, /:to="\{ name: 'home' \}"/)
-    assert.match(view, /Volver al calendario/)
+test('all online execution modes transition directly to the shared closed-session summary', () => {
+  for (const view of [strengthView, circuitView, intervalView, amrapView]) {
+    assert.match(view, /WorkoutExecutionSummary/)
+    assert.match(view, /flow\.isClosed\.value/)
+    assert.match(view, /:session-name="sessionName"/)
   }
-  assert.match(intervalView, /<WorkoutExecutionSummary/)
+})
+
+test('finalized session details show only the persisted execution summary and preserve calendar context', () => {
+  assert.match(sessionDetailView, /session\.execution\?\.status === 'completed'/)
+  assert.match(sessionDetailView, /:execution="sessionQuery\.data\.value\.session\.execution"/)
+  assert.match(sessionDetailView, /:session-name="sessionQuery\.data\.value\.plan\.name"/)
+  assert.match(sessionDetailView, /:calendar-to="homeLocation"/)
+  assert.match(sessionDetailView, /useTrainingPlanSession\(planId, sessionId\)/)
+  assert.match(calendarEntryView, /presentation\.view === 'summary'/)
+  assert.match(calendarEntryView, /name: 'training-plan-session-detail'/)
+  assert.match(startActionView, /sessionName: props\.sessionName/)
+  assert.doesNotMatch(startActionView, /Ocultar resultados|Ver resultados/)
+})
+
+test('finalized summary omits planning and shows its state exactly once', () => {
+  assert.equal((summaryView.match(/Finalizada/g) ?? []).length, 1)
+  assert.doesNotMatch(summaryView, /Objetivo|programad|plannedDetails|Resumen de la sesión/)
+  assert.doesNotMatch(summaryView, /Tiempo efectivo|Rondas completadas|Series realizadas/)
+  assert.match(summaryView, /summary\.finishedAt/)
+  assert.match(summaryView, /summary\.skipped/)
+  assert.match(summaryView, /summary\.notReached/)
+  assert.match(summaryView, /No se registraron resultados deportivos/)
+  assert.match(
+    summaryView,
+    /<h3 class="execution-summary__exercise-name">\{\{ exercise\.exerciseName \}\}<\/h3>/,
+  )
+  assert.doesNotMatch(summaryView, /exercise\.exerciseName.*sessionName/)
+  assert.match(executionSessionHook, /return name \?\? 'Ejercicio'/)
+})
+
+test('summary metrics omit absent values while allowing confirmed zero repetitions', () => {
+  assert.match(summaryView, /value\.reps === null/)
+  assert.match(summaryView, /value\.activeSeconds \?\? value\.durationSeconds/)
+  assert.match(summaryView, /value\.distanceMeters === null/)
+  assert.match(summaryView, /result\.details\.length/)
+})
+
+test('finalized header follows the calendar session hierarchy and core metric pills stay inline and tinted', () => {
+  assert.match(summaryView, /execution-summary__title.*\{\{ sessionName \}\}/)
+  assert.match(summaryView, /execution-summary__metadata/)
+  assert.match(summaryView, /execution-summary__status/)
+  assert.match(summaryView, /label: 'Tiempo'/)
+  assert.match(summaryView, /label: 'Rondas'/)
+  assert.match(summaryView, /label: 'Repeticiones'/)
+  assert.match(summaryView, /flex-wrap: nowrap/)
+  assert.match(summaryView, /execution-summary__total--time/)
+  assert.match(summaryView, /execution-summary__total--rounds/)
+  assert.match(summaryView, /execution-summary__total--reps/)
+  assert.match(summaryView, /if \(\/\^RPE\\s\/\.test\(detail\)\) return 'execution-summary__metric--rpe'/)
+  assert.match(summaryView, /execution-summary__metric--rpe/)
+  assert.match(calendarEntryView, /text-base font-semibold/)
+  assert.match(calendarEntryView, /calendar-session-status--\$\{sessionPresentation/)
 })
 
 const execution = {
@@ -125,6 +193,37 @@ test('closed execution summary derives performed results, metrics, active time a
   assert.equal(summary.skipped.length, 1)
   assert.deepEqual(summary.notReached, [{ exerciseName: 'Press banca', label: 'Serie 3' }])
   assert.equal(summary.finishedAt, execution.finishedAt)
+})
+
+test('summary preserves exercise names exactly as recorded in the execution snapshot', () => {
+  const namedExecution = {
+    ...execution,
+    snapshot: {
+      ...execution.snapshot,
+      exercises: [{ ...execution.snapshot.exercises[0], name: 'Sentadillas - validación AMRAP 19 nov' }],
+    },
+  }
+
+  const summary = summarizeClosedExecution(namedExecution)
+
+  assert.equal(summary.exercises[0].exerciseName, 'Sentadillas - validación AMRAP 19 nov')
+  assert.equal(summary.skipped[0].exerciseName, 'Sentadillas - validación AMRAP 19 nov')
+  assert.deepEqual(summary.notReached, [
+    { exerciseName: 'Sentadillas - validación AMRAP 19 nov', label: 'Serie 3' },
+  ])
+  assert.equal(namedExecution.snapshot.exercises[0].name, 'Sentadillas - validación AMRAP 19 nov')
+
+  const legitimateHyphen = {
+    ...namedExecution,
+    snapshot: {
+      ...namedExecution.snapshot,
+      exercises: [{ ...namedExecution.snapshot.exercises[0], name: 'Press banca - agarre cerrado' }],
+    },
+  }
+  assert.equal(
+    summarizeClosedExecution(legitimateHyphen).exercises[0].exerciseName,
+    'Press banca - agarre cerrado',
+  )
 })
 
 test('closed circuit summary shows rounds, exercise results and one effective duration per round', () => {
@@ -289,16 +388,29 @@ test('AMRAP summary counts only confirmed per-exercise values and adds the globa
         status: 'performed',
         actualMetrics: { reps: 9 },
       },
+      {
+        type: 'circuit',
+        id: 'amrap-partial-squat',
+        blockKey: 'amrap',
+        plannedExerciseKey: 'squat',
+        actualExerciseKey: 'bench-press',
+        round: { kind: 'amrap', roundIndex: 3 },
+        status: 'performed',
+        actualMetrics: { reps: 0 },
+      },
     ],
   }
 
   const summary = summarizeClosedExecution(amrapExecution)
   assert.equal(summary.totals.completedCircuitRounds, 2)
-  assert.equal(summary.totals.performedCircuitResults, 3)
+  assert.equal(summary.totals.performedCircuitResults, 4)
   assert.equal(summary.totals.reps, 19)
   assert.equal(summary.totals.activeSeconds, 120)
   assert.equal(summary.skipped.length, 1)
-  assert.equal(summary.exercises.flatMap(({ results }) => results).length, 3)
+  assert.equal(summary.exercises.flatMap(({ results }) => results).length, 4)
+  const partialRound = summary.exercises[0].results.find(({ label }) => label.includes('parcial'))
+  assert.equal(partialRound.label, 'Ronda 3 · parcial')
+  assert.deepEqual(partialRound.details, ['0 repeticiones'])
 })
 
 test('unconfirmed AMRAP objectives do not become performed results or totals', () => {
@@ -432,8 +544,26 @@ test('closed HIIT summary retains completed, interrupted and skipped work withou
     '8 kcal',
     '1 min de trabajo',
   ])
-  assert.deepEqual(summary.exercises[0].results[0].plannedDetails, ['60 s programados', '20 reps'])
+  assert.equal(summary.exercises[0].results[0].label, 'Ciclo 1 · Intervalo 1')
+  assert.equal('plannedDetails' in summary.exercises[0].results[0], false)
   assert.equal(summary.skipped[0].details[0], 'Omitido')
+})
+
+test('closed execution with no results omits empty metrics and keeps derived uncompleted sets separate', () => {
+  const summary = summarizeClosedExecution({
+    ...execution,
+    results: [],
+    circuitRounds: [],
+  })
+  assert.deepEqual(summary.exercises, [])
+  assert.deepEqual(summary.skipped, [])
+  assert.deepEqual(summary.notReached, [
+    { exerciseName: 'Press banca', label: 'Serie 1' },
+    { exerciseName: 'Press banca', label: 'Serie 2' },
+    { exerciseName: 'Press banca', label: 'Serie 3' },
+  ])
+  assert.equal(summary.totals.reps, null)
+  assert.equal(summary.totals.activeSeconds, null)
 })
 
 test('duration formatting stays compact for minute and second totals', () => {

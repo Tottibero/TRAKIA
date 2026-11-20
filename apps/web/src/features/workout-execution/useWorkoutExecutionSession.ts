@@ -887,9 +887,8 @@ export function useWorkoutExecutionSession(executionId: string) {
   }
 
   function exerciseName(key: string) {
-    return (
-      execution.value?.snapshot.exercises.find(({ key: exerciseKey }) => exerciseKey === key)?.name ?? key
-    )
+    const name = execution.value?.snapshot.exercises.find(({ key: exerciseKey }) => exerciseKey === key)?.name
+    return name ?? 'Ejercicio'
   }
 
   function plannedAppearanceForResult(result: WorkoutResult): PlannedExercise | null {

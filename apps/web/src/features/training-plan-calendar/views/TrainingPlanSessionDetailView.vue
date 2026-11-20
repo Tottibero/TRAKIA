@@ -6,7 +6,7 @@ import AppPageShell from '@/shared/components/AppPageShell.vue'
 import { useAuth } from '@/features/auth'
 import { TrainingPlanSessionPathParamsSchema } from '@trakia/contracts'
 import { useTrainingPlanSession } from '../useTrainingPlanSession'
-import { WorkoutStartAction } from '@/features/workout-execution'
+import { WorkoutExecutionSummary, WorkoutStartAction } from '@/features/workout-execution'
 import SessionBlockDetail from '../components/SessionBlockDetail.vue'
 import { formatSessionDate } from '../session-detail-presentation.js'
 import { getMadridCivilDate, parseWeekStart, resolveExpandedDates } from '../calendar-dates.js'
@@ -146,48 +146,57 @@ const initialErrorMessage = computed(() =>
             Actualizando detalle…
           </p>
 
-          <header class="pb-4 pt-5">
-            <div class="flex flex-wrap items-start justify-between gap-3">
-              <h1 class="min-w-0 flex-1 break-words text-base font-medium text-[var(--trakia-text)]">
-                {{ sessionQuery.data.value.plan.name }}
-              </h1>
-              <span
-                class="inline-flex min-h-8 items-center rounded-full px-3 text-xs font-semibold"
-                :class="sessionStatusClass"
-              >
-                {{ sessionStatus }}
-              </span>
-            </div>
-            <time
-              class="mt-1 block text-sm text-[var(--trakia-muted)]"
-              :datetime="sessionQuery.data.value.session.date"
-            >
-              {{ formatSessionDate(sessionQuery.data.value.session.date) }}
-            </time>
-          </header>
-
-          <section aria-label="Detalle de los bloques de la sesión" class="session-detail-blocks">
-            <ol>
-              <li v-for="(block, blockIndex) in sessionQuery.data.value.session.blocks" :key="block.key">
-                <SessionBlockDetail
-                  :block="block"
-                  :block-number="
-                    sessionQuery.data.value.session.blocks
-                      .slice(0, blockIndex + 1)
-                      .filter((item) => item.type === 'circuit' && item.mode === 'rounds').length
-                  "
-                />
-              </li>
-            </ol>
-          </section>
-
-          <WorkoutStartAction
-            :plan-id="sessionQuery.data.value.plan.id"
-            :session-id="sessionQuery.data.value.session.id"
-            :planned-date="sessionQuery.data.value.session.date"
+          <WorkoutExecutionSummary
+            v-if="sessionQuery.data.value.session.execution?.status === 'completed'"
             :execution="sessionQuery.data.value.session.execution"
-            :show-summary="route.query.view === 'summary'"
+            :session-name="sessionQuery.data.value.plan.name"
+            :calendar-to="homeLocation"
+            class="pt-5"
           />
+          <template v-else>
+            <header class="pb-4 pt-5">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <h1 class="min-w-0 flex-1 break-words text-base font-medium text-[var(--trakia-text)]">
+                  {{ sessionQuery.data.value.plan.name }}
+                </h1>
+                <span
+                  class="inline-flex min-h-8 items-center rounded-full px-3 text-xs font-semibold"
+                  :class="sessionStatusClass"
+                >
+                  {{ sessionStatus }}
+                </span>
+              </div>
+              <time
+                class="mt-1 block text-sm text-[var(--trakia-muted)]"
+                :datetime="sessionQuery.data.value.session.date"
+              >
+                {{ formatSessionDate(sessionQuery.data.value.session.date) }}
+              </time>
+            </header>
+
+            <section aria-label="Detalle de los bloques de la sesión" class="session-detail-blocks">
+              <ol>
+                <li v-for="(block, blockIndex) in sessionQuery.data.value.session.blocks" :key="block.key">
+                  <SessionBlockDetail
+                    :block="block"
+                    :block-number="
+                      sessionQuery.data.value.session.blocks
+                        .slice(0, blockIndex + 1)
+                        .filter((item) => item.type === 'circuit' && item.mode === 'rounds').length
+                    "
+                  />
+                </li>
+              </ol>
+            </section>
+
+            <WorkoutStartAction
+              :plan-id="sessionQuery.data.value.plan.id"
+              :session-id="sessionQuery.data.value.session.id"
+              :session-name="sessionQuery.data.value.plan.name"
+              :planned-date="sessionQuery.data.value.session.date"
+              :execution="sessionQuery.data.value.session.execution"
+            />
+          </template>
         </template>
       </div>
     </main>
