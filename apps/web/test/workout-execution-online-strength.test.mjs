@@ -171,6 +171,10 @@ test('the online route presents only the stopwatch and metrics flow without loca
     new URL('../src/features/workout-execution/online-strength-flow.ts', import.meta.url),
     'utf8',
   )
+  const targets = readFileSync(
+    new URL('../src/features/workout-execution/components/WorkoutPlannedTargets.vue', import.meta.url),
+    'utf8',
+  )
 
   assert.match(route, /v-if="isOnlineStrengthFlow"/)
   assert.match(view, /startWorkoutExecutionWorkTimer/)
@@ -184,6 +188,17 @@ test('the online route presents only the stopwatch and metrics flow without loca
     /Serie \{\{ flow\.plannedUnit\.value\.setIndex \}\} de \{\{ flow\.plannedUnit\.value\.appearance\.sets \}\}/,
   )
   assert.match(view, /WorkoutPlannedTargets/)
+  assert.match(view, /flow\.timerDisplay\.value/)
+  assert.match(view, /flow\.activeTimer\.value && !flow\.isClosed\.value/)
+  assert.match(view, /flow\.isPaused\.value/)
+  assert.match(view, /flow\.isPaused\.value[\s\S]*?@click="flow\.resume"/)
+  assert.match(view, /bg-\[#C81F19\]/)
+  assert.doesNotMatch(view, /lime/)
+  assert.match(targets, /v-if="targets\.length"/)
+  assert.match(targets, /flex-wrap/)
+  assert.match(targets, /rounded-full/)
+  assert.match(targets, /target\.metric === 'rpe' \? `RPE \$\{target\.value\}` : target\.displayValue/)
+  assert.doesNotMatch(targets, />\s*Objetivos\s*</)
   assert.match(view, /flow\.activeTimer\.value\?\.kind !== 'work'/)
   assert.match(view, /flow\.isRestFinished\.value\s*\? 'Iniciar serie'/)
   assert.match(view, /flow\.continuationLabel\.value/)
@@ -195,6 +210,29 @@ test('the online route presents only the stopwatch and metrics flow without loca
   assert.doesNotMatch(
     view,
     /indexedDB|execution-store|retrySynchronization|ConfirmWorkoutFinishDialog|block\.key/,
+  )
+})
+
+test('the first exercise starts with no active timer and omits objectives that are not planned', async () => {
+  const planned = execution()
+  const appearance = planned.snapshot.session.blocks[0].exercises[0]
+  appearance.targets = { reps: 10 }
+  const flow = createOnlineStrengthFlow(
+    executionId,
+    dependencies({ getOpen: async () => openResponse(planned) }),
+  )
+  flow.setOnline(true)
+
+  await flow.recover()
+
+  assert.equal(flow.plannedUnit.value.exercise.name, 'Press banca')
+  assert.equal(flow.plannedUnit.value.setIndex, 1)
+  assert.equal(flow.activeTimer.value, null)
+  assert.equal(flow.timerDisplay.value, '00:00')
+  assert.equal(flow.canStart.value, true)
+  assert.deepEqual(
+    flow.plannedTargets.value.map(({ metric, displayValue }) => [metric, displayValue]),
+    [['reps', '10 reps']],
   )
 })
 

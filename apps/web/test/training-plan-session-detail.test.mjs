@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { TrainingPlanSessionDetailSchema } from '@trakia/contracts'
 import {
@@ -19,11 +20,21 @@ const mainExercise = {
   catalogKeyResolution: 'stored',
 }
 
+const plannedExerciseView = readFileSync(
+  new URL('../src/features/training-plan-calendar/components/PlannedExerciseDetail.vue', import.meta.url),
+  'utf8',
+)
+
 test('session detail uses civil dates and metric-specific labels and units', () => {
   assert.equal(formatSessionDate('2026-11-23'), 'L 23-11')
   assert.equal(formatDuration(90), '1 min 30 s')
   assert.equal(describeExerciseMetrics(['reps', 'weight']), 'Repeticiones · Carga')
   assert.equal(describeExerciseMetrics(null), 'Métricas compatibles no disponibles')
+})
+
+test('planned exercise pills use the canonical reps, kg, and RPE metric colors', () => {
+  assert.match(plannedExerciseView, /metricPillColorClass\(metric\)/)
+  assert.match(plannedExerciseView, /exercise-pill--time/)
 })
 
 test('all block modes get distinct headings and complete prescribed timing details', () => {

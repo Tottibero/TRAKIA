@@ -23,6 +23,9 @@
   --trakia-danger-muted: #e0b5ac;
   --trakia-warning: #f3d28a;
   --trakia-success: #b8d9a5;
+  --trakia-metric-reps: #a8c7fa;
+  --trakia-metric-weight: #8be9fd;
+  --trakia-metric-rpe: var(--trakia-warning);
   --trakia-shell-header-height: 4.5rem;
   --trakia-bottom-nav-height: 4.25rem;
   --trakia-space-1: 0.25rem;
@@ -46,6 +49,21 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-optical-sizing: auto;
+}
+
+.trakia-metric-pill--reps {
+  background: color-mix(in srgb, var(--trakia-metric-reps) 18%, var(--trakia-surface-raised));
+  color: var(--trakia-metric-reps);
+}
+
+.trakia-metric-pill--weight {
+  background: color-mix(in srgb, var(--trakia-metric-weight) 18%, var(--trakia-surface-raised));
+  color: var(--trakia-metric-weight);
+}
+
+.trakia-metric-pill--rpe {
+  background: color-mix(in srgb, var(--trakia-metric-rpe) 18%, var(--trakia-surface-raised));
+  color: var(--trakia-metric-rpe);
 }
 
 * {

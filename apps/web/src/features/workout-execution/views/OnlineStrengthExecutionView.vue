@@ -67,8 +67,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="min-h-dvh bg-[#10110f] px-4 py-8 text-stone-100 sm:px-8 sm:py-12">
-    <div class="mx-auto max-w-md">
+  <main
+    class="min-h-dvh bg-[#0B0C0C] px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] text-[#F4F1EB] sm:px-8"
+  >
+    <div
+      class="mx-auto flex min-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-2.5rem)] max-w-md flex-col justify-center py-4"
+    >
       <p
         v-if="flow.isLoading.value"
         class="text-center text-sm text-stone-300"
@@ -80,12 +84,14 @@ onBeforeUnmount(() => {
 
       <section
         v-else-if="flow.execution.value && flow.plannedUnit.value && !flow.isClosed.value"
-        class="pt-4"
+        class="w-full"
       >
-        <h1 class="text-center text-2xl font-semibold tracking-tight sm:text-3xl">
+        <h1
+          class="mx-auto max-w-full break-words text-center text-3xl font-semibold leading-tight tracking-[-0.035em] text-[#F4F1EB]"
+        >
           {{ flow.plannedUnit.value.exercise.name }}
         </h1>
-        <p class="mt-2 text-center text-sm font-medium text-stone-300">
+        <p class="mt-1.5 text-center text-sm font-medium text-[#B2B3AE]">
           Serie {{ flow.plannedUnit.value.setIndex }} de {{ flow.plannedUnit.value.appearance.sets }}
         </p>
 
@@ -93,7 +99,7 @@ onBeforeUnmount(() => {
 
         <p
           v-if="flow.isPaused.value"
-          class="mt-7 text-center text-sm font-semibold text-amber-200"
+          class="mt-6 text-center text-sm font-semibold text-[#F3D28A]"
           role="status"
           aria-live="polite"
         >
@@ -102,13 +108,13 @@ onBeforeUnmount(() => {
 
         <p
           v-else-if="flow.activeTimer.value?.kind === 'rest'"
-          class="mt-7 text-center text-sm font-semibold text-lime-200"
+          class="mt-6 text-center text-sm font-semibold text-[#A8C7FA]"
         >
           Descanso
         </p>
 
         <p
-          class="mt-3 text-center font-mono text-7xl font-semibold leading-none tabular-nums tracking-[-0.04em] text-lime-200 sm:text-8xl"
+          class="mt-4 text-center font-mono text-7xl font-semibold leading-none tabular-nums tracking-[-0.04em] text-[#F4F1EB] sm:text-8xl"
           role="timer"
           :aria-label="
             flow.activeTimer.value?.kind === 'rest'
@@ -120,29 +126,9 @@ onBeforeUnmount(() => {
           {{ flow.timerDisplay.value }}
         </p>
 
-        <button
-          v-if="flow.isPaused.value"
-          class="mt-6 inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/25 px-5 py-3 text-base font-semibold text-stone-100 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
-          type="button"
-          :disabled="flow.isPausing.value || !flow.isOnline.value"
-          @click="flow.resume"
-        >
-          {{ flow.isPausing.value ? 'Reanudando…' : 'Reanudar' }}
-        </button>
-
-        <button
-          v-else-if="!flow.isClosed.value"
-          class="mt-6 inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/25 px-5 py-3 text-base font-semibold text-stone-100 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
-          type="button"
-          :disabled="flow.isPausing.value || !flow.isOnline.value || flow.isLoading.value"
-          @click="flow.pause"
-        >
-          {{ flow.isPausing.value ? 'Pausando…' : 'Pausar' }}
-        </button>
-
         <p
           v-if="flow.errorMessage.value"
-          class="mt-6 text-center text-sm leading-6 text-rose-200"
+          class="mt-5 text-center text-sm leading-6 text-[#FF958A]"
           role="alert"
         >
           {{ flow.errorMessage.value }}
@@ -150,7 +136,7 @@ onBeforeUnmount(() => {
 
         <button
           v-else-if="!flow.confirmedResult.value && !flow.isPaused.value"
-          class="mt-10 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+          class="mt-7 inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[#C81F19] px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-[#A91B16] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#FE514A] disabled:cursor-not-allowed disabled:opacity-60"
           type="button"
           :disabled="
             flow.isStarting.value || flow.isFinishing.value || (!flow.canStart.value && !flow.canFinish.value)
@@ -170,6 +156,25 @@ onBeforeUnmount(() => {
           }}
         </button>
 
+        <button
+          v-if="flow.isPaused.value"
+          class="mt-7 inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[#C81F19] px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-[#A91B16] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#FE514A] disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          :disabled="flow.isPausing.value || !flow.isOnline.value"
+          @click="flow.resume"
+        >
+          {{ flow.isPausing.value ? 'Reanudando…' : 'Reanudar' }}
+        </button>
+        <button
+          v-else-if="flow.activeTimer.value && !flow.isClosed.value"
+          class="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-lg px-5 py-2 text-sm font-medium text-[#B2B3AE] transition-colors hover:bg-white/5 hover:text-[#F4F1EB] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#FE514A] disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          :disabled="flow.isPausing.value || !flow.isOnline.value || flow.isLoading.value"
+          @click="flow.pause"
+        >
+          {{ flow.isPausing.value ? 'Pausando…' : 'Pausar' }}
+        </button>
+
         <form
           v-if="
             !flow.isClosed.value &&
@@ -178,10 +183,10 @@ onBeforeUnmount(() => {
             flow.confirmedResult.value &&
             !flow.confirmedResult.value.actualMetrics
           "
-          class="mt-10 space-y-5"
+          class="mt-7 space-y-5"
           @submit.prevent="flow.save"
         >
-          <p v-if="flow.formError.value" class="text-sm leading-6 text-rose-200" role="alert">
+          <p v-if="flow.formError.value" class="text-sm leading-6 text-[#FF958A]" role="alert">
             {{ flow.formError.value }}
           </p>
           <fieldset :disabled="flow.isSaving.value || flow.hasPendingMetrics.value">
@@ -193,7 +198,7 @@ onBeforeUnmount(() => {
                 </label>
                 <input
                   :id="metricId(metric.field)"
-                  class="mt-2 min-h-12 w-full rounded-md border border-white/20 bg-[#191a17] px-3 text-base text-white outline-none focus-visible:border-lime-300 focus-visible:ring-2 focus-visible:ring-lime-300/40 disabled:opacity-70"
+                  class="mt-2 min-h-12 w-full rounded-lg border border-[#454A49] bg-[#141616] px-3 text-base text-[#F4F1EB] outline-none focus-visible:border-[#FE514A] focus-visible:ring-2 focus-visible:ring-[#FE514A]/40 disabled:opacity-70"
                   type="number"
                   v-bind="actualMetricInputConstraints(metric.field)"
                   inputmode="decimal"
@@ -216,7 +221,7 @@ onBeforeUnmount(() => {
           </fieldset>
 
           <button
-            class="inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+            class="inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[#C81F19] px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-[#A91B16] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#FE514A] disabled:cursor-not-allowed disabled:opacity-60"
             type="submit"
             :disabled="!flow.canSave.value"
           >
@@ -236,12 +241,12 @@ onBeforeUnmount(() => {
           "
           class="mt-8"
         >
-          <p class="text-center text-sm font-medium text-lime-200" role="status" aria-live="polite">
+          <p class="text-center text-sm font-medium text-[#B8D9A5]" role="status" aria-live="polite">
             Resultado guardado
           </p>
           <button
             v-if="flow.activeTimer.value?.kind === 'rest'"
-            class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+            class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[#C81F19] px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-[#A91B16] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#FE514A] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="!flow.canStartNext.value"
             @click="flow.start"
@@ -256,7 +261,7 @@ onBeforeUnmount(() => {
           </button>
           <button
             v-else
-            class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 transition-colors hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+            class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[#C81F19] px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-[#A91B16] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#FE514A] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="!flow.canContinue.value"
             @click="flow.continueOrClose"
@@ -279,10 +284,10 @@ onBeforeUnmount(() => {
         class="pt-4"
       />
 
-      <div v-else-if="flow.errorMessage.value" class="pt-8 text-center">
-        <p class="text-sm leading-6 text-rose-200" role="alert">{{ flow.errorMessage.value }}</p>
+      <div v-else-if="flow.errorMessage.value" class="py-8 text-center">
+        <p class="text-sm leading-6 text-[#FF958A]" role="alert">{{ flow.errorMessage.value }}</p>
         <button
-          class="mt-5 inline-flex min-h-12 items-center justify-center rounded-md border border-white/20 px-5 text-sm font-semibold text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:cursor-not-allowed disabled:opacity-60"
+          class="mt-5 inline-flex min-h-12 items-center justify-center rounded-lg border border-[#454A49] px-5 text-sm font-semibold text-[#F4F1EB] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FE514A] disabled:cursor-not-allowed disabled:opacity-60"
           type="button"
           :disabled="flow.isLoading.value || !flow.isOnline.value"
           @click="flow.recover"

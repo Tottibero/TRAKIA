@@ -16,6 +16,10 @@ colors:
   focus: "#FE514A"
   success: "#B8D9A5"
   warning: "#F3D28A"
+  metric-reps: "#A8C7FA"
+  metric-weight: "#8BE9FD"
+  metric-rpe: "#F3D28A"
+  exercise: "#8BE9FD"
 typography:
   caption:
     fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
@@ -121,9 +125,14 @@ The palette pairs near-black charcoal with warm white and the original TRAKIA re
 - **Focus Red** (#FE514A): Visible keyboard focus ring.
 - **Soft Green** (#B8D9A5): Success status with a text label.
 - **Warm Amber** (#F3D28A): In-progress or warning status with a text label.
+- **Repetitions** (#A8C7FA): Canonical foreground for repetition metric pills.
+- **Weight** (#8BE9FD): Canonical foreground for kilogram metric pills.
+- **RPE** (#F3D28A): Canonical foreground for RPE metric pills.
 
 ### Named Rules
 **The Accent Restraint Rule.** TRAKIA red marks a meaningful action, focus, or state; it does not fill large background regions or carry meaning by color alone.
+
+**Metric Pill Colors.** Repetitions always use soft blue (#A8C7FA), weight in kilograms uses soft cyan (#8BE9FD), and RPE uses warm amber (#F3D28A). Metric pills tint the raised-charcoal surface with 18% of the matching color and use the full color for text. Apply these semantic classes consistently in planning, import, execution, and result summaries. Other metrics keep their established treatment.
 
 ## Typography
 

@@ -3,6 +3,7 @@ import { computed, type DeepReadonly } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import type { WorkoutExecution } from '@trakia/contracts'
 import { formatDuration, summarizeClosedExecution } from '../execution-summary.js'
+import { metricPillColorClass } from '../../../shared/utils/metric-pill-presentation'
 
 const props = defineProps<{
   execution: DeepReadonly<WorkoutExecution>
@@ -54,11 +55,9 @@ const hasIncidents = computed(() => summary.value.skipped.length > 0 || summary.
 function metricTone(detail: string): string {
   if (detail === 'Completado') return 'execution-summary__metric--rounds'
   if (detail === 'Interrumpido' || detail === 'Omitido') return 'execution-summary__metric--time'
-  if (/^RPE\s/.test(detail)) return 'execution-summary__metric--rpe'
-  if (/repeticiones$/.test(detail)) return 'execution-summary__metric--reps'
-  if (/kg$/.test(detail)) return 'execution-summary__metric--sets'
+  const metricClass = metricPillColorClass(detail)
+  if (metricClass) return metricClass
   if (/Duración|de trabajo|\d+ s$/.test(detail)) return 'execution-summary__metric--time'
-  if (/\d+ m$|\d+ kcal$/.test(detail)) return 'execution-summary__metric--reps'
   return ''
 }
 </script>
@@ -298,8 +297,8 @@ function metricTone(detail: string): string {
 
 .execution-summary__total--reps,
 .execution-summary__additional-total--reps {
-  background: color-mix(in srgb, var(--trakia-info) 18%, var(--trakia-surface-raised));
-  color: var(--trakia-info);
+  background: color-mix(in srgb, var(--trakia-metric-reps) 18%, var(--trakia-surface-raised));
+  color: var(--trakia-metric-reps);
 }
 
 .execution-summary__additional-totals {
@@ -375,7 +374,9 @@ function metricTone(detail: string): string {
   gap: 0.375rem;
 }
 
-.execution-summary__metric {
+.execution-summary__metric:not(.trakia-metric-pill--reps):not(.trakia-metric-pill--weight):not(
+    .trakia-metric-pill--rpe
+  ) {
   border-radius: var(--trakia-radius-control);
   background: var(--trakia-surface-raised);
   padding: 0.25rem 0.5rem;
@@ -391,21 +392,6 @@ function metricTone(detail: string): string {
 }
 
 .execution-summary__metric--time {
-  background: color-mix(in srgb, var(--trakia-warning) 18%, var(--trakia-surface-raised));
-  color: var(--trakia-warning);
-}
-
-.execution-summary__metric--reps {
-  background: color-mix(in srgb, var(--trakia-info) 18%, var(--trakia-surface-raised));
-  color: var(--trakia-info);
-}
-
-.execution-summary__metric--sets {
-  background: color-mix(in srgb, var(--trakia-exercise) 18%, var(--trakia-surface-raised));
-  color: var(--trakia-exercise);
-}
-
-.execution-summary__metric--rpe {
   background: color-mix(in srgb, var(--trakia-warning) 18%, var(--trakia-surface-raised));
   color: var(--trakia-warning);
 }

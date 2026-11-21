@@ -1,34 +1,22 @@
-import { spawn } from 'node:child_process'
+import { cruise } from 'dependency-cruiser'
+import extractDepcruiseOptions from 'dependency-cruiser/config-utl/extract-depcruise-options'
 import { resolve } from 'node:path'
 import { verifyArchitectureRuleFixtures } from './architecture-rule-tests.mjs'
 
 await verifyArchitectureRuleFixtures()
 
-const args = [
-  resolve('node_modules/dependency-cruiser/bin/dependency-cruiser.mjs'),
-  '--config',
-  '.dependency-cruiser.cjs',
-  '--output-type',
-  'json',
-  'apps/api/src',
-  'apps/web/src',
-  'packages/contracts/src',
-]
-
-const result = await new Promise((resolve, reject) => {
-  const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'inherit'] })
-  let output = ''
-  child.stdout.setEncoding('utf8').on('data', (chunk) => (output += chunk))
-  child.once('error', reject)
-  child.once('exit', (code, signal) => resolve({ code, signal, output }))
+const options = await extractDepcruiseOptions(resolve('.dependency-cruiser.cjs'))
+const result = await cruise(['apps/api/src', 'apps/web/src', 'packages/contracts/src'], {
+  ...options,
+  outputType: 'json',
 })
 
-if (result.code !== 0) {
-  console.error(`dependency-cruiser failed (${result.signal ?? result.code}).`)
+if (result.exitCode !== 0) {
+  console.error(`dependency-cruiser failed (${result.exitCode}).`)
   process.exit(1)
 }
 
-const graph = JSON.parse(result.output)
+const graph = typeof result.output === 'string' ? JSON.parse(result.output) : result.output
 const violations = []
 
 for (const violation of graph.summary.violations) {

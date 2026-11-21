@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { TrainingPlanReadExercise, TrainingPlanReadBlock } from '@trakia/contracts'
 import { describeExerciseMetrics, resolveDisplayedTargets } from '../session-detail-presentation.js'
+import { metricPillColorClass } from '../../../shared/utils/metric-pill-presentation'
 
 type SetsExercise = Extract<TrainingPlanReadBlock, { type: 'sets' }>['exercises'][number]
 type RoundsBlock = Extract<TrainingPlanReadBlock, { type: 'circuit' }> & { mode: 'rounds' }
@@ -103,7 +104,9 @@ function targetLabel(target: { metric: Metric; label: string; value: string }) {
 }
 
 function toneClass(metric: Metric) {
-  return metric === 'reps' ? 'exercise-pill--reps' : metric === 'duration' ? 'exercise-pill--time' : ''
+  return (
+    metricPillColorClass(metric) ?? (metric === 'duration' ? 'exercise-pill--time' : 'exercise-pill--neutral')
+  )
 }
 
 function unitName(index: number) {
@@ -261,18 +264,11 @@ function unitName(index: number) {
   display: inline-flex;
   align-items: center;
   border-radius: var(--trakia-radius-control);
-  background: var(--trakia-surface-raised);
   padding: 0.125rem 0.375rem;
-  color: var(--trakia-text-strong);
   font-size: 0.8125rem;
   line-height: 1.35;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
-}
-
-.exercise-pill--reps {
-  background: color-mix(in srgb, var(--trakia-info) 18%, var(--trakia-surface-raised));
-  color: var(--trakia-info);
 }
 
 .exercise-pill--time {
