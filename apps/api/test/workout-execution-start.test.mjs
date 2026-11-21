@@ -46,7 +46,12 @@ const session = {
   ],
 }
 
-function createHarness({ protectedSession = false, initiallyOpen = false, plannedSession = session } = {}) {
+function createHarness({
+  protectedSession = false,
+  initiallyOpen = false,
+  plannedSession = session,
+  exerciseCategories = {},
+} = {}) {
   const calls = []
   const rows = []
   let restElapsedMs = 90_000
@@ -129,8 +134,13 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
     findByKey: async (key) => ({
       key,
       name: 'Back squat',
-      category: 'strength',
-      supportedMetrics: ['reps', 'weight'],
+      category: exerciseCategories[key] ?? 'strength',
+      supportedMetrics:
+        exerciseCategories[key] === 'cardio'
+          ? ['duration', 'distance', 'rpe']
+          : exerciseCategories[key] === 'functional'
+            ? ['reps', 'duration', 'rpe']
+            : ['reps', 'weight'],
     }),
   }
   const service = new WorkoutExecutionStartService(repository, dataSource, protection, plans, exercises)
@@ -144,6 +154,78 @@ function createHarness({ protectedSession = false, initiallyOpen = false, planne
     service,
   }
 }
+
+test('planned set timers and results accept a supported cardio set inside a mixed session', async () => {
+  const mixedSession = {
+    type: 'session',
+    key: 'monday',
+    date: today,
+    blocks: [
+      {
+        type: 'sets',
+        key: 'bike',
+        exercises: [{ key: 'bike-set', exerciseKey: 'stationary-bike', sets: 1 }],
+        restBetweenSetsSeconds: 1,
+      },
+      {
+        type: 'circuit',
+        key: 'amrap',
+        mode: 'amrap',
+        maxDurationSeconds: 60,
+        exercises: [{ key: 'burpees', exerciseKey: 'burpees' }],
+      },
+      {
+        type: 'intervals',
+        key: 'hiit',
+        cycles: 1,
+        phases: [
+          {
+            type: 'work',
+            key: 'work',
+            windowSeconds: 20,
+            exercise: { key: 'jacks', exerciseKey: 'jumping-jacks' },
+          },
+        ],
+      },
+    ],
+  }
+  const { service } = createHarness({
+    plannedSession: mixedSession,
+    exerciseCategories: {
+      'stationary-bike': 'cardio',
+      burpees: 'functional',
+      'jumping-jacks': 'functional',
+    },
+  })
+  const reserved = await service.start(userId, request)
+  assert.deepEqual(
+    reserved.execution.snapshot.session.blocks.map(({ type }) => type),
+    ['sets', 'circuit', 'intervals'],
+  )
+
+  const id = reserved.execution.id
+  const timerRequest = {
+    resultId: randomUUID(),
+    blockKey: 'bike',
+    plannedExerciseKey: 'bike-set',
+    unit: { kind: 'planned', setIndex: 1 },
+  }
+  await service.startWorkTimer(userId, id, timerRequest)
+  const recorded = await service.recordResult(userId, id, {
+    result: {
+      type: 'sets',
+      id: timerRequest.resultId,
+      blockKey: 'bike',
+      plannedExerciseKey: 'bike-set',
+      unit: timerRequest.unit,
+      actualExerciseKey: 'stationary-bike',
+      status: 'performed',
+    },
+  })
+  assert.equal(recorded.result.type, 'sets')
+  assert.equal(recorded.result.actualExerciseKey, 'stationary-bike')
+  assert.equal(recorded.result.activeSeconds, 12.5)
+})
 
 test('opening leaves work unstarted; the first set atomically starts work and is idempotent', async () => {
   const { service, rows } = createHarness()

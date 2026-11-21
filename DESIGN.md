@@ -5,6 +5,8 @@ colors:
   primary: "#FE271F"
   primary-foreground: "#170B0A"
   primary-action: "#C81F19"
+  save-action: "#23576A"
+  save-action-hover: "#1C4857"
   action-foreground: "#FFFFFF"
   background: "#0B0C0C"
   surface: "#141616"
@@ -113,6 +115,7 @@ The palette pairs near-black charcoal with warm white and the original TRAKIA re
 
 ### Primary
 - **TRAKIA Red** (#FE271F): Brand accent, focus, and small state signals. Use the darker action red (#C81F19) for a filled button with white text.
+- **Intermediate Save** (#23576A): Petroleum-blue action for saving an intermediate result before the final workout close. Keep the final close action red.
 
 ### Neutral
 - **Charcoal Base** (#0B0C0C): Main page background.
@@ -164,11 +167,13 @@ Controls use moderate corners (8px). Surfaces may use 12px corners where a disti
 
 Status pills use the full pill radius (999px) with visible text. Pending uses a neutral grey fill; completed uses a muted soft-green fill, check icon, and label; in-progress uses a restrained warm-amber fill and label. Color never replaces the status text.
 
+Import confirmation and planned session detail pills share compact padding and an 8px control radius so metric variants keep one consistent shape. Tint the raised-charcoal surface with the semantic foreground: soft violet for sessions, soft cyan for exercises/phases, soft fuchsia for supersets/circuits, warm amber for time/cycles/intervals, soft green for rounds, and soft blue for set counts/repetitions/distance. Weight and RPE targets use the shared soft-cyan and warm-amber metric colors. Retain the metric text so color is a secondary scanning cue.
 ## Components
 
 ### Buttons
 - **Shape:** 8px radius.
 - **Primary:** Dark action red (#C81F19) with white text; use for a single clear primary action.
+- **Intermediate save:** Petroleum blue (#23576A) with warm-white text; reserve it for saving interim training results.
 - **Hover / Focus:** State change remains visible; keyboard focus uses a 2px red outline with an offset.
 - **Secondary / Ghost:** Transparent or charcoal surface with warm-white text and a quiet border; keep labels explicit.
 - **Target:** Preserve at least 44px height for primary touch controls.

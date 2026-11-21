@@ -27,7 +27,7 @@ type ExerciseRow = {
     targetOverrides: Partial<Record<Metric, number | null>>
   }>
 }
-type BlockPill = { label: string; tone: 'time' | 'rounds' | 'neutral' }
+type BlockPill = { label: string; tone: 'time' | 'rounds' | 'phases' | 'neutral' }
 
 const heading = computed(() => {
   if (props.block.type === 'sets') return 'Series'
@@ -60,8 +60,8 @@ const blockPills = computed<BlockPill[]>(() => {
     return [{ label: `Hasta ${formatDuration(block.maxDurationSeconds)}`, tone: 'time' }]
   }
   return [
-    { label: `${block.cycles} ${block.cycles === 1 ? 'ciclo' : 'ciclos'}`, tone: 'neutral' },
-    { label: `${block.phases.length} ${block.phases.length === 1 ? 'fase' : 'fases'}`, tone: 'neutral' },
+    { label: `${block.cycles} ${block.cycles === 1 ? 'ciclo' : 'ciclos'}`, tone: 'time' },
+    { label: `${block.phases.length} ${block.phases.length === 1 ? 'fase' : 'fases'}`, tone: 'phases' },
   ]
 })
 
@@ -201,6 +201,11 @@ const exercises = computed<ExerciseRow[]>(() => {
 .session-block__pill--rounds {
   background: color-mix(in srgb, var(--trakia-success) 18%, var(--trakia-surface-raised));
   color: var(--trakia-success);
+}
+
+.session-block__pill--phases {
+  background: color-mix(in srgb, var(--trakia-exercise) 18%, var(--trakia-surface-raised));
+  color: var(--trakia-exercise);
 }
 
 .session-block__pill--neutral {

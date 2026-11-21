@@ -16,6 +16,8 @@
   --trakia-accent-action: #c81f19;
   --trakia-accent-action-hover: #ad1a15;
   --trakia-accent-action-foreground: #ffffff;
+  --trakia-save-action: #23576a;
+  --trakia-save-action-hover: #1c4857;
   --trakia-focus: #fe514a;
   --trakia-danger: #ff958a;
   --trakia-danger-border: #75483f;
@@ -26,6 +28,7 @@
   --trakia-metric-reps: #a8c7fa;
   --trakia-metric-weight: #8be9fd;
   --trakia-metric-rpe: var(--trakia-warning);
+  --trakia-exercise: #8be9fd;
   --trakia-shell-header-height: 4.5rem;
   --trakia-bottom-nav-height: 4.25rem;
   --trakia-space-1: 0.25rem;

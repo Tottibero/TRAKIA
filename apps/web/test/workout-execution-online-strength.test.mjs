@@ -193,6 +193,24 @@ test('the online route presents only the stopwatch and metrics flow without loca
   assert.match(view, /flow\.isPaused\.value/)
   assert.match(view, /flow\.isPaused\.value[\s\S]*?@click="flow\.resume"/)
   assert.match(view, /bg-\[#C81F19\]/)
+  const pauseButton = view.match(
+    /<button\s+v-else-if="flow\.activeTimer\.value && !flow\.isClosed\.value"[\s\S]*?<\/button>/,
+  )?.[0]
+  const finishButton = view.match(
+    /<button\s+v-else-if="!flow\.confirmedResult\.value && !flow\.isPaused\.value"[\s\S]*?<\/button>/,
+  )?.[0]
+  assert.ok(pauseButton)
+  assert.match(pauseButton, /mt-3/)
+  assert.match(pauseButton, /min-h-11/)
+  assert.match(pauseButton, /rounded-lg/)
+  assert.match(pauseButton, /border-\[var\(--trakia-border\)\]/)
+  assert.match(pauseButton, /bg-\[var\(--trakia-surface-raised\)\]/)
+  assert.match(pauseButton, /text-\[var\(--trakia-text\)\]/)
+  assert.ok(finishButton)
+  assert.match(
+    finishButton,
+    /class="mt-7 inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-\[#C81F19\] px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-\[#A91B16\] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-\[#FE514A\] disabled:cursor-not-allowed disabled:opacity-60"/,
+  )
   assert.doesNotMatch(view, /lime/)
   assert.match(targets, /v-if="targets\.length"/)
   assert.match(targets, /flex-wrap/)

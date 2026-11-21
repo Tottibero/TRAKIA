@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { ActualMetrics, CircuitResult, WorkoutExecution } from '@trakia/contracts'
 import { resolveExerciseTargets } from '@trakia/contracts'
+import { metricPillColorClass } from '../../../shared/utils/metric-pill-presentation'
 import { getAmrapMetricFields, proposedAmrapMetrics } from '../amrap-result-review.js'
 import { recordWorkoutExecutionResult } from '../api/execution'
 import { actualMetricInputConstraints } from '../metric-input-constraints'
@@ -112,11 +113,16 @@ function proposal(row: (typeof rows.value)[number]): Partial<ActualMetrics> {
   return proposedAmrapMetrics(row.fields)
 }
 
-function proposedLabel(row: (typeof rows.value)[number]) {
-  const values = row.fields.flatMap((field) =>
-    field.target === undefined ? [] : [`${field.target} ${field.unit || field.label.toLowerCase()}`],
-  )
-  return values.length ? values.join(' · ') : 'Sin objetivos planificados'
+function formatTarget(value: number, metric: string) {
+  if (metric === 'rpe') return `RPE ${value}`
+  const units: Record<string, string> = {
+    reps: 'reps',
+    weight: 'kg',
+    duration: 's',
+    distance: 'm',
+    calories: 'kcal',
+  }
+  return `${value} ${units[metric] ?? metric}`
 }
 
 function choosePerformed(row: (typeof rows.value)[number]) {
@@ -235,33 +241,47 @@ function parseDraftValue(field: keyof ActualMetrics, value: string) {
 </script>
 
 <template>
-  <section class="mt-8 border-t border-white/10 pt-6" aria-labelledby="amrap-results-title">
-    <h2 id="amrap-results-title" class="text-lg font-semibold text-stone-100">Resultados por ronda</h2>
-    <p class="mt-1 text-sm leading-6 text-stone-300">
-      Cada valor planificado es solo una propuesta. Confirma el resultado real de cada ejercicio; puedes
-      registrar cero repeticiones o marcarlo como omitido.
-    </p>
-    <ol v-if="rounds.length" class="mt-4 divide-y divide-white/10">
-      <li v-for="round in rounds" :key="round.roundIndex" class="py-5 first:pt-2">
-        <h3 class="text-base font-semibold text-stone-100">
+  <section v-if="rounds.length" class="space-y-3" aria-label="Resultados por ronda">
+    <ol class="grid gap-3">
+      <li v-for="round in rounds" :key="round.roundIndex" class="min-w-0 py-1">
+        <h2 class="text-base font-semibold text-[var(--trakia-text)]">
           {{ round.isPartial ? 'Última ronda parcial' : `Ronda ${round.roundIndex}` }}
-        </h3>
-        <ul class="mt-2 divide-y divide-white/[0.08]">
-          <li v-for="row in round.exercises" :key="row.rowKey" class="py-4 first:pt-2">
-            <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <h4 class="min-w-0 break-words text-sm font-semibold text-stone-100">
+        </h2>
+        <ul class="mt-2 grid gap-3">
+          <li v-for="row in round.exercises" :key="row.rowKey" class="min-w-0">
+            <div class="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <h3 class="min-w-0 break-words text-sm font-semibold text-[var(--trakia-text)]">
                 {{ row.exercise.name }}
-              </h4>
-              <span class="text-xs font-medium text-stone-300">{{ displayState(row) }}</span>
+              </h3>
+              <span
+                class="shrink-0 text-xs font-medium"
+                :class="row.result ? 'text-[var(--trakia-success)]' : 'text-[var(--trakia-warning)]'"
+              >
+                {{ displayState(row) }}
+              </span>
             </div>
-            <p class="mt-1 text-xs leading-5 text-stone-400">Propuesta: {{ proposedLabel(row) }}</p>
+            <ul
+              v-if="Object.keys(row.targets).length"
+              class="mt-1 flex max-w-full flex-wrap gap-1.5"
+              :aria-label="`Objetivos de ${row.exercise.name}`"
+            >
+              <template v-for="(target, metric) in row.targets" :key="metric">
+                <li
+                  v-if="target !== undefined"
+                  class="inline-flex min-h-8 max-w-full items-center rounded-full border border-[var(--trakia-border)] bg-[var(--trakia-surface-raised)] px-2.5 py-1 text-xs font-medium leading-tight text-[var(--trakia-text-strong)]"
+                  :class="metricPillColorClass(metric)"
+                >
+                  {{ formatTarget(target, metric) }}
+                </li>
+              </template>
+            </ul>
 
             <div
               v-if="!row.result && statusDrafts[row.rowKey] === undefined"
-              class="mt-3 grid grid-cols-2 gap-2"
+              class="mt-2 grid grid-cols-2 gap-2"
             >
               <button
-                class="min-h-11 rounded-md border border-lime-200/50 px-3 text-sm font-semibold text-lime-100 hover:bg-lime-100/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:opacity-50"
+                class="min-h-11 rounded-lg border border-[var(--trakia-border)] px-3 text-sm font-semibold text-[var(--trakia-text)] hover:bg-[var(--trakia-surface-raised)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:opacity-50"
                 type="button"
                 :disabled="!online"
                 @click="choosePerformed(row)"
@@ -269,7 +289,7 @@ function parseDraftValue(field: keyof ActualMetrics, value: string) {
                 Registrar realizado
               </button>
               <button
-                class="min-h-11 rounded-md border border-white/20 px-3 text-sm font-semibold text-stone-200 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:opacity-50"
+                class="min-h-11 rounded-lg border border-[var(--trakia-border)] px-3 text-sm font-semibold text-[var(--trakia-text)] hover:bg-[var(--trakia-surface-raised)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:opacity-50"
                 type="button"
                 :disabled="!online"
                 @click="chooseSkipped(row)"
@@ -279,9 +299,8 @@ function parseDraftValue(field: keyof ActualMetrics, value: string) {
             </div>
 
             <div v-else-if="row.result?.status === 'skipped' && statusDrafts[row.rowKey] === undefined">
-              <p class="mt-2 text-sm text-stone-300">Este ejercicio quedó omitido.</p>
               <button
-                class="mt-2 min-h-10 rounded-md px-2 text-sm font-medium text-lime-100 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:opacity-50"
+                class="mt-1 min-h-10 rounded-lg px-2 text-sm font-medium text-[var(--trakia-text-strong)] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:opacity-50"
                 type="button"
                 :disabled="!online"
                 @click="choosePerformed(row)"
@@ -295,23 +314,26 @@ function parseDraftValue(field: keyof ActualMetrics, value: string) {
                 statusDrafts[row.rowKey] === 'performed' ||
                 (statusDrafts[row.rowKey] === undefined && row.result?.status === 'performed')
               "
-              class="mt-3 space-y-3"
+              class="mt-2 space-y-2"
               @submit.prevent="save(row)"
             >
-              <p v-if="statusDrafts[row.rowKey] === 'performed' && !row.result" class="text-xs text-lime-100">
-                Valores propuestos; todavía no son resultados reales.
+              <p
+                v-if="statusDrafts[row.rowKey] === 'performed' && !row.result"
+                class="text-xs text-[var(--trakia-warning)]"
+              >
+                Revisa los valores antes de confirmarlos.
               </p>
-              <div v-if="row.fields.length" class="grid grid-cols-2 gap-3">
+              <div v-if="row.fields.length" class="grid grid-cols-2 gap-2">
                 <div v-for="field in row.fields" :key="field.key" class="min-w-0">
                   <label
-                    class="block text-sm font-medium text-stone-200"
+                    class="block break-words text-sm font-medium text-[var(--trakia-text-strong)]"
                     :for="`amrap-${row.rowKey}-${field.key}`"
                   >
                     {{ field.label }}<span v-if="field.unit"> ({{ field.unit }})</span>
                   </label>
                   <input
                     :id="`amrap-${row.rowKey}-${field.key}`"
-                    class="mt-1 min-h-11 w-full rounded-md border border-white/20 bg-[#191a17] px-3 text-base text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:opacity-60"
+                    class="mt-1 min-h-11 w-full min-w-0 rounded-lg border border-[var(--trakia-border)] bg-[var(--trakia-surface)] px-3 text-base text-[var(--trakia-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:opacity-60"
                     type="number"
                     v-bind="actualMetricInputConstraints(field.key, { allowZeroReps: true })"
                     inputmode="decimal"
@@ -321,20 +343,20 @@ function parseDraftValue(field: keyof ActualMetrics, value: string) {
                   />
                 </div>
               </div>
-              <p v-else class="text-sm text-stone-400">Este ejercicio no tiene métricas configuradas.</p>
-              <p v-if="errors[row.rowKey]" class="text-sm text-rose-200" role="alert">
+              <p v-else class="text-sm text-[var(--trakia-muted)]">Sin métricas configuradas.</p>
+              <p v-if="errors[row.rowKey]" class="text-sm text-[var(--trakia-danger)]" role="alert">
                 {{ errors[row.rowKey] }}
               </p>
               <div class="grid grid-cols-2 gap-2">
                 <button
-                  class="min-h-11 rounded-md bg-lime-300 px-3 text-sm font-bold text-stone-950 hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-200 disabled:opacity-50"
+                  class="min-h-11 rounded-lg bg-[var(--trakia-save-action)] px-3 text-sm font-semibold text-[var(--trakia-text)] hover:bg-[var(--trakia-save-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:opacity-50"
                   type="submit"
                   :disabled="savingKey === row.rowKey || !online"
                 >
                   {{ savingKey === row.rowKey ? 'Guardando…' : 'Confirmar realizado' }}
                 </button>
                 <button
-                  class="min-h-11 rounded-md border border-white/20 px-3 text-sm font-semibold text-stone-200 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:opacity-50"
+                  class="min-h-11 rounded-lg border border-[var(--trakia-border)] px-3 text-sm font-semibold text-[var(--trakia-text)] hover:bg-[var(--trakia-surface-raised)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:opacity-50"
                   type="button"
                   :disabled="savingKey === row.rowKey || !online"
                   @click="chooseSkipped(row)"
@@ -344,7 +366,7 @@ function parseDraftValue(field: keyof ActualMetrics, value: string) {
               </div>
               <button
                 v-if="statusDrafts[row.rowKey] !== undefined || hasMetricDraft(row)"
-                class="min-h-10 px-2 text-sm text-stone-300 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+                class="min-h-10 rounded-lg px-2 text-sm text-[var(--trakia-muted)] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)]"
                 type="button"
                 @click="discardDraft(row)"
               >
@@ -352,21 +374,21 @@ function parseDraftValue(field: keyof ActualMetrics, value: string) {
               </button>
             </form>
 
-            <form v-else-if="statusDrafts[row.rowKey] === 'skipped'" @submit.prevent="save(row)">
-              <p class="mt-2 text-sm text-amber-100">Borrador: marcar como omitido.</p>
-              <p v-if="errors[row.rowKey]" class="mt-2 text-sm text-rose-200" role="alert">
+            <form v-else-if="statusDrafts[row.rowKey] === 'skipped'" class="mt-2" @submit.prevent="save(row)">
+              <p class="text-xs text-[var(--trakia-warning)]">Borrador: omitir ejercicio.</p>
+              <p v-if="errors[row.rowKey]" class="mt-1 text-sm text-[var(--trakia-danger)]" role="alert">
                 {{ errors[row.rowKey] }}
               </p>
-              <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="mt-2 grid grid-cols-2 gap-2">
                 <button
-                  class="min-h-11 rounded-md bg-lime-300 px-3 text-sm font-bold text-stone-950 hover:bg-lime-200 disabled:opacity-50"
+                  class="min-h-11 rounded-lg bg-[var(--trakia-save-action)] px-3 text-sm font-semibold text-[var(--trakia-text)] hover:bg-[var(--trakia-save-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:opacity-50"
                   type="submit"
                   :disabled="savingKey === row.rowKey || !online"
                 >
                   {{ savingKey === row.rowKey ? 'Guardando…' : 'Confirmar omisión' }}
                 </button>
                 <button
-                  class="min-h-11 rounded-md border border-white/20 px-3 text-sm font-semibold text-stone-200 disabled:opacity-50"
+                  class="min-h-11 rounded-lg border border-[var(--trakia-border)] px-3 text-sm font-semibold text-[var(--trakia-text)] hover:bg-[var(--trakia-surface-raised)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:opacity-50"
                   type="button"
                   :disabled="savingKey === row.rowKey"
                   @click="discardDraft(row)"
@@ -379,15 +401,5 @@ function parseDraftValue(field: keyof ActualMetrics, value: string) {
         </ul>
       </li>
     </ol>
-    <p v-else class="mt-3 text-sm text-stone-400">No hay rondas completas que registrar.</p>
-    <p v-if="hasUnresolvedRounds" class="mt-4 text-sm text-amber-100" role="status">
-      Confirma cada ejercicio de las rondas completas o márcalo como omitido antes de cerrar.
-    </p>
-    <p v-else-if="hasEditedDrafts" class="mt-4 text-sm text-amber-100" role="status">
-      Guarda o descarta los borradores antes de cerrar el entrenamiento.
-    </p>
-    <p v-if="!online" class="mt-3 text-sm text-amber-100" role="status">
-      Conéctate para confirmar resultados. Las métricas guardadas se recuperan desde PostgreSQL.
-    </p>
   </section>
 </template>

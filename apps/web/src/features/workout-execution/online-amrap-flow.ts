@@ -14,11 +14,11 @@ import {
   type WorkoutExecutionResultResponse,
 } from '@trakia/contracts'
 
-export function onlineAmrapExecutionLocation(executionId: string, requestId?: string) {
+export function onlineAmrapExecutionLocation(executionId: string, requestId?: string, blockKey?: string) {
   return {
     name: 'workout-execution',
     params: { executionId },
-    query: { flow: 'online-amrap', ...(requestId ? { requestId } : {}) },
+    query: { flow: 'online-amrap', ...(requestId ? { requestId } : {}), ...(blockKey ? { blockKey } : {}) },
   } as const
 }
 
@@ -39,6 +39,7 @@ export function createOnlineAmrapFlow(
     createResultId?: () => string
   },
   requestId?: string,
+  blockKey?: string,
 ) {
   const execution = shallowRef<WorkoutExecution | null>(null)
   const isLoading = ref(true)
@@ -60,7 +61,9 @@ export function createOnlineAmrapFlow(
     () =>
       execution.value?.snapshot.session.blocks.find(
         (candidate): candidate is Extract<typeof candidate, { type: 'circuit'; mode: 'amrap' }> =>
-          candidate.type === 'circuit' && candidate.mode === 'amrap',
+          candidate.type === 'circuit' &&
+          candidate.mode === 'amrap' &&
+          (!blockKey || candidate.key === blockKey),
       ) ?? null,
   )
   const amrap = computed(() => {

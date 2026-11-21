@@ -14,28 +14,38 @@ const isOnlineIntervalsFlow = computed(() => route.query.flow === 'online-interv
 const isOnlineAmrapFlow = computed(() => route.query.flow === 'online-amrap')
 const executionId = computed(() => String(route.params.executionId ?? ''))
 const requestId = computed(() => String(route.query.requestId ?? ''))
+const blockKey = computed(() => String(route.query.blockKey ?? ''))
+const flowKey = computed(() => `${String(route.query.flow ?? 'standard')}:${blockKey.value}`)
 </script>
 
 <template>
   <OnlineStrengthExecutionView
     v-if="isOnlineStrengthFlow"
+    :key="flowKey"
     :execution-id="executionId"
     :request-id="requestId"
+    :block-key="blockKey"
   />
   <OnlineCircuitExecutionView
     v-else-if="isOnlineCircuitFlow"
+    :key="flowKey"
     :execution-id="executionId"
     :request-id="requestId"
+    :block-key="blockKey"
   />
   <OnlineIntervalExecutionView
     v-else-if="isOnlineIntervalsFlow"
+    :key="flowKey"
     :execution-id="executionId"
     :request-id="requestId"
+    :block-key="blockKey"
   />
   <OnlineAmrapExecutionView
     v-else-if="isOnlineAmrapFlow"
+    :key="flowKey"
     :execution-id="executionId"
     :request-id="requestId"
+    :block-key="blockKey"
   />
   <WorkoutExecutionView v-else />
 </template>

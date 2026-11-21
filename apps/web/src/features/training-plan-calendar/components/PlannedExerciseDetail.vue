@@ -105,7 +105,12 @@ function targetLabel(target: { metric: Metric; label: string; value: string }) {
 
 function toneClass(metric: Metric) {
   return (
-    metricPillColorClass(metric) ?? (metric === 'duration' ? 'exercise-pill--time' : 'exercise-pill--neutral')
+    metricPillColorClass(metric) ??
+    (metric === 'duration'
+      ? 'exercise-pill--time'
+      : metric === 'distance'
+        ? 'exercise-pill--distance'
+        : 'exercise-pill--neutral')
   )
 }
 
@@ -121,7 +126,9 @@ function unitName(index: number) {
         {{ displayName(appearance.exercise) }}
       </component>
       <ul v-if="mainTargets.values.length || setCount" class="exercise-row__pills" aria-label="Objetivos">
-        <li v-if="setCount" class="exercise-pill exercise-pill--neutral">{{ setCount }} series</li>
+        <li v-if="setCount" class="exercise-pill exercise-pill--sets">
+          {{ setCount }} {{ setCount === 1 ? 'serie' : 'series' }}
+        </li>
         <li
           v-for="target in mainTargets.values"
           :key="target.metric"
@@ -274,6 +281,12 @@ function unitName(index: number) {
 .exercise-pill--time {
   background: color-mix(in srgb, var(--trakia-warning) 18%, var(--trakia-surface-raised));
   color: var(--trakia-warning);
+}
+
+.exercise-pill--sets,
+.exercise-pill--distance {
+  background: color-mix(in srgb, var(--trakia-info) 18%, var(--trakia-surface-raised));
+  color: var(--trakia-info);
 }
 
 .exercise-pill--neutral {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useQueryClient } from '@tanstack/vue-query'
 import type { CircuitResult } from '@trakia/contracts'
 import {
@@ -15,13 +15,17 @@ import {
 import AmrapPartialRoundForm from '../components/AmrapPartialRoundForm.vue'
 import AmrapResultMetricsReview from '../components/AmrapResultMetricsReview.vue'
 import WorkoutExecutionSummary from '../components/WorkoutExecutionSummary.vue'
+import { metricPillColorClass } from '../../../shared/utils/metric-pill-presentation'
 import { invalidateTrainingPlanExecutionQueries } from '../execution-query-invalidation'
-import { calculateAmrapRoundTimings } from '../amrap-round-timing.js'
-import { formatDuration } from '../execution-summary.js'
 import { createOnlineAmrapFlow } from '../online-amrap-flow'
+import {
+  firstIncompleteOnlineExecutionBlock,
+  onlineExecutionBlockLocation,
+} from '../online-execution-block-routing'
 
-const props = defineProps<{ executionId: string; requestId?: string }>()
+const props = defineProps<{ executionId: string; requestId?: string; blockKey?: string }>()
 const route = useRoute()
+const router = useRouter()
 const sessionName = typeof route.query.sessionName === 'string' ? route.query.sessionName : 'Entrenamiento'
 const queryClient = useQueryClient()
 const flow = createOnlineAmrapFlow(
@@ -37,7 +41,22 @@ const flow = createOnlineAmrapFlow(
     onExecutionChanged: () => void invalidateTrainingPlanExecutionQueries(queryClient),
   },
   props.requestId,
+  props.blockKey,
 )
+const nextBlock = computed(() => {
+  const execution = flow.execution.value
+  if (!execution) return null
+  const next = firstIncompleteOnlineExecutionBlock(execution)
+  return next?.key !== props.blockKey ? next : null
+})
+
+async function continueToNextBlock() {
+  const execution = flow.execution.value
+  if (execution && nextBlock.value)
+    await router.replace(
+      onlineExecutionBlockLocation(execution, nextBlock.value, props.requestId, sessionName),
+    )
+}
 let displayInterval: number | undefined
 
 function updateOnline() {
@@ -55,23 +74,31 @@ function updatePartialResult(result: CircuitResult) {
   void invalidateTrainingPlanExecutionQueries(queryClient)
 }
 
-const roundTimings = computed(() => {
-  const execution = flow.execution.value
-  const amrap = flow.amrap.value
-  return execution && amrap ? calculateAmrapRoundTimings(amrap, execution.pauses) : []
-})
+const finishedRoundCount = computed(() => flow.amrap.value?.rounds.length ?? 0)
+const finishedActiveSeconds = computed(() => flow.amrap.value?.activeSeconds)
 
 function formatTarget(value: number | undefined, metric: string) {
   if (value === undefined) return null
+  if (metric === 'rpe') return `RPE ${value}`
   const units: Record<string, string> = {
     reps: 'reps',
     weight: 'kg',
     duration: 's',
     distance: 'm',
     calories: 'kcal',
-    rpe: 'RPE',
   }
   return `${value} ${units[metric] ?? metric}`
+}
+
+function targetToneClass(metric: string) {
+  return (
+    metricPillColorClass(metric) ??
+    (metric === 'duration'
+      ? 'amrap-target-pill--time'
+      : metric === 'distance'
+        ? 'amrap-target-pill--distance'
+        : '')
+  )
 }
 
 onMounted(() => {
@@ -94,7 +121,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="min-h-dvh bg-[#10110f] px-4 py-6 text-stone-100 sm:px-8 sm:py-10">
+  <main class="min-h-dvh bg-[var(--trakia-background)] px-4 py-6 text-[var(--trakia-text)] sm:px-8 sm:py-10">
     <div class="mx-auto max-w-md">
       <p
         v-if="flow.isLoading.value"
@@ -107,21 +134,33 @@ onBeforeUnmount(() => {
 
       <section
         v-else-if="flow.execution.value && flow.block.value && !flow.isClosed.value"
-        class="space-y-7 pt-2"
+        :class="flow.isRunning.value || flow.isFinished.value ? 'space-y-4 pt-1' : 'space-y-7 pt-2'"
       >
-        <header class="text-center">
-          <h1 class="text-2xl font-semibold tracking-tight">AMRAP</h1>
-          <p class="mt-2 text-sm text-stone-300">
+        <header v-if="!flow.isFinished.value" class="text-center">
+          <h1
+            class="font-semibold"
+            :class="
+              flow.isRunning.value
+                ? 'text-sm tracking-[0.12em] text-[var(--trakia-muted)]'
+                : 'text-2xl tracking-tight'
+            "
+          >
+            AMRAP
+          </h1>
+          <p v-if="!flow.isRunning.value" class="mt-2 text-sm text-[var(--trakia-muted)]">
             {{ flow.block.value.maxDurationSeconds }} segundos · tantas rondas como puedas
           </p>
         </header>
 
         <section v-if="flow.isRunning.value" class="text-center" aria-label="Tiempo restante del AMRAP">
-          <p class="text-sm font-semibold tracking-[0.12em] text-lime-200">
+          <p
+            class="text-xs font-semibold tracking-[0.12em]"
+            :class="flow.isPaused.value ? 'text-[var(--trakia-warning)]' : 'text-[var(--trakia-muted)]'"
+          >
             {{ flow.isPaused.value ? 'PAUSADO' : 'TIEMPO RESTANTE' }}
           </p>
           <p
-            class="mt-3 font-mono text-7xl font-semibold leading-none tabular-nums tracking-[-0.04em] text-lime-200 sm:text-8xl"
+            class="mt-2 font-mono text-7xl font-semibold leading-none tabular-nums tracking-[-0.04em] text-[var(--trakia-text)] sm:text-8xl"
             role="timer"
             aria-label="Cuenta atrás"
             aria-live="off"
@@ -129,7 +168,7 @@ onBeforeUnmount(() => {
             {{ flow.timerDisplay.value }}
           </p>
           <p
-            class="mt-5 text-lg font-semibold tabular-nums"
+            class="mt-2 text-sm font-semibold tabular-nums text-[var(--trakia-text-strong)]"
             role="status"
             aria-live="polite"
             aria-atomic="true"
@@ -138,24 +177,62 @@ onBeforeUnmount(() => {
           </p>
         </section>
 
-        <section aria-labelledby="amrap-round-title">
-          <h2 id="amrap-round-title" class="text-lg font-semibold">Ejercicios de cada ronda</h2>
-          <ol class="mt-3 divide-y divide-white/10">
+        <section
+          v-if="!flow.isFinished.value"
+          :aria-label="flow.isRunning.value ? 'Ejercicios de la ronda' : undefined"
+          :aria-labelledby="!flow.isRunning.value ? 'amrap-round-title' : undefined"
+        >
+          <h2 v-if="!flow.isRunning.value" id="amrap-round-title" class="text-lg font-semibold">
+            Ejercicios de cada ronda
+          </h2>
+          <ol :class="flow.isRunning.value ? 'grid gap-2' : 'mt-3 divide-y divide-white/10'">
             <li
               v-for="(entry, index) in flow.entries.value"
               :key="entry.appearance.key"
-              class="flex gap-4 py-3"
+              class="flex"
+              :class="flow.isRunning.value ? 'flex-wrap items-center gap-x-2 gap-y-1 py-1' : 'gap-4 py-3'"
             >
-              <span class="pt-0.5 font-mono text-sm tabular-nums text-stone-400">{{ index + 1 }}</span>
-              <div class="min-w-0 flex-1">
-                <h3 class="break-words font-medium text-stone-100">{{ entry.exercise.name }}</h3>
-                <p class="mt-1 text-sm leading-6 text-stone-300">
-                  <template v-if="Object.keys(entry.targets).length">
-                    <span v-for="(target, metric) in entry.targets" :key="metric" class="mr-3">
-                      {{ formatTarget(target, metric) }}
-                    </span>
-                  </template>
-                  <span v-else>Sin objetivo</span>
+              <span class="pt-0.5 font-mono text-sm tabular-nums text-[var(--trakia-muted-subtle)]">{{
+                index + 1
+              }}</span>
+              <div
+                class="min-w-0"
+                :class="
+                  flow.isRunning.value
+                    ? 'flex flex-[1_1_12rem] flex-wrap items-center gap-x-2 gap-y-1'
+                    : 'flex-1'
+                "
+              >
+                <h3
+                  class="break-words font-medium text-[var(--trakia-text)]"
+                  :class="flow.isRunning.value ? 'min-w-0 flex-[1_1_10rem]' : ''"
+                >
+                  {{ entry.exercise.name }}
+                </h3>
+                <ul
+                  v-if="Object.keys(entry.targets).length"
+                  class="flex flex-wrap"
+                  :class="flow.isRunning.value ? 'mt-0 flex-[0_1_auto] gap-1.5' : 'mt-2 gap-2'"
+                  :aria-label="`Objetivos de ${entry.exercise.name}`"
+                >
+                  <li
+                    v-for="(target, metric) in entry.targets"
+                    :key="metric"
+                    class="inline-flex max-w-full items-center rounded-full border border-[var(--trakia-border)] bg-[var(--trakia-surface-raised)] font-medium leading-tight text-[var(--trakia-text)]"
+                    :class="[
+                      flow.isRunning.value ? 'min-h-8 px-2.5 py-1 text-xs' : 'min-h-9 px-3 py-1 text-sm',
+                      targetToneClass(metric),
+                    ]"
+                  >
+                    {{ formatTarget(target, metric) }}
+                  </li>
+                </ul>
+                <p
+                  v-else
+                  class="text-sm leading-6 text-[var(--trakia-muted)]"
+                  :class="flow.isRunning.value ? '' : 'mt-1'"
+                >
+                  Sin objetivo
                 </p>
               </div>
             </li>
@@ -168,7 +245,17 @@ onBeforeUnmount(() => {
 
         <template v-if="!flow.amrap.value">
           <button
-            class="inline-flex min-h-16 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-lg font-bold text-stone-950 transition hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+            v-if="nextBlock"
+            class="inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[var(--trakia-accent-action)] px-5 py-4 text-base font-semibold text-[var(--trakia-accent-action-foreground)] transition-colors hover:bg-[var(--trakia-accent-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            :disabled="!flow.canClose.value || flow.isClosing.value || !flow.isOnline.value"
+            @click="continueToNextBlock"
+          >
+            Continuar al siguiente bloque
+          </button>
+          <button
+            v-else
+            class="inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[var(--trakia-accent-action)] px-5 py-4 text-base font-semibold text-[var(--trakia-accent-action-foreground)] transition-colors hover:bg-[var(--trakia-accent-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="!flow.canStart.value"
             @click="flow.start"
@@ -178,7 +265,7 @@ onBeforeUnmount(() => {
         </template>
         <template v-else-if="flow.isRunning.value && flow.isPaused.value">
           <button
-            class="inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 disabled:opacity-60"
+            class="inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[#C81F19] px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-[#A91B16] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#FE514A] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="flow.isPausing.value || !flow.isOnline.value"
             @click="flow.resume"
@@ -186,7 +273,7 @@ onBeforeUnmount(() => {
             {{ flow.isPausing.value ? 'Reanudando…' : 'Reanudar' }}
           </button>
           <button
-            class="min-h-12 w-full rounded-md border border-white/25 px-5 py-3 text-sm font-semibold text-stone-200 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-200 disabled:opacity-60"
+            class="min-h-11 w-full rounded-lg border border-[var(--trakia-border)] bg-[var(--trakia-surface-raised)] px-5 py-2 text-sm font-medium text-[var(--trakia-text)] transition-colors hover:border-[var(--trakia-muted-subtle)] hover:bg-[var(--trakia-surface)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="!flow.canFinish.value"
             @click="flow.finish"
@@ -195,24 +282,26 @@ onBeforeUnmount(() => {
           </button>
         </template>
         <template v-else-if="flow.isRunning.value">
+          <div class="grid gap-3">
+            <button
+              class="inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[#C81F19] px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-[#A91B16] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#FE514A] disabled:cursor-not-allowed disabled:opacity-60"
+              type="button"
+              :disabled="!flow.canCompleteRound.value"
+              @click="flow.completeRound"
+            >
+              {{ flow.isBusy.value ? 'Confirmando ronda…' : 'Ronda completada' }}
+            </button>
+            <button
+              class="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-[var(--trakia-border)] bg-[var(--trakia-surface-raised)] px-5 py-2 text-sm font-medium text-[var(--trakia-text)] transition-colors hover:border-[var(--trakia-muted-subtle)] hover:bg-[var(--trakia-surface)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-60"
+              type="button"
+              :disabled="flow.isPausing.value || !flow.isOnline.value"
+              @click="flow.pause"
+            >
+              {{ flow.isPausing.value ? 'Pausando…' : 'Pausar' }}
+            </button>
+          </div>
           <button
-            class="inline-flex min-h-16 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-lg font-bold text-stone-950 transition hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
-            type="button"
-            :disabled="!flow.canCompleteRound.value"
-            @click="flow.completeRound"
-          >
-            {{ flow.isBusy.value ? 'Confirmando ronda…' : 'Ronda completada' }}
-          </button>
-          <button
-            class="min-h-12 w-full rounded-md border border-white/25 px-5 py-3 text-sm font-semibold text-stone-200 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-200 disabled:opacity-60"
-            type="button"
-            :disabled="flow.isPausing.value || !flow.isOnline.value"
-            @click="flow.pause"
-          >
-            {{ flow.isPausing.value ? 'Pausando…' : 'Pausar' }}
-          </button>
-          <button
-            class="min-h-11 w-full rounded-md px-5 py-2 text-sm font-medium text-stone-300 underline decoration-white/25 underline-offset-4 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-200 disabled:opacity-60"
+            class="min-h-11 w-full rounded-lg px-5 py-2 text-sm font-medium text-[var(--trakia-muted)] underline decoration-white/25 underline-offset-4 hover:text-[var(--trakia-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:opacity-60"
             type="button"
             :disabled="!flow.canFinish.value"
             @click="flow.finish"
@@ -221,37 +310,18 @@ onBeforeUnmount(() => {
           </button>
         </template>
         <section v-else class="text-center">
-          <h2 class="text-2xl font-semibold text-lime-200">
-            {{ flow.isExpired.value ? 'Tiempo agotado' : 'AMRAP terminado' }}
-          </h2>
-          <p class="mt-2 text-sm text-stone-300">
-            {{ flow.amrap.value?.rounds.length ?? 0 }} rondas completas ·
-            {{ flow.amrap.value?.activeSeconds ?? 0 }} s efectivos
-          </p>
-          <p class="mt-1 text-sm text-stone-400">
-            {{ flow.isExpired.value ? 'Se alcanzó el límite de tiempo.' : 'Terminación anticipada.' }}
+          <h1 class="text-xl font-semibold text-[var(--trakia-text)]">
+            {{ flow.isExpired.value ? 'Tiempo agotado' : 'AMRAP finalizado' }}
+          </h1>
+          <p class="mt-1 text-sm font-medium tabular-nums text-[var(--trakia-text-strong)]">
+            {{ finishedRoundCount }} {{ finishedRoundCount === 1 ? 'ronda completa' : 'rondas completas' }}
+            <template v-if="finishedActiveSeconds !== undefined">
+              · {{ finishedActiveSeconds }} s efectivos
+            </template>
           </p>
         </section>
 
         <template v-if="flow.isFinished.value && flow.amrap.value">
-          <section class="border-t border-white/10 pt-6" aria-labelledby="amrap-rounds-title">
-            <h2 id="amrap-rounds-title" class="text-lg font-semibold">Rondas completas registradas</h2>
-            <ol v-if="flow.amrap.value.rounds.length" class="mt-3 divide-y divide-white/10">
-              <li
-                v-for="timing in roundTimings"
-                :key="timing.roundIndex"
-                class="flex flex-col gap-1 py-3 text-sm sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
-              >
-                <span class="font-medium">Ronda {{ timing.roundIndex }}</span>
-                <span class="tabular-nums text-stone-300">
-                  {{ formatDuration(timing.durationSeconds) }} de ronda ·
-                  {{ formatDuration(timing.accumulatedSeconds) }} acumulados
-                </span>
-              </li>
-            </ol>
-            <p v-else class="mt-2 text-sm text-stone-400">No se completaron rondas enteras.</p>
-          </section>
-
           <AmrapResultMetricsReview
             :execution="flow.execution.value"
             :block-key="flow.block.value.key"
@@ -272,7 +342,7 @@ onBeforeUnmount(() => {
             {{ flow.partialError.value }}
           </p>
           <button
-            class="mt-4 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:cursor-not-allowed disabled:opacity-60"
+            class="inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[var(--trakia-accent-action)] px-5 py-4 text-base font-semibold text-[var(--trakia-accent-action-foreground)] transition-colors hover:bg-[var(--trakia-accent-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="!flow.canClose.value || flow.isClosing.value || !flow.isOnline.value"
             @click="flow.close"
@@ -295,3 +365,15 @@ onBeforeUnmount(() => {
     </div>
   </main>
 </template>
+
+<style scoped>
+.amrap-target-pill--time {
+  background: color-mix(in srgb, var(--trakia-warning) 18%, var(--trakia-surface-raised));
+  color: var(--trakia-warning);
+}
+
+.amrap-target-pill--distance {
+  background: color-mix(in srgb, var(--trakia-info) 18%, var(--trakia-surface-raised));
+  color: var(--trakia-info);
+}
+</style>

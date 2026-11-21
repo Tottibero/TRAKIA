@@ -474,7 +474,7 @@ export class WorkoutExecutionStartService {
       })
       if (!record) throw new WorkoutExecutionSessionNotFoundError()
       if (record.status !== 'in_progress') throw new WorkoutExecutionClosedError()
-      if (!isNextOnlineStrengthUnit(record.snapshot, record.results ?? [], input))
+      if (!isNextOnlineSetUnit(record.snapshot, record.results ?? [], input))
         throw new WorkoutExecutionResultInvalidError()
 
       if (record.activeTimer?.kind === 'work') {
@@ -846,7 +846,7 @@ export class WorkoutExecutionStartService {
 
       const result = input.result
       if (result.activeSeconds !== undefined) throw new WorkoutExecutionResultInvalidError()
-      const isStrengthSet = isOnlineStrengthSet(record.snapshot, result)
+      const isOnlineSet = isOnlinePlannedSet(record.snapshot, result)
       const isCircuitResult = isOnlineCircuitResult(
         record.snapshot,
         record.circuitRounds ?? [],
@@ -854,7 +854,7 @@ export class WorkoutExecutionStartService {
         record.amrap,
         result,
       )
-      if (!isStrengthSet && !isCircuitResult) throw new WorkoutExecutionResultInvalidError()
+      if (!isOnlineSet && !isCircuitResult) throw new WorkoutExecutionResultInvalidError()
       const results = record.results ?? []
       const existing = results.find((candidate) => candidate.id === result.id)
       if (existing) {
@@ -885,7 +885,7 @@ export class WorkoutExecutionStartService {
 
       let confirmedResult: WorkoutResult = result
       let finishedAt: Date | null = null
-      const completedWithWorkTimer = isStrengthSet && record.activeTimer?.kind === 'work'
+      const completedWithWorkTimer = isOnlineSet && record.activeTimer?.kind === 'work'
       if (record.activeTimer?.kind === 'work') {
         if (!sameWorkTimerResult(record.activeTimer, result)) throw new WorkoutExecutionResultConflictError()
         if (result.actualMetrics !== undefined) throw new WorkoutExecutionResultInvalidError()
@@ -1336,15 +1336,19 @@ function collectExerciseKeys(session: PlannedSession): string[] {
   return [...keys].sort()
 }
 
-function isOnlineStrengthSet(snapshot: WorkoutExecutionSnapshot | null, result: WorkoutResult): boolean {
+function isOnlinePlannedSet(snapshot: WorkoutExecutionSnapshot | null, result: WorkoutResult): boolean {
   if (!snapshot || result.type !== 'sets' || result.status !== 'performed' || result.unit.kind !== 'planned')
     return false
   const block = snapshot.session.blocks.find(({ key }) => key === result.blockKey)
   if (block?.type !== 'sets') return false
   const planned = block.exercises.find(({ key }) => key === result.plannedExerciseKey)
   if (!planned || planned.sets < result.unit.setIndex) return false
-  return snapshot.exercises.some(
-    ({ key, category }) => key === result.actualExerciseKey && category === 'strength',
+  const actualExerciseKey = result.actualExerciseKey
+  if (!actualExerciseKey) return false
+  return (
+    [planned.exerciseKey, ...(planned.alternatives ?? []).map(({ exerciseKey }) => exerciseKey)].includes(
+      actualExerciseKey,
+    ) && snapshot.exercises.some(({ key }) => key === result.actualExerciseKey)
   )
 }
 
@@ -1410,22 +1414,12 @@ function sameAmrapResultIdentity(existing: WorkoutResult, incoming: WorkoutResul
   )
 }
 
-function isNextOnlineStrengthUnit(
+function isNextOnlineSetUnit(
   snapshot: WorkoutExecutionSnapshot | null,
   results: WorkoutResult[],
   input: WorkoutExecutionWorkTimerStartRequest,
 ): boolean {
   if (!snapshot || input.unit.kind !== 'planned') return false
-  const allBlocksAreStrengthSets = snapshot.session.blocks.every(
-    (block) =>
-      block.type === 'sets' &&
-      block.exercises.every((appearance) =>
-        snapshot.exercises.some(
-          ({ key, category }) => key === appearance.exerciseKey && category === 'strength',
-        ),
-      ),
-  )
-  if (!allBlocksAreStrengthSets) return false
 
   const units = snapshot.session.blocks.flatMap((block) =>
     block.type === 'sets'

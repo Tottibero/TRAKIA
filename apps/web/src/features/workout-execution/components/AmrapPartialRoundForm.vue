@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, watch } from 'vue'
 import type { ActualMetrics, WorkoutExecution } from '@trakia/contracts'
 import { resolveExerciseTargets } from '@trakia/contracts'
+import { metricPillColorClass } from '../../../shared/utils/metric-pill-presentation'
 import { actualMetricInputConstraints } from '../metric-input-constraints'
 
 type PartialExercise = { appearanceKey: string; actualMetrics?: ActualMetrics }
@@ -29,6 +30,18 @@ const metricDefinitions = {
   calories: { key: 'calories', label: 'Calorías', unit: 'kcal' },
 } as const
 
+function formatTarget(value: number, metric: string) {
+  if (metric === 'rpe') return `RPE ${value}`
+  const units: Record<string, string> = {
+    reps: 'reps',
+    weight: 'kg',
+    duration: 's',
+    distance: 'm',
+    calories: 'kcal',
+  }
+  return `${value} ${units[metric] ?? metric}`
+}
+
 const block = computed(() =>
   props.execution.snapshot.session.blocks.find(
     (candidate) =>
@@ -39,6 +52,7 @@ const rows = computed(() => {
   if (block.value?.type !== 'circuit' || block.value.mode !== 'amrap') return []
   return block.value.exercises.map((appearance) => {
     const exercise = props.execution.snapshot.exercises.find(({ key }) => key === appearance.exerciseKey)!
+    const targets = resolveExerciseTargets(appearance, exercise.supportedMetrics)
     const result = props.execution.results.find(
       (candidate) =>
         candidate.type === 'circuit' &&
@@ -51,12 +65,10 @@ const rows = computed(() => {
       appearance,
       exercise,
       result,
-      targets: resolveExerciseTargets(appearance, exercise.supportedMetrics),
+      targets,
       fields: exercise.supportedMetrics.flatMap((metric) => {
         const definition = metricDefinitions[metric]
-        return definition
-          ? [{ ...definition, target: resolveExerciseTargets(appearance, exercise.supportedMetrics)[metric] }]
-          : []
+        return definition ? [definition] : []
       }),
     }
   })
@@ -64,6 +76,7 @@ const rows = computed(() => {
 const hasPending = computed(() =>
   rows.value.some(({ appearance, result }) => selected[appearance.key] && !result),
 )
+const hasSavedPartial = computed(() => rows.value.some(({ result }) => Boolean(result)))
 
 watch(
   rows,
@@ -131,53 +144,54 @@ function inputValue(row: (typeof rows.value)[number], field: (typeof row.fields)
 </script>
 
 <template>
-  <form class="mt-8 border-t border-white/10 pt-6" @submit.prevent="submit">
-    <h2 class="text-lg font-semibold text-stone-100">Última ronda parcial</h2>
-    <p class="mt-1 text-sm leading-6 text-stone-300">
-      Marca los ejercicios que alcanzaste. Las métricas son opcionales y puedes completarlas después.
-    </p>
-    <ul class="mt-4 divide-y divide-white/10">
-      <li v-for="row in rows" :key="row.appearance.key" class="py-4 first:pt-2">
+  <form class="space-y-3" @submit.prevent="submit">
+    <h2 class="text-base font-semibold text-[var(--trakia-text)]">Última ronda parcial</h2>
+    <ul class="grid gap-2">
+      <li v-for="row in rows" :key="row.appearance.key" class="min-w-0 py-1">
         <label
-          class="flex min-h-11 cursor-pointer items-start gap-3 py-2 text-base font-semibold text-stone-100"
+          class="flex min-h-11 cursor-pointer items-start gap-3 py-1 text-base font-semibold text-[var(--trakia-text)]"
         >
           <input
-            class="mt-1 size-5 accent-lime-300"
+            class="mt-1 size-5 shrink-0"
             type="checkbox"
             :checked="Boolean(selected[row.appearance.key])"
             :disabled="Boolean(row.result) || saving || !online"
             @change="toggle(row.appearance.key, ($event.target as HTMLInputElement).checked)"
           />
-          <span>{{ row.exercise.name }}</span>
-          <span v-if="row.result" class="ml-auto text-sm font-normal text-lime-200">Guardado</span>
+          <span class="min-w-0 flex-1 break-words">{{ row.exercise.name }}</span>
+          <span v-if="row.result" class="shrink-0 text-sm font-medium text-[var(--trakia-success)]"
+            >Guardado</span
+          >
         </label>
-        <p class="ml-8 text-sm text-stone-400">
-          <span v-for="(target, metric) in row.targets" :key="metric" class="mr-3">
-            Objetivo: {{ target }} {{ metric }}
-          </span>
-          <span v-if="Object.keys(row.targets).length === 0">Sin objetivos</span>
-        </p>
+        <ul
+          v-if="Object.keys(row.targets).length"
+          class="ml-8 flex max-w-full flex-wrap gap-1.5"
+          :aria-label="`Objetivos de ${row.exercise.name}`"
+        >
+          <template v-for="(target, metric) in row.targets" :key="metric">
+            <li
+              v-if="target !== undefined"
+              class="inline-flex min-h-8 max-w-full items-center rounded-full border border-[var(--trakia-border)] bg-[var(--trakia-surface-raised)] px-2.5 py-1 text-xs font-medium leading-tight text-[var(--trakia-text-strong)]"
+              :class="metricPillColorClass(metric)"
+            >
+              {{ formatTarget(target, metric) }}
+            </li>
+          </template>
+        </ul>
         <div
           v-if="selected[row.appearance.key] && !row.result && row.fields.length"
-          class="ml-8 mt-3 grid grid-cols-2 gap-3"
+          class="ml-8 mt-2 grid grid-cols-2 gap-2"
         >
           <div v-for="field in row.fields" :key="field.key" class="min-w-0">
             <label
-              class="block text-sm font-medium text-stone-200"
+              class="block break-words text-sm font-medium text-[var(--trakia-text-strong)]"
               :for="`amrap-partial-${row.appearance.key}-${field.key}`"
             >
               {{ field.label }}<span v-if="field.unit"> ({{ field.unit }})</span>
             </label>
-            <p class="mt-1 min-h-4 text-xs text-stone-400">
-              {{
-                field.target === undefined
-                  ? 'Sin objetivo'
-                  : `Objetivo: ${field.target}${field.unit ? ` ${field.unit}` : ''}`
-              }}
-            </p>
             <input
               :id="`amrap-partial-${row.appearance.key}-${field.key}`"
-              class="mt-1 min-h-11 w-full rounded-md border border-white/20 bg-[#191a17] px-3 text-base text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:opacity-60"
+              class="mt-1 min-h-11 w-full min-w-0 rounded-lg border border-[var(--trakia-border)] bg-[var(--trakia-surface)] px-3 text-base text-[var(--trakia-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:opacity-60"
               type="number"
               v-bind="actualMetricInputConstraints(field.key, { allowZeroReps: true })"
               inputmode="decimal"
@@ -189,18 +203,19 @@ function inputValue(row: (typeof rows.value)[number], field: (typeof row.fields)
         </div>
       </li>
     </ul>
-    <p v-if="error.message" class="mt-3 text-sm text-rose-200" role="alert">{{ error.message }}</p>
+    <p v-if="error.message" class="text-sm text-[var(--trakia-danger)]" role="alert">{{ error.message }}</p>
+    <p
+      v-if="hasSavedPartial && !hasPending"
+      class="inline-flex min-h-14 w-full items-center justify-center rounded-lg border border-[var(--trakia-success)]/40 bg-[var(--trakia-surface-raised)] px-5 py-4 text-base font-semibold text-[var(--trakia-success)]"
+      role="status"
+    >
+      Ronda parcial guardada
+    </p>
     <button
-      class="mt-4 min-h-12 w-full rounded-md border border-white/25 px-4 py-3 text-base font-semibold text-stone-100 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 disabled:cursor-not-allowed disabled:opacity-50"
+      v-else
+      class="inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[var(--trakia-save-action)] px-5 py-4 text-base font-semibold text-[var(--trakia-text)] transition-colors hover:bg-[var(--trakia-save-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-50"
       type="submit"
-      :disabled="
-        saving ||
-        !online ||
-        !rows.some(
-          ({ appearance }) =>
-            selected[appearance.key] && !rows.find((row) => row.appearance.key === appearance.key)?.result,
-        )
-      "
+      :disabled="saving || !online || !hasPending"
     >
       {{ saving ? 'Guardando ronda parcial…' : 'Guardar ronda parcial' }}
     </button>

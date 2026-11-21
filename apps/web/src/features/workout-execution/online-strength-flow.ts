@@ -52,11 +52,15 @@ type OnlineStrengthUnit = PlannedSetUnit & {
   exercise: WorkoutExecution['snapshot']['exercises'][number]
 }
 
-export function onlineStrengthExecutionLocation(executionId: string, requestId?: string) {
+export function onlineStrengthExecutionLocation(executionId: string, requestId?: string, blockKey?: string) {
   return {
     name: 'workout-execution',
     params: { executionId },
-    query: { flow: 'online-strength', ...(requestId ? { requestId } : {}) },
+    query: {
+      flow: 'online-strength',
+      ...(requestId ? { requestId } : {}),
+      ...(blockKey ? { blockKey } : {}),
+    },
   } as const
 }
 
@@ -91,6 +95,7 @@ export function createOnlineStrengthFlow(
     createResultId?: () => string
   },
   requestId?: string,
+  blockKey?: string,
 ) {
   const execution = shallowRef<WorkoutExecution | null>(null)
   const currentUnit = shallowRef<OnlineStrengthUnit | null>(null)
@@ -115,7 +120,9 @@ export function createOnlineStrengthFlow(
   let pendingMetrics: WorkoutExecutionResultMetricsRequest | null = null
   let pendingClose: WorkoutExecutionCloseRequest | null = null
 
-  const strengthUnits = computed(() => (execution.value ? collectOnlineStrengthUnits(execution.value) : []))
+  const strengthUnits = computed(() =>
+    execution.value ? collectOnlineStrengthUnits(execution.value, blockKey) : [],
+  )
   const plannedUnit = computed(() => currentUnit.value)
   const plannedTargets = computed(() => (plannedUnit.value ? resolvePlannedTargets(plannedUnit.value) : []))
   const metricFields = computed(() => {
@@ -207,7 +214,8 @@ export function createOnlineStrengthFlow(
     () =>
       Boolean(confirmedResult.value?.actualMetrics) &&
       !isPaused.value &&
-      !activeTimer.value &&
+      (!activeTimer.value ||
+        (activeTimer.value.kind === 'rest' && isRestFinished.value && !nextUnit.value)) &&
       !isClosed.value &&
       isOnline.value &&
       !isContinuing.value &&
@@ -300,8 +308,7 @@ export function createOnlineStrengthFlow(
         throw new Error('No encontramos esta ejecución abierta en el servidor.')
       }
       const units = strengthUnits.value
-      if (!hasOnlySupportedStrengthUnits(execution.value, units))
-        throw new Error('Esta sesión no tiene un recorrido de fuerza compatible.')
+      if (units.length === 0) throw new Error('No se encontró una serie pendiente en este bloque.')
 
       if (activeTimer.value?.kind === 'work' || activeTimer.value?.kind === 'rest') {
         currentUnit.value = units.find((unit) => sameTimerUnit(activeTimer.value!, unit)) ?? null
@@ -605,32 +612,17 @@ function resolvePlannedTargets(unit: OnlineStrengthUnit): OnlineStrengthTarget[]
   }
 }
 
-function collectOnlineStrengthUnits(execution: WorkoutExecution): OnlineStrengthUnit[] {
+function collectOnlineStrengthUnits(execution: WorkoutExecution, blockKey?: string): OnlineStrengthUnit[] {
   const planned = collectPlannedUnits(execution)
   return planned.flatMap((unit) => {
+    if (blockKey && unit.blockKey !== blockKey) return []
     const block = execution.snapshot.session.blocks.find(
       (candidate) => candidate.type === 'sets' && candidate.key === unit.blockKey,
     )
     const exercise = execution.snapshot.exercises.find(({ key }) => key === unit.appearance.exerciseKey)
-    if (!block || block.type !== 'sets' || !exercise || exercise.category !== 'strength') return []
+    if (!block || block.type !== 'sets' || !exercise) return []
     return [{ ...unit, setIndex: unit.unit.setIndex, block, exercise }]
   })
-}
-
-function hasOnlySupportedStrengthUnits(execution: WorkoutExecution, units: OnlineStrengthUnit[]): boolean {
-  return (
-    execution.snapshot.session.blocks.length > 0 &&
-    execution.snapshot.session.blocks.every(
-      (block) =>
-        block.type === 'sets' &&
-        block.exercises.every((appearance) =>
-          execution.snapshot.exercises.some(
-            ({ key, category }) => key === appearance.exerciseKey && category === 'strength',
-          ),
-        ),
-    ) &&
-    units.length === collectPlannedUnits(execution).length
-  )
 }
 
 function resultForUnit(execution: WorkoutExecution, unit: PlannedSetUnit): WorkoutResult | undefined {

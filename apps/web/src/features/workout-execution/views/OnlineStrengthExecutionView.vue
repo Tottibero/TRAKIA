@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useRoute } from 'vue-router'
+import { useRouter } from 'vue-router'
 import type { ActualMetrics } from '@trakia/contracts'
 import { actualMetricInputConstraints } from '../metric-input-constraints.js'
 import {
@@ -18,9 +19,14 @@ import { invalidateTrainingPlanExecutionQueries } from '../execution-query-inval
 import WorkoutPlannedTargets from '../components/WorkoutPlannedTargets.vue'
 import WorkoutExecutionSummary from '../components/WorkoutExecutionSummary.vue'
 import { createOnlineStrengthFlow } from '../online-strength-flow'
+import {
+  firstIncompleteOnlineExecutionBlock,
+  onlineExecutionBlockLocation,
+} from '../online-execution-block-routing'
 
-const props = defineProps<{ executionId: string; requestId?: string }>()
+const props = defineProps<{ executionId: string; requestId?: string; blockKey?: string }>()
 const route = useRoute()
+const router = useRouter()
 const sessionName = typeof route.query.sessionName === 'string' ? route.query.sessionName : 'Entrenamiento'
 const queryClient = useQueryClient()
 const flow = createOnlineStrengthFlow(
@@ -39,7 +45,25 @@ const flow = createOnlineStrengthFlow(
     },
   },
   props.requestId,
+  props.blockKey,
 )
+const nextBlock = computed(() => {
+  const execution = flow.execution.value
+  if (!execution) return null
+  const next = firstIncompleteOnlineExecutionBlock(execution)
+  return next?.key !== props.blockKey ? next : null
+})
+
+async function continueAfterSet() {
+  const execution = flow.execution.value
+  if (execution && nextBlock.value) {
+    await router.replace(
+      onlineExecutionBlockLocation(execution, nextBlock.value, props.requestId, sessionName),
+    )
+    return
+  }
+  await flow.continueOrClose()
+}
 
 let timerInterval: number | undefined
 
@@ -167,7 +191,7 @@ onBeforeUnmount(() => {
         </button>
         <button
           v-else-if="flow.activeTimer.value && !flow.isClosed.value"
-          class="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-lg px-5 py-2 text-sm font-medium text-[#B2B3AE] transition-colors hover:bg-white/5 hover:text-[#F4F1EB] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#FE514A] disabled:cursor-not-allowed disabled:opacity-60"
+          class="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-[var(--trakia-border)] bg-[var(--trakia-surface-raised)] px-5 py-2 text-sm font-medium text-[var(--trakia-text)] transition-colors hover:border-[var(--trakia-muted-subtle)] hover:bg-[var(--trakia-surface)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-60"
           type="button"
           :disabled="flow.isPausing.value || !flow.isOnline.value || flow.isLoading.value"
           @click="flow.pause"
@@ -194,7 +218,8 @@ onBeforeUnmount(() => {
             <div class="grid grid-cols-3 gap-3">
               <div v-for="metric in flow.metricFields.value" :key="metric.field">
                 <label class="block text-sm font-medium text-stone-200" :for="metricId(metric.field)">
-                  {{ metric.label }}<span v-if="metric.unit"> ({{ metric.unit }})</span>
+                  {{ metric.metric === 'reps' ? 'Reps' : metric.label
+                  }}<span v-if="metric.unit && metric.metric !== 'reps'"> ({{ metric.unit }}) </span>
                 </label>
                 <input
                   :id="metricId(metric.field)"
@@ -264,14 +289,16 @@ onBeforeUnmount(() => {
             class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[#C81F19] px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-[#A91B16] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#FE514A] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="!flow.canContinue.value"
-            @click="flow.continueOrClose"
+            @click="continueAfterSet"
           >
             {{
               flow.isClosing.value
                 ? 'Finalizando…'
                 : flow.isContinuing.value
                   ? 'Continuando…'
-                  : flow.continuationLabel.value
+                  : nextBlock
+                    ? 'Continuar al siguiente bloque'
+                    : flow.continuationLabel.value
             }}
           </button>
         </section>

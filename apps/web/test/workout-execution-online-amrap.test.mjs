@@ -155,12 +155,17 @@ test('starts once and exposes every planned exercise with its target', async () 
   const testFlow = harness({ count: 5 })
   await testFlow.flow.recover()
   assert.equal(testFlow.flow.entries.value.length, 5)
+  assert.deepEqual(
+    testFlow.flow.entries.value.map(({ exercise }) => exercise.name),
+    ['Movimiento 1', 'Movimiento 2', 'Movimiento 3', 'Movimiento 4', 'Movimiento 5'],
+  )
   assert.deepEqual(testFlow.flow.entries.value[0].targets, { reps: 8 })
   await testFlow.flow.start()
   await testFlow.flow.start()
   assert.equal(testFlow.transitionCalls, 1)
   assert.ok(testFlow.flow.amrap.value.startedAt)
   assert.equal(testFlow.flow.isRunning.value, true)
+  assert.match(testFlow.flow.timerDisplay.value, /^\d{2}:\d{2}$/)
 })
 
 test('records consecutive rounds and timestamps once, even when requests replay', async () => {
@@ -236,11 +241,18 @@ test('recovers a paused AMRAP and a server-expired AMRAP without browser time au
     initial: execution({
       status: 'paused',
       pauses: [{ startedAt: new Date().toISOString() }],
-      amrap: { blockKey: 'amrap-block', startedAt: new Date(Date.now() - 30_000).toISOString(), rounds: [] },
+      amrap: {
+        blockKey: 'amrap-block',
+        startedAt: new Date(Date.now() - 30_000).toISOString(),
+        rounds: [{ roundIndex: 1, finishedAt: new Date(Date.now() - 20_000).toISOString() }],
+      },
     }),
   })
   await paused.flow.recover()
   assert.equal(paused.flow.isPaused.value, true)
+  assert.equal(paused.flow.amrap.value.rounds.length, 1)
+  assert.match(paused.flow.timerDisplay.value, /^00:\d{2}$/)
+  assert.notEqual(paused.flow.timerDisplay.value, '01:00')
 
   const expired = harness({
     initial: execution({
@@ -270,6 +282,7 @@ test('finishes early distinctly, records an optional partial subset, and blocks 
   assert.equal(testFlow.flow.isExpired.value, false)
   await testFlow.flow.savePartial([{ appearanceKey: 'exercise-2', actualMetrics: { reps: 7 } }])
   assert.equal(testFlow.flow.execution.value.results.length, 1)
+  assert.deepEqual(testFlow.flow.execution.value.results.at(-1).actualMetrics, { reps: 7 })
   assert.equal(testFlow.flow.execution.value.results.at(-1).round.roundIndex, 2)
   testFlow.flow.setPartialResultsPending(true)
   assert.equal(testFlow.flow.canClose.value, false)
@@ -277,6 +290,18 @@ test('finishes early distinctly, records an optional partial subset, and blocks 
   testFlow.flow.setResultsPending(true)
   assert.equal(testFlow.flow.canClose.value, false)
   testFlow.flow.setResultsPending(false)
+  assert.equal(testFlow.flow.canClose.value, true)
+  await testFlow.flow.close()
+  assert.equal(testFlow.flow.isClosed.value, true)
+})
+
+test('an AMRAP can close without recording a partial round', async () => {
+  const testFlow = harness()
+  await testFlow.flow.recover()
+  await testFlow.flow.start()
+  await testFlow.flow.finish()
+  assert.equal(testFlow.flow.isFinished.value, true)
+  assert.equal(testFlow.flow.execution.value.results.length, 0)
   assert.equal(testFlow.flow.canClose.value, true)
   await testFlow.flow.close()
   assert.equal(testFlow.flow.isClosed.value, true)

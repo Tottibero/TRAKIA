@@ -30,6 +30,15 @@ const amrapView = readFileSync(
   new URL('../src/features/workout-execution/views/OnlineAmrapExecutionView.vue', import.meta.url),
   'utf8',
 )
+const amrapPartialRoundView = readFileSync(
+  new URL('../src/features/workout-execution/components/AmrapPartialRoundForm.vue', import.meta.url),
+  'utf8',
+)
+const amrapResultsReviewView = readFileSync(
+  new URL('../src/features/workout-execution/components/AmrapResultMetricsReview.vue', import.meta.url),
+  'utf8',
+)
+const webStyles = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8')
 const sessionDetailView = readFileSync(
   new URL('../src/features/training-plan-calendar/views/TrainingPlanSessionDetailView.vue', import.meta.url),
   'utf8',
@@ -63,6 +72,150 @@ test('all online execution modes transition directly to the shared closed-sessio
   }
 })
 
+test('online modality completion offers the next planned block before closing the workout', () => {
+  for (const view of [strengthView, circuitView, intervalView, amrapView]) {
+    assert.match(view, /firstIncompleteOnlineExecutionBlock\(execution\)/)
+    assert.match(view, /Continuar al siguiente bloque/)
+    assert.match(view, /onlineExecutionBlockLocation\(execution, nextBlock\.value/)
+  }
+  assert.match(strengthView, /createOnlineStrengthFlow\([\s\S]*props\.blockKey/)
+  assert.match(circuitView, /createOnlineCircuitFlow\([\s\S]*props\.blockKey/)
+  assert.match(intervalView, /createOnlineIntervalFlow\([\s\S]*props\.blockKey/)
+  assert.match(amrapView, /createOnlineAmrapFlow\([\s\S]*props\.blockKey/)
+  assert.match(startActionView, /onlineExecutionRecoveryLocation\([\s\S]*props\.sessionName/)
+})
+
+test('AMRAP start screen uses the TRAKIA CTA and wraps metric targets as colored pills', () => {
+  const startAction = amrapView.match(/<template v-if="!flow\.amrap\.value">([\s\S]*?)<\/template>/)?.[1]
+  assert.ok(startAction)
+  assert.match(startAction, /Iniciar AMRAP/)
+  assert.match(startAction, /min-h-14/)
+  assert.match(startAction, /rounded-lg/)
+  assert.match(startAction, /bg-\[var\(--trakia-accent-action\)\]/)
+  assert.match(startAction, /text-\[var\(--trakia-accent-action-foreground\)\]/)
+  assert.doesNotMatch(startAction, /lime/i)
+  assert.match(amrapView, /bg-\[var\(--trakia-background\)\]/)
+  assert.match(amrapView, /v-for="\(target, metric\) in entry\.targets"/)
+  assert.match(amrapView, /targetToneClass\(metric\)/)
+  assert.match(amrapView, /flow\.isRunning\.value \? 'mt-0 flex-\[0_1_auto\] gap-1\.5' : 'mt-2 gap-2'/)
+  assert.match(amrapView, /rounded-full border border-\[var\(--trakia-border\)\]/)
+  assert.match(amrapView, /metricPillColorClass\(metric\)/)
+  assert.match(amrapView, /if \(metric === 'rpe'\) return `RPE \$\{value\}`/)
+  assert.match(amrapView, /amrap-target-pill--time[\s\S]*?var\(--trakia-warning\)/)
+  assert.match(amrapView, /amrap-target-pill--distance[\s\S]*?var\(--trakia-info\)/)
+})
+
+test('running AMRAP is compact and presents timer, real rounds, ordered exercises and state actions', () => {
+  const timer = amrapView.match(
+    /<section v-if="flow\.isRunning\.value" class="text-center"[\s\S]*?<\/section>/,
+  )?.[0]
+  const exerciseList = amrapView.match(/<section\n\s+v-if="!flow\.isFinished[\s\S]*?<\/section>/)?.[0]
+  const runningActions = amrapView.match(
+    /<template v-else-if="flow\.isRunning\.value">([\s\S]*?)<\/template>/,
+  )?.[1]
+  const pausedActions = amrapView.match(
+    /<template v-else-if="flow\.isRunning\.value && flow\.isPaused\.value">([\s\S]*?)<\/template>/,
+  )?.[1]
+
+  assert.ok(timer)
+  assert.match(timer, /TIEMPO RESTANTE/)
+  assert.match(timer, /\{\{ flow\.timerDisplay\.value \}\}/)
+  assert.match(timer, /tabular-nums[^"]*text-\[var\(--trakia-text\)\]/)
+  assert.match(timer, /\{\{ flow\.amrap\.value\?\.rounds\.length \?\? 0 \}\} rondas completas/)
+  assert.match(amrapView, /v-if="!flow\.isRunning\.value"[^>]*>[\s\S]*?tantas rondas como puedas/)
+  assert.match(amrapView, /<h2 v-if="!flow\.isRunning\.value"[\s\S]*?Ejercicios de cada ronda/)
+  assert.ok(exerciseList)
+  assert.match(exerciseList, /v-for="\(entry, index\) in flow\.entries\.value"/)
+  assert.match(exerciseList, /index \+ 1/)
+  assert.match(exerciseList, /entry\.exercise\.name/)
+  assert.match(exerciseList, /Object\.keys\(entry\.targets\)\.length/)
+  assert.match(exerciseList, /v-for="\(target, metric\) in entry\.targets"/)
+  assert.match(exerciseList, /targetToneClass\(metric\)/)
+  assert.match(exerciseList, /rounded-full/)
+  assert.match(exerciseList, /flow\.isRunning\.value \? 'grid gap-2' : 'mt-3 divide-y divide-white\/10'/)
+
+  assert.ok(runningActions)
+  assert.match(runningActions, /Ronda completada/)
+  assert.match(runningActions, /bg-\[#C81F19\]/)
+  assert.match(runningActions, /@click="flow\.completeRound"/)
+  assert.match(runningActions, /Pausar/)
+  assert.match(runningActions, /bg-\[var\(--trakia-surface-raised\)\]/)
+  assert.match(runningActions, /@click="flow\.pause"/)
+  assert.ok(pausedActions)
+  assert.match(pausedActions, /Reanudar/)
+  assert.match(pausedActions, /@click="flow\.resume"/)
+  assert.match(pausedActions, /bg-\[#C81F19\]/)
+  assert.doesNotMatch(runningActions, /lime/i)
+  assert.doesNotMatch(pausedActions, /lime/i)
+})
+
+test('finished AMRAP hides planning content and shows only actual finish totals and available result groups', () => {
+  assert.match(amrapView, /<header v-if="!flow\.isFinished\.value"/)
+  assert.match(amrapView, /<section\n\s+v-if="!flow\.isFinished\.value"[\s\S]*?Ejercicios de cada ronda/)
+  assert.match(amrapView, /flow\.isExpired\.value \? 'Tiempo agotado' : 'AMRAP finalizado'/)
+  assert.match(amrapView, /finishedRoundCount === 1 \? 'ronda completa' : 'rondas completas'/)
+  assert.match(amrapView, /finishedActiveSeconds !== undefined/)
+  assert.doesNotMatch(
+    amrapView,
+    /activeSeconds\.value \?\? 0|Se alcanzó el límite de tiempo|Terminación anticipada/,
+  )
+  assert.doesNotMatch(amrapView, /calculateAmrapRoundTimings|formatDuration\(timing/)
+  assert.match(amrapView, /v-if="flow\.isFinished\.value && flow\.amrap\.value"/)
+  assert.match(
+    amrapView,
+    /:disabled="!flow\.canClose\.value \|\| flow\.isClosing\.value \|\| !flow\.isOnline\.value"/,
+  )
+  assert.match(amrapView, /bg-\[var\(--trakia-accent-action\)\][\s\S]*?Cerrar entrenamiento/)
+  assert.doesNotMatch(amrapView, /bg-lime|text-lime|outline-lime/)
+
+  assert.match(amrapResultsReviewView, /<section v-if="rounds\.length"/)
+  assert.match(
+    amrapResultsReviewView,
+    /round\.isPartial \? 'Última ronda parcial' : `Ronda \$\{round\.roundIndex\}`/,
+  )
+  assert.match(amrapResultsReviewView, /roundRecords\.map[\s\S]*?currentBlock\.exercises\.map/)
+  assert.match(amrapResultsReviewView, /v-for="row in round\.exercises"/)
+  assert.match(amrapResultsReviewView, /row\.result\?\.actualMetrics/)
+  assert.match(amrapResultsReviewView, /inputValue\(row, field\)/)
+  assert.match(amrapResultsReviewView, /metricPillColorClass\(metric\)/)
+  assert.match(amrapResultsReviewView, /savingKey === row\.rowKey \? 'Guardando…' : 'Confirmar realizado'/)
+  assert.match(amrapResultsReviewView, /errors\[row\.rowKey\][\s\S]*?role="alert"/)
+  assert.doesNotMatch(
+    amrapResultsReviewView,
+    /No hay rondas completas que registrar|Resultados por ronda<\/h2>|Cada valor planificado/,
+  )
+  assert.doesNotMatch(amrapResultsReviewView, /lime/i)
+})
+
+test('partial AMRAP form keeps checklist, optional real metrics and shared target pills without prefill', () => {
+  const inputValue = amrapPartialRoundView.match(/function inputValue\([\s\S]*?\n}/)?.[0]
+  assert.match(amrapPartialRoundView, /Última ronda parcial/)
+  assert.match(amrapPartialRoundView, /type="checkbox"/)
+  assert.match(amrapPartialRoundView, /@change="toggle\(row\.appearance\.key/)
+  assert.match(amrapPartialRoundView, /v-for="\(target, metric\) in row\.targets"/)
+  assert.match(amrapPartialRoundView, /metricPillColorClass\(metric\)/)
+  assert.match(amrapPartialRoundView, /actualMetricInputConstraints\(field\.key, \{ allowZeroReps: true \}\)/)
+  assert.match(amrapPartialRoundView, /:value="inputValue\(row, field\)"/)
+  assert.match(amrapPartialRoundView, /Boolean\(row\.result\) \|\| saving \|\| !online/)
+  assert.match(amrapPartialRoundView, /selected\[appearance\.key\] && !result/)
+  assert.match(amrapPartialRoundView, /:disabled="saving \|\| !online \|\| !hasPending"/)
+  assert.match(amrapPartialRoundView, /@submit\.prevent="submit"/)
+  assert.match(amrapPartialRoundView, /Guardar ronda parcial/)
+  assert.match(amrapPartialRoundView, /role="alert"/)
+  assert.match(amrapPartialRoundView, /saving \? 'Guardando ronda parcial…' : 'Guardar ronda parcial'/)
+  assert.match(amrapPartialRoundView, /hasSavedPartial && !hasPending/)
+  assert.match(amrapPartialRoundView, /Ronda parcial guardada/)
+  assert.match(amrapPartialRoundView, /role="status"/)
+  assert.ok(inputValue)
+  assert.match(inputValue, /drafts\[row\.appearance\.key\]/)
+  assert.match(inputValue, /row\.result\?\.actualMetrics/)
+  assert.doesNotMatch(inputValue, /field\.target|row\.targets/)
+  assert.match(amrapPartialRoundView, /bg-\[var\(--trakia-save-action\)\]/)
+  assert.match(amrapView, /@save="flow\.savePartial"/)
+  assert.match(webStyles, /--trakia-save-action: #23576a/)
+  assert.match(webStyles, /--trakia-save-action-hover: #1c4857/)
+})
+
 test('finalized session details show only the persisted execution summary and preserve calendar context', () => {
   assert.match(sessionDetailView, /session\.execution\?\.status === 'completed'/)
   assert.match(sessionDetailView, /:execution="sessionQuery\.data\.value\.session\.execution"/)
@@ -71,7 +224,7 @@ test('finalized session details show only the persisted execution summary and pr
   assert.match(sessionDetailView, /useTrainingPlanSession\(planId, sessionId\)/)
   assert.match(calendarEntryView, /presentation\.view === 'summary'/)
   assert.match(calendarEntryView, /name: 'training-plan-session-detail'/)
-  assert.match(startActionView, /workoutExecutionLocation\([\s\S]*props\.sessionName/)
+  assert.match(startActionView, /onlineExecutionRecoveryLocation\([\s\S]*props\.sessionName/)
   assert.doesNotMatch(startActionView, /Ocultar resultados|Ver resultados/)
 })
 

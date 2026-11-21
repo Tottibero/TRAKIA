@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useQueryClient } from '@tanstack/vue-query'
 import type { IntervalResult } from '@trakia/contracts'
 import {
@@ -15,9 +15,14 @@ import IntervalResultMetricsReview from '../components/IntervalResultMetricsRevi
 import WorkoutExecutionSummary from '../components/WorkoutExecutionSummary.vue'
 import { invalidateTrainingPlanExecutionQueries } from '../execution-query-invalidation'
 import { createOnlineIntervalFlow } from '../online-interval-flow'
+import {
+  firstIncompleteOnlineExecutionBlock,
+  onlineExecutionBlockLocation,
+} from '../online-execution-block-routing'
 
-const props = defineProps<{ executionId: string; requestId?: string }>()
+const props = defineProps<{ executionId: string; requestId?: string; blockKey?: string }>()
 const route = useRoute()
+const router = useRouter()
 const sessionName = typeof route.query.sessionName === 'string' ? route.query.sessionName : 'Entrenamiento'
 const queryClient = useQueryClient()
 const flow = createOnlineIntervalFlow(
@@ -32,7 +37,22 @@ const flow = createOnlineIntervalFlow(
     onExecutionChanged: () => void invalidateTrainingPlanExecutionQueries(queryClient),
   },
   props.requestId,
+  props.blockKey,
 )
+const nextBlock = computed(() => {
+  const execution = flow.execution.value
+  if (!execution) return null
+  const next = firstIncompleteOnlineExecutionBlock(execution)
+  return next?.key !== props.blockKey ? next : null
+})
+
+async function continueToNextBlock() {
+  const execution = flow.execution.value
+  if (execution && nextBlock.value)
+    await router.replace(
+      onlineExecutionBlockLocation(execution, nextBlock.value, props.requestId, sessionName),
+    )
+}
 let displayInterval: number | undefined
 
 function updateOnline() {
@@ -204,6 +224,16 @@ onBeforeUnmount(() => {
           {{ flow.errorMessage.value }}
         </p>
         <button
+          v-if="nextBlock"
+          class="mt-8 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-[#C81F19] px-5 py-4 text-base font-semibold text-white hover:bg-[#A91B16] disabled:opacity-60"
+          type="button"
+          :disabled="!flow.canClose.value || flow.isClosing.value || !flow.isOnline.value"
+          @click="continueToNextBlock"
+        >
+          Continuar al siguiente bloque
+        </button>
+        <button
+          v-else
           class="mt-8 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 disabled:opacity-60"
           type="button"
           :disabled="!flow.canClose.value || flow.isClosing.value || !flow.isOnline.value"

@@ -25,11 +25,11 @@ const METRICS: Array<{ metric: ExerciseMetric; field: keyof ActualMetrics; label
 
 type RoundInput = { blockKey: string; roundIndex: number }
 
-export function onlineCircuitExecutionLocation(executionId: string, requestId?: string) {
+export function onlineCircuitExecutionLocation(executionId: string, requestId?: string, blockKey?: string) {
   return {
     name: 'workout-execution',
     params: { executionId },
-    query: { flow: 'online-circuit', ...(requestId ? { requestId } : {}) },
+    query: { flow: 'online-circuit', ...(requestId ? { requestId } : {}), ...(blockKey ? { blockKey } : {}) },
   } as const
 }
 
@@ -54,6 +54,7 @@ export function createOnlineCircuitFlow(
     createResultId?: () => string
   },
   requestId?: string,
+  blockKey?: string,
 ) {
   const execution = shallowRef<WorkoutExecution | null>(null)
   const fields = reactive<Record<string, Partial<Record<keyof ActualMetrics, string>>>>({})
@@ -76,7 +77,7 @@ export function createOnlineCircuitFlow(
       ): block is Extract<
         WorkoutExecution['snapshot']['session']['blocks'][number],
         { type: 'circuit'; mode: 'rounds' }
-      > => block.type === 'circuit' && block.mode === 'rounds',
+      > => block.type === 'circuit' && block.mode === 'rounds' && (!blockKey || block.key === blockKey),
     ),
   )
   const currentBlock = computed(() => {

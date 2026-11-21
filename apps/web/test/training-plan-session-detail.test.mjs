@@ -24,6 +24,10 @@ const plannedExerciseView = readFileSync(
   new URL('../src/features/training-plan-calendar/components/PlannedExerciseDetail.vue', import.meta.url),
   'utf8',
 )
+const sessionBlockView = readFileSync(
+  new URL('../src/features/training-plan-calendar/components/SessionBlockDetail.vue', import.meta.url),
+  'utf8',
+)
 
 test('session detail uses civil dates and metric-specific labels and units', () => {
   assert.equal(formatSessionDate('2026-11-23'), 'L 23-11')
@@ -35,6 +39,19 @@ test('session detail uses civil dates and metric-specific labels and units', () 
 test('planned exercise pills use the canonical reps, kg, and RPE metric colors', () => {
   assert.match(plannedExerciseView, /metricPillColorClass\(metric\)/)
   assert.match(plannedExerciseView, /exercise-pill--time/)
+  assert.match(plannedExerciseView, /exercise-pill--distance/)
+  assert.match(plannedExerciseView, /exercise-pill--sets/)
+  assert.match(plannedExerciseView, /setCount === 1 \? 'serie' : 'series'/)
+  assert.match(plannedExerciseView, /border-radius:\s*var\(--trakia-radius-control\)/)
+  assert.match(plannedExerciseView, /exercise-pill--distance[\s\S]*?var\(--trakia-info\)/)
+})
+
+test('planned HIIT summary colors cycles and phases with the established semantic tokens', () => {
+  assert.match(sessionBlockView, /block\.cycles[\s\S]*?tone: 'time'/)
+  assert.match(sessionBlockView, /block\.phases\.length[\s\S]*?tone: 'phases'/)
+  assert.match(sessionBlockView, /session-block__pill--phases[\s\S]*?var\(--trakia-exercise\)/)
+  assert.match(sessionBlockView, /session-block__pill--time[\s\S]*?var\(--trakia-warning\)/)
+  assert.match(sessionBlockView, /border-radius:\s*var\(--trakia-radius-control\)/)
 })
 
 test('all block modes get distinct headings and complete prescribed timing details', () => {

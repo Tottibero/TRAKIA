@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   closeWorkoutExecution,
   finishWorkoutExecutionCircuitRound,
@@ -16,9 +16,14 @@ import { invalidateTrainingPlanExecutionQueries } from '../execution-query-inval
 import { actualMetricInputConstraints } from '../metric-input-constraints.js'
 import WorkoutExecutionSummary from '../components/WorkoutExecutionSummary.vue'
 import { createOnlineCircuitFlow } from '../online-circuit-flow'
+import {
+  firstIncompleteOnlineExecutionBlock,
+  onlineExecutionBlockLocation,
+} from '../online-execution-block-routing'
 
-const props = defineProps<{ executionId: string; requestId?: string }>()
+const props = defineProps<{ executionId: string; requestId?: string; blockKey?: string }>()
 const route = useRoute()
+const router = useRouter()
 const sessionName = typeof route.query.sessionName === 'string' ? route.query.sessionName : 'Entrenamiento'
 const queryClient = useQueryClient()
 const flow = createOnlineCircuitFlow(
@@ -35,7 +40,22 @@ const flow = createOnlineCircuitFlow(
     onExecutionChanged: () => void invalidateTrainingPlanExecutionQueries(queryClient),
   },
   props.requestId,
+  props.blockKey,
 )
+const nextBlock = computed(() => {
+  const execution = flow.execution.value
+  if (!execution) return null
+  const next = firstIncompleteOnlineExecutionBlock(execution)
+  return next?.key !== props.blockKey ? next : null
+})
+
+async function continueToNextBlock() {
+  const execution = flow.execution.value
+  if (execution && nextBlock.value)
+    await router.replace(
+      onlineExecutionBlockLocation(execution, nextBlock.value, props.requestId, sessionName),
+    )
+}
 let timerInterval: number | undefined
 
 function updateOnline() {
@@ -277,6 +297,15 @@ onBeforeUnmount(() => {
         <h1 class="text-2xl font-semibold">Rondas completadas</h1>
         <p class="mt-2 text-sm text-stone-300">El trabajo efectivo se ha registrado una vez por ronda.</p>
         <button
+          v-if="nextBlock"
+          class="mt-8 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:opacity-60"
+          type="button"
+          @click="continueToNextBlock"
+        >
+          Continuar al siguiente bloque
+        </button>
+        <button
+          v-else
           class="mt-8 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:opacity-60"
           type="button"
           :disabled="flow.isClosing.value"

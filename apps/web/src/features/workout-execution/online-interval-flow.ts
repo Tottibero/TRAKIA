@@ -11,11 +11,15 @@ import type {
 
 type Identity = Pick<WorkoutExecutionIntervalRequest, 'blockKey' | 'cycleIndex' | 'phaseKey'>
 
-export function onlineIntervalExecutionLocation(executionId: string, requestId?: string) {
+export function onlineIntervalExecutionLocation(executionId: string, requestId?: string, blockKey?: string) {
   return {
     name: 'workout-execution',
     params: { executionId },
-    query: { flow: 'online-intervals', ...(requestId ? { requestId } : {}) },
+    query: {
+      flow: 'online-intervals',
+      ...(requestId ? { requestId } : {}),
+      ...(blockKey ? { blockKey } : {}),
+    },
   } as const
 }
 
@@ -34,6 +38,7 @@ export function createOnlineIntervalFlow(
     onExecutionChanged?: () => void
   },
   requestId?: string,
+  blockKey?: string,
 ) {
   const execution = shallowRef<WorkoutExecution | null>(null)
   const isLoading = ref(true)
@@ -52,7 +57,7 @@ export function createOnlineIntervalFlow(
       (
         block,
       ): block is Extract<WorkoutExecution['snapshot']['session']['blocks'][number], { type: 'intervals' }> =>
-        block.type === 'intervals',
+        block.type === 'intervals' && (!blockKey || block.key === blockKey),
     ),
   )
   const activeTimer = computed(() => {
@@ -84,7 +89,7 @@ export function createOnlineIntervalFlow(
     return execution.value?.snapshot.exercises.find(({ key }) => key === exerciseKey)?.name ?? null
   })
   const cycleIndex = computed(
-    () => activeTimer.value?.cycleIndex ?? nextPendingIdentity(execution.value)?.cycleIndex ?? 1,
+    () => activeTimer.value?.cycleIndex ?? nextPendingIdentity(execution.value, blockKey)?.cycleIndex ?? 1,
   )
   const isPaused = computed(() => execution.value?.status === 'paused')
   const isWorking = computed(() => activeTimer.value?.kind === 'intervalWork')
@@ -116,7 +121,7 @@ export function createOnlineIntervalFlow(
     Boolean(
       currentBlock.value &&
       !activeTimer.value &&
-      nextPendingIdentity(execution.value) &&
+      nextPendingIdentity(execution.value, blockKey) &&
       isOnline.value &&
       !isBusy.value,
     ),
@@ -173,7 +178,7 @@ export function createOnlineIntervalFlow(
 
   async function start() {
     const block = currentBlock.value
-    const identity = nextPendingIdentity(execution.value)
+    const identity = nextPendingIdentity(execution.value, blockKey)
     if (!block || !identity || !canStart.value || isBusy.value) return
     await perform({ ...identity, action: 'start' })
   }
@@ -356,9 +361,9 @@ function hasWorkResult(
   )
 }
 
-function nextPendingIdentity(execution: WorkoutExecution | null): Identity | null {
+function nextPendingIdentity(execution: WorkoutExecution | null, blockKey?: string): Identity | null {
   for (const block of execution?.snapshot.session.blocks ?? []) {
-    if (block.type !== 'intervals') continue
+    if (block.type !== 'intervals' || (blockKey && block.key !== blockKey)) continue
     for (let cycleIndex = 1; cycleIndex <= block.cycles; cycleIndex++) {
       for (const phase of block.phases) {
         if (phase.type === 'work' && !hasWorkResult(execution, block.key, cycleIndex, phase.key))

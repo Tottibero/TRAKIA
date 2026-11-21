@@ -3,7 +3,7 @@ import { computed, toRef } from 'vue'
 import { useRouter } from 'vue-router'
 import type { WorkoutExecution } from '@trakia/contracts'
 import { useWorkoutExecutionStart } from '../useWorkoutExecutionStart'
-import { workoutExecutionLocation } from '../execution-routing'
+import { onlineExecutionRecoveryLocation } from '../online-execution-block-routing'
 import { resolveWorkoutStartAction } from '../planned-session-start.js'
 
 const props = defineProps<{
@@ -31,9 +31,8 @@ const startAction = computed(() =>
 )
 const executionLocation = computed(() => {
   if (!activeExecution.value) return undefined
-  return workoutExecutionLocation(
-    activeExecution.value.id,
-    activeExecution.value.snapshot.session.blocks,
+  return onlineExecutionRecoveryLocation(
+    activeExecution.value,
     workoutStart.activeRequestId.value,
     props.sessionName,
   )
