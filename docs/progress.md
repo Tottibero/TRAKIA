@@ -69,7 +69,7 @@
 | [HC-05-10-02](tasks/HC-05/HC-05-10-02.md) | Completada | Rediseño del detalle y restricción de inicio en `Europe/Madrid`; `pnpm check`, arquitectura e integración `trakia_test` satisfactorias. Cierre autorizado por el propietario. |
 | [HC-05-10-02b](tasks/HC-05/HC-05-10-02b.md) | Completada | Inicio limitado a su fecha en `Europe/Madrid` desde frontend y API; verificaciones locales, arquitectura e integración `trakia_test` satisfactorias. Cierre autorizado por el propietario. |
 | [HC-05-10-03a](tasks/HC-05/HC-05-10-03a.md) | En revisión | Apertura online navega directamente al ejecutor; la primera acción confirma `workStartedAt` junto con el temporizador/estado inicial. Prueba manual pendiente. |
-| [HC-05-10-03b](tasks/HC-05/HC-05-10-03b.md) | En revisión | Refinamiento del ejecutor y estados inicial, activo y cierre AMRAP; confirmación explícita al guardar ronda parcial. Validación visual pendiente. |
+| [HC-05-10-03b](tasks/HC-05/HC-05-10-03b.md) | Completada | Ejecutor compacto con objetivos editables y temporizador auxiliar local; `pnpm check`, arquitectura y aceptación del propietario. Sin inspección visual con Chrome por instrucción. |
 | [HC-05-10-03c](tasks/HC-05/HC-05-10-03c.md) | En revisión | Sesiones mixtas avanzan por el primer bloque pendiente y permiten series de cardio; `pnpm check`, arquitectura y pruebas focalizadas pasan. Validación manual pendiente. |
 | [HC-05-10-07](tasks/HC-05/HC-05-10-07.md) | En revisión | Resumen real al cerrar/reabrir; nombres mostrados desde JSON sin alteración y RPE con tono visual. Validación manual pendiente. |
 

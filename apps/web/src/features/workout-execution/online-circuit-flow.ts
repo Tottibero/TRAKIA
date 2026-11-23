@@ -1,4 +1,4 @@
-import { computed, reactive, ref, shallowRef } from 'vue'
+import { computed, reactive, ref, shallowRef, watch } from 'vue'
 import {
   ActualMetricsSchema,
   resolveExerciseTargets,
@@ -24,6 +24,25 @@ const METRICS: Array<{ metric: ExerciseMetric; field: keyof ActualMetrics; label
 ]
 
 type RoundInput = { blockKey: string; roundIndex: number }
+type FixedRoundsCircuitBlock = Extract<
+  WorkoutExecution['snapshot']['session']['blocks'][number],
+  { type: 'circuit'; mode: 'rounds' }
+>
+
+export type OnlineCircuitResultFields = Record<string, Partial<Record<keyof ActualMetrics, string>>>
+export type OnlineCircuitEntry = {
+  appearance: FixedRoundsCircuitBlock['exercises'][number]
+  exercise: WorkoutExecution['snapshot']['exercises'][number]
+  targets: Array<{
+    metric: ExerciseMetric
+    field: keyof ActualMetrics
+    label: string
+    unit: string
+    value: number
+  }>
+  metrics: Array<{ metric: ExerciseMetric; field: keyof ActualMetrics; label: string; unit: string }>
+  saved?: WorkoutExecution['results'][number]
+}
 
 export function onlineCircuitExecutionLocation(executionId: string, requestId?: string, blockKey?: string) {
   return {
@@ -216,6 +235,26 @@ export function createOnlineCircuitFlow(
   )
   const completedRounds = computed(() => execution.value?.circuitRounds ?? [])
 
+  watch(
+    [entries, roundIndex, completedRounds, isWorking],
+    () => {
+      const blockKey = currentBlock.value?.key
+      const roundFinished = completedRounds.value.some(
+        (round) => round.blockKey === blockKey && round.roundIndex === roundIndex.value,
+      )
+      if (!blockKey || !roundFinished || isWorking.value) return
+
+      for (const entry of entries.value) {
+        if (entry.saved) continue
+        const values = (fields[entry.appearance.key] ??= {})
+        for (const target of entry.targets) {
+          if (values[target.field] === undefined) values[target.field] = String(target.value)
+        }
+      }
+    },
+    { flush: 'sync' },
+  )
+
   function roundResults(blockKey: string, index: number) {
     const block = execution.value?.snapshot.session.blocks.find(
       (candidate) =>
@@ -365,6 +404,7 @@ export function createOnlineCircuitFlow(
           actualMetrics,
         }
         const response = await dependencies.recordResult(executionId, { result })
+        delete fields[entry.appearance.key]
         const current = execution.value!
         const results = current.results.some(({ id }) => id === response.result.id)
           ? current.results.map((candidate) =>

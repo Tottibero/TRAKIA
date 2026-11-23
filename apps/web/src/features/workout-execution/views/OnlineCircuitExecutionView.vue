@@ -13,9 +13,13 @@ import {
   startWorkoutExecutionCircuitRound,
 } from '../api/execution'
 import { invalidateTrainingPlanExecutionQueries } from '../execution-query-invalidation.js'
-import { actualMetricInputConstraints } from '../metric-input-constraints.js'
+import CircuitDurationTimer from '../components/CircuitDurationTimer.vue'
+import OnlineCircuitExerciseList from '../components/OnlineCircuitExerciseList.vue'
+import OnlineCircuitResultsForm from '../components/OnlineCircuitResultsForm.vue'
 import WorkoutExecutionSummary from '../components/WorkoutExecutionSummary.vue'
 import { createOnlineCircuitFlow } from '../online-circuit-flow'
+import { onlineCircuitModalityLabel, shouldShowOnlineCircuitResults } from '../online-circuit-presentation'
+import { circuitDurationExercises } from '../circuit-duration-timer'
 import {
   firstIncompleteOnlineExecutionBlock,
   onlineExecutionBlockLocation,
@@ -61,12 +65,18 @@ let timerInterval: number | undefined
 function updateOnline() {
   flow.setOnline(navigator.onLine)
 }
-function metricId(key: string, field: string) {
-  return `circuit-${key}-${flow.roundIndex.value}-${field}`
-}
-function targetDisplay(target: { value: number; unit: string }) {
-  return target.unit ? `${target.value} ${target.unit}` : String(target.value)
-}
+const modalityLabel = computed(() => onlineCircuitModalityLabel(flow.entries.value.length))
+const timedExercises = computed(() => circuitDurationExercises(flow.entries.value))
+const resultStage = computed(() => {
+  const blockKey = flow.currentBlock.value?.key
+  return shouldShowOnlineCircuitResults({
+    blockKey,
+    roundIndex: flow.roundIndex.value,
+    isWorking: flow.isWorking.value,
+    hasUnsavedResults: flow.entries.value.some(({ saved }) => !saved),
+    completedRounds: flow.completedRounds.value,
+  })
+})
 
 onMounted(() => {
   window.addEventListener('online', updateOnline)
@@ -83,8 +93,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="min-h-dvh bg-[#10110f] px-4 py-6 text-stone-100 sm:px-8 sm:py-10">
-    <div class="mx-auto max-w-xl">
+  <main class="min-h-dvh bg-[var(--trakia-background)] px-4 py-5 text-[var(--trakia-text)] sm:px-8 sm:py-8">
+    <div class="mx-auto max-w-lg">
       <p
         v-if="flow.isLoading.value"
         class="py-12 text-center text-sm text-stone-300"
@@ -96,43 +106,21 @@ onBeforeUnmount(() => {
 
       <section
         v-else-if="flow.execution.value && flow.currentBlock.value && !flow.isClosed.value"
-        class="space-y-7 pt-2"
+        class="space-y-5"
       >
-        <header class="text-center">
-          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-lime-200">
-            Bloque {{ flow.currentBlock.value.key }}
-          </p>
-          <h1 class="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-            Ronda {{ flow.roundIndex.value }} de {{ flow.currentBlock.value.rounds }}
+        <header>
+          <h1 v-if="resultStage" class="text-xl font-semibold tracking-tight">
+            Resultados · Ronda {{ flow.roundIndex.value }}
           </h1>
-          <p v-if="flow.blocks.value.length > 1" class="mt-2 text-sm text-stone-300">
-            Bloque {{ flow.blockIndex.value + 1 }} de {{ flow.blocks.value.length }}
-          </p>
+          <template v-else>
+            <h1 class="text-xl font-semibold tracking-tight">{{ modalityLabel }}</h1>
+            <p class="mt-1 text-sm text-[var(--trakia-muted)]">
+              Ronda {{ flow.roundIndex.value }} de {{ flow.currentBlock.value.rounds }}
+            </p>
+          </template>
         </header>
 
-        <section aria-label="Ejercicios y objetivos de la ronda" class="space-y-3">
-          <article
-            v-for="entry in flow.entries.value"
-            :key="entry.appearance.key"
-            class="rounded-lg border border-white/10 bg-[#191a17] p-4"
-          >
-            <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <h2 class="text-base font-semibold">{{ entry.exercise.name }}</h2>
-              <span class="text-xs text-stone-400">{{ entry.appearance.key }}</span>
-            </div>
-            <p class="mt-2 text-sm leading-6 text-stone-300">
-              <template v-if="entry.targets.length">
-                <span v-for="(target, index) in entry.targets" :key="target.metric">
-                  <span v-if="index"> · </span>{{ target.label }}: {{ targetDisplay(target) }}
-                </span>
-              </template>
-              <span v-else>Sin objetivos métricos planificados</span>
-            </p>
-            <p v-if="entry.saved" class="mt-2 text-sm font-medium text-lime-200" role="status">
-              Resultado guardado
-            </p>
-          </article>
-        </section>
+        <OnlineCircuitExerciseList v-if="!resultStage" :entries="flow.entries.value" />
 
         <section
           v-if="flow.isWorking.value || flow.isResting.value"
@@ -147,12 +135,12 @@ onBeforeUnmount(() => {
           >
             Pausado
           </p>
-          <p v-else-if="flow.isResting.value" class="text-sm font-semibold text-lime-200">
+          <p v-else-if="flow.isResting.value" class="text-sm font-semibold text-[var(--trakia-warning)]">
             Descanso entre rondas
           </p>
-          <p v-else class="text-sm font-semibold text-lime-200">Trabajo</p>
+          <p v-else class="text-sm font-semibold text-[var(--trakia-muted)]">Trabajo</p>
           <p
-            class="mt-3 font-mono text-7xl font-semibold leading-none tabular-nums tracking-[-0.04em] text-lime-200 sm:text-8xl"
+            class="mt-3 font-mono text-6xl font-semibold leading-none tabular-nums tracking-[-0.04em] text-[var(--trakia-text)] sm:text-7xl"
             role="timer"
             aria-label="Tiempo de ronda"
             aria-live="off"
@@ -161,19 +149,28 @@ onBeforeUnmount(() => {
           </p>
           <p
             v-if="flow.isResting.value && flow.restRemainingSeconds.value === 0"
-            class="mt-3 text-sm text-stone-300"
+            class="mt-3 text-sm text-[var(--trakia-muted)]"
           >
             Descanso terminado. Inicia la ronda siguiente cuando estén guardados todos los resultados.
           </p>
         </section>
 
-        <p v-if="flow.errorMessage.value" class="text-center text-sm leading-6 text-rose-200" role="alert">
+        <CircuitDurationTimer
+          v-if="flow.isWorking.value && timedExercises.length > 0"
+          :entries="flow.entries.value"
+        />
+
+        <p
+          v-if="flow.errorMessage.value"
+          class="rounded-md border border-[var(--trakia-danger-border)] bg-[var(--trakia-danger-surface)] px-3 py-2 text-sm leading-5 text-[var(--trakia-danger)]"
+          role="alert"
+        >
           {{ flow.errorMessage.value }}
         </p>
 
         <div v-if="flow.isPaused.value" class="space-y-3">
           <button
-            class="inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:opacity-60"
+            class="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-[var(--trakia-accent-action)] px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-[var(--trakia-accent-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
             :disabled="flow.isPausing.value || !flow.isOnline.value"
             @click="flow.resume"
@@ -183,7 +180,7 @@ onBeforeUnmount(() => {
         </div>
         <div v-else-if="flow.isWorking.value" class="space-y-3">
           <button
-            class="inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:opacity-60"
+            class="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-[var(--trakia-accent-action)] px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-[var(--trakia-accent-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
             :disabled="!flow.canFinish.value"
             @click="flow.finish"
@@ -191,7 +188,7 @@ onBeforeUnmount(() => {
             {{ flow.isFinishing.value ? 'Confirmando…' : 'Terminar ronda' }}
           </button>
           <button
-            class="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/25 px-5 py-3 text-base font-semibold hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:opacity-60"
+            class="inline-flex min-h-11 w-full items-center justify-center rounded-md border border-[var(--trakia-border)] bg-[var(--trakia-surface)] px-5 py-2 text-base font-semibold text-[var(--trakia-text)] transition-colors hover:bg-[var(--trakia-surface-raised)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
             :disabled="flow.isPausing.value || !flow.isOnline.value"
             @click="flow.pause"
@@ -202,7 +199,7 @@ onBeforeUnmount(() => {
         <div v-else-if="flow.isResting.value" class="space-y-3">
           <button
             v-if="flow.restRemainingSeconds.value === 0 && flow.hasSavedAllResults.value"
-            class="inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:opacity-60"
+            class="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-[var(--trakia-accent-action)] px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-[var(--trakia-accent-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
             :disabled="!flow.canStart.value"
             @click="flow.start"
@@ -211,7 +208,7 @@ onBeforeUnmount(() => {
           </button>
           <button
             v-if="flow.restRemainingSeconds.value > 0"
-            class="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/25 px-5 py-3 text-base font-semibold hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:opacity-60"
+            class="inline-flex min-h-11 w-full items-center justify-center rounded-md border border-[var(--trakia-border)] bg-[var(--trakia-surface)] px-5 py-2 text-base font-semibold text-[var(--trakia-text)] transition-colors hover:bg-[var(--trakia-surface-raised)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
             :disabled="flow.isPausing.value || !flow.isOnline.value"
             @click="flow.pause"
@@ -221,7 +218,7 @@ onBeforeUnmount(() => {
         </div>
         <button
           v-else-if="flow.canOfferStart.value"
-          class="inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:opacity-60"
+          class="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-[var(--trakia-accent-action)] px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-[var(--trakia-accent-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-50"
           type="button"
           :disabled="!flow.canStart.value"
           @click="flow.start"
@@ -229,76 +226,24 @@ onBeforeUnmount(() => {
           {{ flow.isStarting.value ? 'Iniciando…' : 'Iniciar ronda' }}
         </button>
 
-        <form
-          v-if="
-            !flow.isWorking.value &&
-            flow.entries.value.length &&
-            flow.entries.value.some(({ saved }) => !saved)
-          "
-          class="space-y-5"
-          @submit.prevent="flow.saveResults"
-        >
-          <h2 class="text-lg font-semibold">Resultados de la ronda {{ flow.roundIndex.value }}</h2>
-          <p v-if="flow.formError.value" class="text-sm leading-6 text-rose-200" role="alert">
-            {{ flow.formError.value }}
-          </p>
-          <fieldset
-            v-for="entry in flow.entries.value.filter(({ saved }) => !saved)"
-            :key="entry.appearance.key"
-            class="rounded-lg border border-white/10 bg-[#191a17] p-4"
-            :disabled="flow.isSaving.value"
-          >
-            <legend class="px-1 text-base font-semibold">{{ entry.exercise.name }}</legend>
-            <div class="mt-2 grid grid-cols-2 gap-3">
-              <div v-for="metric in entry.metrics" :key="metric.field">
-                <label
-                  class="block text-sm font-medium text-stone-200"
-                  :for="metricId(entry.appearance.key, metric.field)"
-                >
-                  {{ metric.label }}<span v-if="metric.unit"> ({{ metric.unit }})</span>
-                </label>
-                <input
-                  :id="metricId(entry.appearance.key, metric.field)"
-                  class="mt-2 min-h-12 w-full rounded-md border border-white/20 bg-[#10110f] px-3 text-base text-white outline-none focus-visible:border-lime-300 focus-visible:ring-2 focus-visible:ring-lime-300/40 disabled:opacity-70"
-                  type="number"
-                  v-bind="actualMetricInputConstraints(metric.field)"
-                  inputmode="decimal"
-                  :value="flow.fields[entry.appearance.key]?.[metric.field] ?? ''"
-                  @input="
-                    flow.setMetric(
-                      entry.appearance.key,
-                      metric.field,
-                      ($event.target as HTMLInputElement).value,
-                    )
-                  "
-                />
-              </div>
-            </div>
-          </fieldset>
-          <button
-            class="inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:opacity-60"
-            type="submit"
-            :disabled="!flow.canSave.value"
-          >
-            {{ flow.isSaving.value ? 'Guardando resultados…' : 'Guardar resultados' }}
-          </button>
-        </form>
-
-        <p
-          v-if="flow.isResting.value && !flow.hasSavedAllResults.value"
-          class="text-center text-sm text-stone-300"
-        >
-          Puedes guardar los resultados durante el descanso. La ronda siguiente requiere todos los resultados
-          y el descanso terminado.
-        </p>
+        <OnlineCircuitResultsForm
+          v-if="resultStage"
+          :entries="flow.entries.value"
+          :fields="flow.fields"
+          :round-index="flow.roundIndex.value"
+          :is-saving="flow.isSaving.value"
+          :can-save="flow.canSave.value"
+          :error-message="flow.formError.value"
+          @set-metric="flow.setMetric"
+          @save="flow.saveResults"
+        />
       </section>
 
       <section v-else-if="flow.execution.value && flow.canClose.value" class="pt-10 text-center">
         <h1 class="text-2xl font-semibold">Rondas completadas</h1>
-        <p class="mt-2 text-sm text-stone-300">El trabajo efectivo se ha registrado una vez por ronda.</p>
         <button
           v-if="nextBlock"
-          class="mt-8 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:opacity-60"
+          class="mt-8 inline-flex min-h-12 w-full items-center justify-center rounded-md bg-[var(--trakia-accent-action)] px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-[var(--trakia-accent-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-50"
           type="button"
           @click="continueToNextBlock"
         >
@@ -306,7 +251,7 @@ onBeforeUnmount(() => {
         </button>
         <button
           v-else
-          class="mt-8 inline-flex min-h-14 w-full items-center justify-center rounded-md bg-lime-300 px-5 py-4 text-base font-semibold text-stone-950 hover:bg-lime-200 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-lime-200 disabled:opacity-60"
+          class="mt-8 inline-flex min-h-12 w-full items-center justify-center rounded-md bg-[var(--trakia-accent-action)] px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-[var(--trakia-accent-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:opacity-50"
           type="button"
           :disabled="flow.isClosing.value"
           @click="flow.close"
