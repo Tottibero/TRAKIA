@@ -28,6 +28,7 @@
   --trakia-metric-reps: #a8c7fa;
   --trakia-metric-weight: #8be9fd;
   --trakia-metric-rpe: var(--trakia-warning);
+  --trakia-metric-time: var(--trakia-warning);
   --trakia-exercise: #8be9fd;
   --trakia-shell-header-height: 4.5rem;
   --trakia-bottom-nav-height: 4.25rem;
@@ -67,6 +68,11 @@
 .trakia-metric-pill--rpe {
   background: color-mix(in srgb, var(--trakia-metric-rpe) 18%, var(--trakia-surface-raised));
   color: var(--trakia-metric-rpe);
+}
+
+.trakia-metric-pill--time {
+  background: color-mix(in srgb, var(--trakia-metric-time) 18%, var(--trakia-surface-raised));
+  color: var(--trakia-metric-time);
 }
 
 * {

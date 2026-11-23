@@ -42,6 +42,18 @@ export function intervalResultReviewRows(execution) {
   })
 }
 
+export function initializeIntervalResultDrafts(rows, drafts) {
+  for (const row of rows) {
+    if (row.result.status === 'skipped' || row.result.actualMetrics) continue
+    const draft = (drafts[row.result.id] ??= {})
+
+    for (const field of row.fields) {
+      if (field.target === undefined || Object.hasOwn(draft, field.key)) continue
+      draft[field.key] = String(field.target)
+    }
+  }
+}
+
 export function actualMetricsFromIntervalDraft(draft, fields) {
   const actualMetrics = {}
 
@@ -59,6 +71,62 @@ export function actualMetricsFromIntervalDraft(draft, fields) {
 
 export function hasPendingIntervalMetricDrafts(drafts) {
   return Object.values(drafts).some((draft) => Object.values(draft).some((value) => value.trim().length > 0))
+}
+
+function sameMetrics(left, right) {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)])
+  return [...keys].every((key) => left[key] === right[key])
+}
+
+export async function savePendingIntervalResultMetrics({
+  rows,
+  drafts,
+  uncertainMetrics,
+  recordMetrics,
+  reconcile,
+  onResult,
+}) {
+  let savedCount = 0
+  let failedCount = 0
+  let conflictCount = 0
+  let invalidCount = 0
+
+  for (const row of rows) {
+    const { result } = row
+    if (result.status === 'skipped' || result.actualMetrics) continue
+
+    const submittedMetrics =
+      uncertainMetrics[result.id] ?? actualMetricsFromIntervalDraft(drafts[result.id] ?? {}, row.fields)
+    if (!submittedMetrics) {
+      if (Object.values(drafts[result.id] ?? {}).some((value) => value.trim().length > 0)) invalidCount += 1
+      continue
+    }
+
+    try {
+      const response = await recordMetrics(result.id, submittedMetrics)
+      if (response.result.type !== 'intervals') throw new Error('Respuesta de resultado HIIT inválida.')
+      onResult(response.result)
+      delete uncertainMetrics[result.id]
+      savedCount += 1
+    } catch {
+      failedCount += 1
+      const latestResult = await reconcile(result.id)
+      if (!latestResult) {
+        if (latestResult === undefined) uncertainMetrics[result.id] = submittedMetrics
+        continue
+      }
+
+      if (latestResult.actualMetrics) {
+        onResult(latestResult)
+        delete uncertainMetrics[result.id]
+        failedCount -= 1
+        if (sameMetrics(latestResult.actualMetrics, submittedMetrics)) savedCount += 1
+        else conflictCount += 1
+      }
+    }
+  }
+
+  return { savedCount, failedCount, conflictCount, invalidCount }
 }
 
 export { actualMetricInputConstraints }

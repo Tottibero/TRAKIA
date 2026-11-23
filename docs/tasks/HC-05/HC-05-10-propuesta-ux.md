@@ -80,6 +80,7 @@ La implementación se dividiría por flujo y mantendría propósitos de componen
 - Activo oficial confirmado por el propietario: `/home/tottibero/Downloads/trackia.png`, PNG RGBA de 8 bits, `1536 × 1024`. Tiene 1.169.894 píxeles totalmente transparentes; caja alfa > 0: `(99,93)–(1515,999)`; contenido con alfa ≥ 64: `(252,120)–(1283,875)`. Se conservarán canvas completo y proporción 3:2; no se recortará ni reexportará para el shell.
 - Si la instalación PWA requiere un icono cuadrado, la adaptación técnica a evaluar sería un canvas cuadrado transparente con el arte proporcionalmente contenido, sin redibujar, recolorear ni recortar detalles. Antes de generarlo se explicarán dimensiones, formato y motivo y se esperará aprobación. El PNG fuente permanece intacto.
 - La dirección y la implementación de HC-05-10-01 fueron autorizadas por el propietario el 2026-11-19. La aceptación visual final queda pendiente.
+- La validación manual global de HC-05-10 sigue pendiente; no se considera aceptado el bloque hasta revisar sus superficies en los viewports acordados.
 
 ## Aprobación registrada
 

@@ -12,7 +12,9 @@ test('metric keys and displayed labels resolve to one canonical color class', ()
   for (const value of ['rpe', 'RPE 7']) assert.equal(metricPillColorClass(value), 'trakia-metric-pill--rpe')
 })
 
-test('other metrics and statuses do not inherit a reps, weight, or RPE color', () => {
-  for (const value of ['duration', '90 s', '400 m', '25 kcal', 'Completado'])
-    assert.equal(metricPillColorClass(value), undefined)
+test('duration uses the shared time pill while unsupported metrics keep no color', () => {
+  for (const value of ['duration', 'time', '20 s'])
+    assert.equal(metricPillColorClass(value), 'trakia-metric-pill--time')
+
+  for (const value of ['400 m', '25 kcal', 'Completado']) assert.equal(metricPillColorClass(value), undefined)
 })

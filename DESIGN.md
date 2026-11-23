@@ -21,6 +21,7 @@ colors:
   metric-reps: "#A8C7FA"
   metric-weight: "#8BE9FD"
   metric-rpe: "#F3D28A"
+  metric-time: "#F3D28A"
   exercise: "#8BE9FD"
 typography:
   caption:
@@ -136,6 +137,8 @@ The palette pairs near-black charcoal with warm white and the original TRAKIA re
 **The Accent Restraint Rule.** TRAKIA red marks a meaningful action, focus, or state; it does not fill large background regions or carry meaning by color alone.
 
 **Metric Pill Colors.** Repetitions always use soft blue (#A8C7FA), weight in kilograms uses soft cyan (#8BE9FD), and RPE uses warm amber (#F3D28A). Metric pills tint the raised-charcoal surface with 18% of the matching color and use the full color for text. Apply these semantic classes consistently in planning, import, execution, and result summaries. Other metrics keep their established treatment.
+
+Duration and time values use the existing warm-amber token (#F3D28A) on a raised-charcoal tint. The `metric-time` token aliases the existing warning color; it does not introduce a new hue.
 
 ## Typography
 

@@ -180,6 +180,52 @@ test('starts HIIT, pauses in work and rest, records early completion and skip wi
   assert.equal(testFlow.stored.results[1].activeSeconds, undefined)
 })
 
+test('recovers the pre-start state with the first real interval and starts it on request', async () => {
+  const initial = execution({
+    snapshot: {
+      ...execution().snapshot,
+      session: {
+        ...execution().snapshot.session,
+        blocks: [
+          {
+            type: 'intervals',
+            key: 'hiit',
+            cycles: 2,
+            phases: [
+              {
+                type: 'work',
+                key: 'work',
+                windowSeconds: 20,
+                exercise: { key: 'jumping-jacks', exerciseKey: 'jumping-jacks' },
+              },
+              { type: 'rest', key: 'rest', windowSeconds: 10 },
+            ],
+          },
+        ],
+      },
+      exercises: [
+        { key: 'jumping-jacks', name: 'Jumping jacks', category: 'cardio', supportedMetrics: ['duration'] },
+      ],
+    },
+  })
+  const testFlow = harness(initial)
+  testFlow.flow.setOnline(true)
+  await testFlow.flow.recover()
+
+  assert.equal(testFlow.flow.activeTimer.value, null)
+  assert.equal(testFlow.flow.canStart.value, true)
+  assert.equal(testFlow.flow.cycleIndex.value, 1)
+  assert.equal(testFlow.flow.currentBlock.value.cycles, 2)
+  assert.equal(testFlow.flow.currentExercise.value, 'Jumping jacks')
+  assert.equal(testFlow.flow.currentPhase.value.windowSeconds, 20)
+  assert.deepEqual(testFlow.writes, [])
+
+  await testFlow.flow.start()
+  assert.equal(testFlow.writes[0].action, 'start')
+  assert.equal(testFlow.flow.activeTimer.value.kind, 'intervalWork')
+  assert.equal(testFlow.flow.currentPhase.value.windowSeconds, 20)
+})
+
 test('recovers the current timer from the server after reload', async () => {
   for (const [kind, phaseKey, isResting] of [
     ['intervalWork', 'work', false],
@@ -200,7 +246,30 @@ test('recovers the current timer from the server after reload', async () => {
     assert.equal(testFlow.flow.isResting.value, isResting)
     assert.equal(testFlow.flow.currentPhase.value.key, phaseKey)
     assert.equal(testFlow.writes[0].action, 'advance')
+    if (isResting) assert.equal(testFlow.flow.nextExercise.value, 'Bicicleta')
+    else assert.equal(testFlow.flow.currentExercise.value, 'Bicicleta')
   }
+})
+
+test('recovers the final rest without inventing a next phase or exercise', async () => {
+  const restored = execution({
+    activeTimer: {
+      kind: 'intervalRest',
+      blockKey: 'hiit',
+      cycleIndex: 2,
+      phaseKey: 'rest',
+      startedAt: new Date().toISOString(),
+    },
+  })
+  const testFlow = harness(restored)
+  testFlow.flow.setOnline(true)
+  await testFlow.flow.recover()
+
+  assert.equal(testFlow.flow.isResting.value, true)
+  assert.equal(testFlow.flow.cycleIndex.value, 2)
+  assert.equal(testFlow.flow.nextPhase.value, null)
+  assert.equal(testFlow.flow.nextExercise.value, null)
+  assert.equal(testFlow.writes[0].action, 'advance')
 })
 
 test('keeps the HIIT review visible but refuses close while metric values await confirmation', async () => {
