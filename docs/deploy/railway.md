@@ -1,6 +1,6 @@
 # Railway — configuración y operación
 
-Estado: preparación local. El propietario ya creó el proyecto TRAKIA y el entorno `production`; desde Codex no se crearon recursos ni se desplegó ningún servicio.
+Estado: despliegue operativo en Railway `production`, comprobado el 2026-11-24. Web, API y PostgreSQL están en línea; el único dominio público activo comprobado es `https://trakia.up.railway.app`. El propietario autorizó esta fase de pruebas sin backups; no se han configurado backups/PITR y deben habilitarse antes de ampliar el uso productivo.
 
 ## Topología
 
@@ -10,6 +10,18 @@ Estado: preparación local. El propietario ya creó el proyecto TRAKIA y el ento
 - La web sirve el build Vite con fallback `/index.html`; `/api/...` conserva la ruta y se envía a `http://api.railway.internal:3033` dentro del mismo proyecto y entorno.
 
 En Railway, configura raíz `/` para que el contexto Docker incluya `pnpm-lock.yaml`, `pnpm-workspace.yaml` y `packages/contracts`. En cada servicio establece su ruta de Dockerfile (web `apps/web/Dockerfile`, API `apps/api/Dockerfile`). Añade Watch Paths para cambios de la app, `packages/contracts/**`, manifests/lockfile y configuración del workspace.
+
+### Resolución dinámica del upstream Nginx
+
+Railway conserva el nombre privado `api.railway.internal`, pero una nueva instancia de API puede recibir otra IP. La imagen Nginx no debe resolver ese nombre únicamente al cargar la configuración: Nginx conservaría la dirección hasta reiniciar el servicio web.
+
+La plantilla de producción toma los servidores DNS de `/etc/resolv.conf` en cada arranque. La imagen oficial `nginx-unprivileged` incluye `/docker-entrypoint.d/15-local-resolvers.envsh`; al habilitar `NGINX_ENTRYPOINT_LOCAL_RESOLVERS`, exporta las direcciones reales del contenedor como `NGINX_LOCAL_RESOLVERS`. Esto evita fijar `127.0.0.11` (resolver de una red Docker local) o cualquier IP de Railway en el repositorio.
+
+El bloque Nginx configura `resolver ${NGINX_LOCAL_RESOLVERS} valid=10s ipv6=on` y usa `proxy_pass` con una variable que contiene `API_UPSTREAM`. Nginx consulta de nuevo DNS al vencer esos 10 segundos y la ruta `/api/...` y su query string se mantienen. El upstream continúa usando la referencia privada y el puerto configurados en Railway.
+
+Durante la ventana de caché tras un cambio de IP, una petición puede fallar antes de que la caché venza; la siguiente resolución permite que Nginx alcance la instancia nueva sin redesplegar la web. Esta configuración no añade health checks activos de upstream ni reintenta datos de escritura; los clientes deben seguir tratando una respuesta fallida como no guardada. El smoke local cambia el destino de un alias DNS manteniendo Nginx activo, pero no sustituye un redespliegue de validación en Railway.
+
+Fuentes técnicas: [Railway private DNS](https://docs.railway.com/networking/domains/working-with-domains), [Railway private networking](https://docs.railway.com/networking/private-networking/how-it-works), [Nginx resolver](https://nginx.org/en/docs/http/ngx_http_core_module.html#resolver), [Nginx proxy_pass](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_pass) y [entrypoint oficial de la imagen Nginx](https://github.com/nginx/docker-nginx/blob/master/entrypoint/15-local-resolvers.envsh).
 
 La imagen de producción debe usar Node `26.13.0` y pnpm `12.19.0`; son las versiones exigidas por `package.json`. El runtime API es una imagen Node separada; la web usa `nginx/nginx-unprivileged:1.31.10-alpine`, fijada también al digest `sha256:86628f2c9eaa5e84e3b98d25e26563c4a4f9b0ead9cf5656da4731d86e0621de`. Confirmar una versión parcheada vigente y actualizar tag/digest al configurar el lanzamiento. `compose.yaml` y los `Dockerfile.dev` siguen reservados al desarrollo.
 
@@ -73,16 +85,17 @@ No se estima importe mensual sin plan, región, recursos, disco, transferencia y
 
 ## Smoke tras despliegue autorizado
 
-1. HTTPS responde en el dominio definitivo y el certificado está válido.
-2. `/healthz` responde 200; una ruta Vue profunda devuelve `index.html`.
-3. `/api/health` responde a través del proxy; la API no dispone de URL pública.
-4. Login crea cookie `__Host-trakia_session` con flags de producción; escritura CSRF válida funciona y origen no autorizado se rechaza.
-5. Revisa migraciones, bootstrap, cierre/recuperación de una ejecución de prueba y logs sin secretos.
-6. PWA: no declarar instalable hasta que HC-06-03 añada y pruebe manifest/service worker desde la URL definitiva.
+Comprobado el 2026-11-24: HTTPS del dominio definitivo, `/healthz` HTTP 200, `/api/health` HTTP 200 vía proxy con `{"status":"ok"}`, tres servicios Railway en línea, base `trakia`, 17 migraciones aplicadas, ninguna pendiente y usuario inicial existente. Estos checks no prueban autenticación, cookie, CSRF, persistencia de una sesión deportiva ni readiness de PostgreSQL.
+
+Pendiente: prueba autenticada de cookies/CSRF y flujo deportivo; comprobar la recuperación de datos; desplegar las correcciones locales HC-06-04 y HC-06-03 mediante una publicación autorizada; prueba manual de instalación Android/iOS por el propietario; habilitar y verificar backups/PITR antes de aceptar uso fuera de la fase temporal de pruebas.
 
 ## Estado de la auditoría (2026-11-24)
 
-El proyecto y el entorno `production` existen, pero no se crearon servicios, se conectaron credenciales ni se desplegó. Los builds y smoke locales se registran en HC-06-01; la conexión de Railway, backups reales, migraciones, bootstrap, dominio, cookies en producción y smoke final siguen sin validarse. La web no incluye manifest, iconos PWA completos ni registro de service worker; eso queda en HC-06-03. El health endpoint de API verifica proceso/ruta, no readiness continua de PostgreSQL.
+Railway CLI confirmó web, API y PostgreSQL en línea en `production`, con `https://trakia.up.railway.app` como dominio web activo. Se comprobó `current_database() = trakia`, se aplicaron una vez las 17 migraciones esperadas y no quedan pendientes; el bootstrap inicial se completó y existe un usuario. `/healthz` y `/api/health` devolvieron 200. No se consultó ni imprimió `DATABASE_URL`, JWT o credenciales.
+
+El propietario indicó Railway Limited Trial. La documentación del plan declara red saliente restringida y puertos limitados para Limited Trial, además de límites de trial (1 GB RAM por servicio, CPU compartida, máximo de cinco servicios por proyecto y volumen máximo de 0.5 GB). El trial incluye un crédito único de $5 que vence a los 30 días o al agotarse; Railway conserva el volumen 30 días tras expirar los créditos. Verifica los límites vigentes de la cuenta antes de ampliar uso.
+
+Backups/PITR siguen sin configurar por la autorización temporal del propietario para probar sin backups; no se declara que esta salvaguarda esté cumplida. La rama de HC-06 incorpora localmente la resolución DNS dinámica de HC-06-04 y la PWA mínima de HC-06-03, pero no se ha desplegado en Railway: el entorno público existente aún no tiene confirmada esta versión. El worker de la rama cachea shell/assets estáticos, no rutas `/api`, y muestra el estado offline sin guardar resultados; la instalación aún requiere verificación manual del propietario en el dominio definitivo. El health endpoint de API verifica proceso/ruta, no readiness continua de PostgreSQL.
 
 Fuentes oficiales consultadas:
 
@@ -96,6 +109,7 @@ Fuentes oficiales consultadas:
 - [Railway backups/PITR](https://docs.railway.com/volumes/point-in-time-recovery)
 - [Railway pre-deploy commands](https://docs.railway.com/deployments/pre-deploy-command)
 - [Railway cost control](https://docs.railway.com/pricing/cost-control)
+- [Railway Free Trial y Limited Trial](https://docs.railway.com/pricing/free-trial)
 - [Postgres SSL image del template Railway: tags de PostgreSQL 17](https://github.com/railwayapp-templates/postgres-ssl/pkgs/container/postgres-ssl)
 - [Generación de certificados autofirmados del template Postgres SSL](https://github.com/railwayapp-templates/postgres-ssl/blob/main/init-ssl.sh)
 - [Tags oficiales de NGINX unprivileged](https://github.com/nginx/docker-nginx-unprivileged/pkgs/container/nginx-unprivileged/versions)
