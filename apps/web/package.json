@@ -7,6 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vue-tsc -p tsconfig.json && vite build",
     "test": "node --test test/*.test.mjs",
+    "test:pwa-smoke": "node scripts/smoke-pwa-build.mjs",
+    "test:proxy-smoke": "node scripts/smoke-dynamic-proxy.mjs",
     "typecheck": "vue-tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -23,6 +25,8 @@
     "tailwindcss": "4.3.5",
     "typescript": "6.0.3",
     "vite": "8.3.7",
-    "vue-tsc": "3.3.14"
+    "vite-plugin-pwa": "2.0.0",
+    "vue-tsc": "3.3.14",
+    "workbox-window": "7.4.1"
   }
 }
