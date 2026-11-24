@@ -10,7 +10,7 @@ Railway CLI confirmó el 2026-11-24 web, API y PostgreSQL en línea en `producti
 
 ## HC-07 — Catálogo para planificación asistida
 
-[HC-07-01](tasks/HC-07/HC-07-01.md) está en revisión en la PR #8. La consulta temporal de solo lectura vía Railway SSH confirmó 0 ejercicios, 0 claves y 0 asociaciones multiclave; la clave se retiró después. El catálogo JSON se inicializó vacío; validación Zod, `pnpm check`, integración remota y auditoría pasan. No hay ejercicios productivos existentes para una prueba mixta real.
+[HC-07-01](tasks/HC-07/HC-07-01.md) está en revisión en la PR #8. La consulta temporal de solo lectura vía Railway SSH confirmó 0 ejercicios, 0 claves y 0 asociaciones multiclave; la clave se retiró después. El catálogo JSON se inicializó vacío; la prueba mixta usa fixtures sintéticas en una sesión con objetivos compatibles y comprueba el rechazo de una referencia inexistente. `pnpm exercise-catalog:validate`, `pnpm check`, integración remota y auditoría pasan.
 
 | Tarea | Estado | Alcance |
 | --- | --- | --- |

@@ -69,7 +69,7 @@ test('validates external references with the existing exercise contract', () => 
 })
 
 test('accepts a v1 import containing a known fixture and a new exercise without persistence', () => {
-  const result = TrainingPlanImportV1Schema.safeParse({
+  const document = {
     format: 'trakia.training-plan',
     version: 1,
     exercises: [knownTestFixture, newExercise],
@@ -78,8 +78,53 @@ test('accepts a v1 import containing a known fixture and a new exercise without 
       name: 'Catalog validation plan',
       startDate: '2026-11-24',
       endDate: '2026-11-24',
-      days: [],
+      days: [
+        {
+          type: 'session',
+          key: 'mixed-session',
+          date: '2026-11-24',
+          blocks: [
+            {
+              type: 'sets',
+              key: 'strength-sets',
+              restBetweenSetsSeconds: 60,
+              exercises: [
+                {
+                  key: 'known-exercise',
+                  exerciseKey: knownTestFixture.key,
+                  sets: 3,
+                  targets: { reps: 8, weight: 40 },
+                },
+              ],
+            },
+            {
+              type: 'intervals',
+              key: 'cardio-intervals',
+              cycles: 1,
+              phases: [
+                {
+                  type: 'work',
+                  key: 'new-exercise-work',
+                  windowSeconds: 45,
+                  exercise: {
+                    key: 'new-exercise',
+                    exerciseKey: newExercise.key,
+                    targets: { duration: 45 },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
     },
-  })
+  }
+  const result = TrainingPlanImportV1Schema.safeParse(document)
   assert.equal(result.success, true, result.success ? undefined : result.error.message)
+
+  const missingReference = structuredClone(document)
+  missingReference.plan.days[0].blocks[1].phases[0].exercise.exerciseKey = 'missing-test-exercise'
+  const missingReferenceResult = TrainingPlanImportV1Schema.safeParse(missingReference)
+  assert.equal(missingReferenceResult.success, false)
+  assert.match(missingReferenceResult.error.issues[0].message, /not defined/)
 })
