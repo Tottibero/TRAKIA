@@ -4,6 +4,10 @@
 
 El propietario confirmó el 2026-11-24 que completó las validaciones manuales pendientes de HC-05; no se detallaron escenarios ni viewports por tarea. `pnpm test:integration` pasó 23 casos en 11 grupos tras verificar que la base efectiva era `trakia_test`; no había migraciones pendientes. En el cierre pasaron `pnpm check`, `pnpm architecture:check` independiente (242 módulos) y `git diff --check`. Todas las tareas del bloque están cerradas documentalmente. Publicación, PR y CI remoto `quality` siguen pendientes.
 
+## HC-06 — Preparación Railway
+
+Se auditaron las imágenes y configuración de producción, sin desplegar ni usar credenciales reales. [HC-06-01](tasks/HC-06/HC-06-01.md) prepara las imágenes y el proxy; [HC-06-02](tasks/HC-06/HC-06-02.md) documenta configuración, migraciones y bootstrap controlados; [HC-06-03](tasks/HC-06/HC-06-03.md) deja pendiente la instalación PWA. Builds, smoke local, `pnpm check`, la comprobación independiente de arquitectura (242 módulos) y `git diff --check` pasan. `domain-no-http` quedó resuelta por la corrección del runner ya integrada en `main`, sin modificar la regla. Proyecto/entorno Railway existen, pero no se crearon servicios ni se desplegó. La configuración, migraciones, bootstrap y smoke de producción siguen pendientes; HC-06-03 queda fuera de esta fase.
+
 | Tarea | Estado | Alcance |
 | --- | --- | --- |
 | HC-00 | Cerrado a nivel de diseño | Arquitectura y decisiones aprobadas. |
