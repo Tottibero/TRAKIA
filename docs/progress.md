@@ -8,6 +8,10 @@ El propietario confirmó el 2026-11-24 que completó las validaciones manuales p
 
 Railway CLI confirmó el 2026-11-24 web, API y PostgreSQL en línea en `production`, con dominio HTTPS `https://trakia.up.railway.app`. `/healthz` y `/api/health` respondieron 200; DataSource confirmó base `trakia`, 17 migraciones aplicadas y el bootstrap inicial creó el primer usuario. No hay backups/PITR por autorización temporal del propietario; el proyecto está en Limited Trial y sus restricciones están registradas en el runbook. [HC-06-01](tasks/HC-06/HC-06-01.md) y [HC-06-02](tasks/HC-06/HC-06-02.md) siguen en revisión con la evidencia de producción añadida. [HC-06-03](tasks/HC-06/HC-06-03.md) ya muestra el estado sin conexión, desactiva los guardados y usa actualización PWA estándar; no añade almacenamiento offline. La prueba manual de instalación Android/iOS queda para el propietario. [HC-06-04](tasks/HC-06/HC-06-04.md) implementa resolución DNS dinámica del proxy; su smoke local cambia el destino sin reiniciar Nginx.
 
+## HC-07 — Catálogo para planificación asistida
+
+[HC-07-01](tasks/HC-07/HC-07-01.md) está en revisión. La consulta temporal de solo lectura vía Railway SSH confirmó 0 ejercicios, 0 claves y 0 asociaciones multiclave; la clave se retiró después. El catálogo JSON se inicializó vacío, pasa validación Zod y `pnpm check`; no hay ejercicios productivos existentes para una prueba mixta real.
+
 | Tarea | Estado | Alcance |
 | --- | --- | --- |
 | HC-00 | Cerrado a nivel de diseño | Arquitectura y decisiones aprobadas. |
