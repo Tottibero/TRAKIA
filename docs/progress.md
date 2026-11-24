@@ -1,5 +1,9 @@
 # Progreso
 
+## HC-05 — Cierre del bloque
+
+El propietario confirmó el 2026-11-24 que completó las validaciones manuales pendientes de HC-05; no se detallaron escenarios ni viewports por tarea. `pnpm test:integration` pasó 23 casos en 11 grupos tras verificar que la base efectiva era `trakia_test`; no había migraciones pendientes. En el cierre pasaron `pnpm check`, `pnpm architecture:check` independiente (242 módulos) y `git diff --check`. Todas las tareas del bloque están cerradas documentalmente. Publicación, PR y CI remoto `quality` siguen pendientes.
+
 | Tarea | Estado | Alcance |
 | --- | --- | --- |
 | HC-00 | Cerrado a nivel de diseño | Arquitectura y decisiones aprobadas. |
@@ -50,14 +54,14 @@
 | [HC-05-05](tasks/HC-05/HC-05-05.md) | Completada | Revisión móvil, metadatos finales y cierre local atómico; verificaciones y auditoría satisfactorias. El escaqueo no figura en el contrato y no aplica penalizaciones; queda pendiente el smoke test integral manual en móvil. Sincronización remota excluida. |
 | [HC-05-06](tasks/HC-05/HC-05-06.md) | Completada | Cierre idempotente con consolidación transaccional; verificaciones e integración en `trakia_test` satisfactorias y auditoría arquitectónica sin hallazgos. Aceptación registrada en el commit local; queda pendiente el smoke test integral manual en móvil de HC-05-05. |
 | [HC-05-07](tasks/HC-05/HC-05-07.md) | Completada | Correcciones auditables online, regresión final y migración aditiva; `pnpm check`, integración en `trakia_test` y auditoría arquitectónica satisfactorios. Aceptación del propietario registrada en el commit local; smoke test integral manual móvil pendiente como limitación no bloqueante. |
-| [HC-05-08](tasks/HC-05/HC-05-08.md) | En revisión | Persistencia, transiciones deportivas y UX del ejecutor estabilizadas; `pnpm check` pasa. Revisión visual/smoke móvil pendiente; sin commit ni publicación. |
+| [HC-05-08](tasks/HC-05/HC-05-08.md) | Completada | Persistencia, transiciones deportivas y UX del ejecutor estabilizadas; verificaciones y auditoría satisfactorias. Aceptación manual global registrada. |
 | [HC-05-09-02](tasks/HC-05/HC-05-09-02.md) | Completada | Modelo online especificado; métricas, timestamps y recorrido HC-05-09-03 definidos. Documentación solamente, sin implementación ni migraciones. |
 | [HC-05-09-03](tasks/HC-05/HC-05-09-03.md) | Completada | Recorrido online verificado en `trakia_test`, incluido press banca, recuperación, reintentos, aislamiento y rollback; aceptación del propietario. |
 | [HC-05-09-03a](tasks/HC-05/HC-05-09-03a.md) | Completada | Recorrido PWA aceptado: press banca, 7 reps, 40 kg, RPE 7; seis pruebas de interfaz, 23 pruebas PostgreSQL, `pnpm check` y arquitectura satisfactorios. Recuperación tras recarga no confirmada manualmente. |
 | [HC-05-09-03b](tasks/HC-05/HC-05-09-03b.md) | Completada | Cierre online; `pnpm check` e integración HTTP en `trakia_test` satisfactorios, auditoría sin hallazgos y prueba manual aceptada con press banca (7 reps, 40 kg, RPE 7). |
-| [HC-05-09-04](tasks/HC-05/HC-05-09-04.md) | Pendiente | Especificación de tiempos online: `activeSeconds`, descanso, pausa, recuperación y tareas futuras; sin cambios de software. |
-| [HC-05-09-04a](tasks/HC-05/HC-05-09-04a.md) | En revisión | Continuación manual, cierre online y recuperación tras recarga verificados; smoke manual de la corrección pendiente. |
-| [HC-05-09-04a-UX](tasks/HC-05/HC-05-09-04a-UX.md) | En revisión | Estado/resumen anidado en calendario y detalle mediante consulta por lote; `pnpm check`, integración `trakia_test` y arquitectura pasan, smoke manual pendiente. |
+| [HC-05-09-04](tasks/HC-05/HC-05-09-04.md) | Completada | Especificación de tiempos online desglosada en tareas implementadas; sin impacto arquitectónico. |
+| [HC-05-09-04a](tasks/HC-05/HC-05-09-04a.md) | Completada | Continuación manual, cierre online y recuperación tras recarga; verificaciones, integración `trakia_test` y arquitectura satisfactorias. Aceptación manual global registrada. |
+| [HC-05-09-04a-UX](tasks/HC-05/HC-05-09-04a-UX.md) | Completada | Estado/resumen en calendario y detalle por consulta de lote; `pnpm check`, integración y auditoría satisfactorias. Aceptación manual global registrada. |
 | [HC-05-09-04a-UX-02](tasks/HC-05/HC-05-09-04a-UX-02.md) | Completada | Objetivos planificados visibles durante el smoke manual conjunto; verificaciones automáticas satisfactorias. Viewports específicos de 375/390 px pendientes. |
 | [HC-05-09-04b](tasks/HC-05/HC-05-09-04b.md) | Completada | Dos series de press banca, descanso de 20 s, recuperación y cierre aceptados manualmente; integración `trakia_test`, `pnpm check` y arquitectura pasan. Viewports específicos de 375/390 px pendientes. |
 | [HC-05-09-04c](tasks/HC-05/HC-05-09-04c.md) | Completada | Pausa/reanudación online aceptadas manualmente; `pnpm check`, arquitectura e integración PostgreSQL `trakia_test` satisfactorias. |
@@ -68,9 +72,9 @@
 | [HC-05-10-01](tasks/HC-05/HC-05-10-01.md) | Completada | Tokens y shell; login con PNG intacto, nombre centrado, CTA rojo AA y toggle. `pnpm check` y arquitectura pasan; propietario acepta limitación de Chrome. |
 | [HC-05-10-02](tasks/HC-05/HC-05-10-02.md) | Completada | Rediseño del detalle y restricción de inicio en `Europe/Madrid`; `pnpm check`, arquitectura e integración `trakia_test` satisfactorias. Cierre autorizado por el propietario. |
 | [HC-05-10-02b](tasks/HC-05/HC-05-10-02b.md) | Completada | Inicio limitado a su fecha en `Europe/Madrid` desde frontend y API; verificaciones locales, arquitectura e integración `trakia_test` satisfactorias. Cierre autorizado por el propietario. |
-| [HC-05-10-03a](tasks/HC-05/HC-05-10-03a.md) | En revisión | Apertura online navega directamente al ejecutor; la primera acción confirma `workStartedAt` junto con el temporizador/estado inicial. Prueba manual pendiente. |
-| [HC-05-10-03b](tasks/HC-05/HC-05-10-03b.md) | En revisión | Formularios de fuerza, circuitos y AMRAP revisados: precarga por unidad/ronda y guardado según semántica deportiva; objetivo AMRAP parcial usa campos editables y fuerza usa CTA azul petróleo. `pnpm check` y arquitectura pasan; validación manual global pendiente. |
-| [HC-05-10-03c](tasks/HC-05/HC-05-10-03c.md) | En revisión | Sesiones mixtas avanzan por el primer bloque pendiente y permiten series de cardio; `pnpm check`, arquitectura y pruebas focalizadas pasan. Validación manual pendiente. |
-| [HC-05-10-07](tasks/HC-05/HC-05-10-07.md) | En revisión | Resumen real al cerrar/reabrir; nombres mostrados desde JSON sin alteración y RPE con tono visual. Validación manual pendiente. |
+| [HC-05-10-03a](tasks/HC-05/HC-05-10-03a.md) | Completada | Apertura online directa y confirmación inicial de `workStartedAt`; pruebas, auditoría y aceptación manual global satisfactorias. |
+| [HC-05-10-03b](tasks/HC-05/HC-05-10-03b.md) | Completada | HIIT y formularios armonizados por semántica; `pnpm check`, arquitectura e integración `trakia_test` (23 casos) satisfactorios. Aceptación manual global registrada. |
+| [HC-05-10-03c](tasks/HC-05/HC-05-10-03c.md) | Completada | Sesiones mixtas recorren bloques pendientes y recuperan el orden; pruebas y auditoría satisfactorias. Aceptación manual global registrada. |
+| [HC-05-10-07](tasks/HC-05/HC-05-10-07.md) | Completada | Resumen de resultados reales al cerrar/reabrir; pruebas y auditoría satisfactorias. Aceptación manual global registrada. |
 
 La aceptación actual de HC-01-02, HC-01-02c, HC-01-03a–HC-01-03g, HC-01-04 y HC-01-06 se registra por autorización explícita del propietario en la solicitud de cierre definitivo; no se atribuye a revisiones históricas. HC-01-01, HC-01-02b y HC-01-05a–HC-01-05e conservan sus cierres previamente documentados. Las pruebas automatizadas se distinguen de los recorridos manuales del propietario en las fichas correspondientes.
