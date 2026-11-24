@@ -1,6 +1,5 @@
 import { computed, ref, shallowRef } from 'vue'
 import {
-  resolveExerciseTargets,
   type ActualMetrics,
   type CircuitResult,
   type WorkoutExecution,
@@ -13,6 +12,7 @@ import {
   type WorkoutExecutionResultRequest,
   type WorkoutExecutionResultResponse,
 } from '@trakia/contracts'
+import { resolveAmrapRoundTargets } from './amrap-round-targets.ts'
 
 export function onlineAmrapExecutionLocation(executionId: string, requestId?: string, blockKey?: string) {
   return {
@@ -76,7 +76,11 @@ export function createOnlineAmrapFlow(
     if (!exec || !currentBlock) return []
     return currentBlock.exercises.map((appearance) => {
       const exercise = exec.snapshot.exercises.find(({ key }) => key === appearance.exerciseKey)!
-      const targets = resolveExerciseTargets(appearance, exercise.supportedMetrics)
+      const targets = resolveAmrapRoundTargets(
+        appearance,
+        exercise.supportedMetrics,
+        (amrap.value?.rounds.length ?? 0) + 1,
+      )
       const partialResult = exec.results.find(
         (result): result is CircuitResult =>
           result.type === 'circuit' &&

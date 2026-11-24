@@ -183,6 +183,11 @@ test('the online route presents only the stopwatch and metrics flow without loca
   assert.match(view, /role="timer"/)
   assert.match(view, /Terminar serie/)
   assert.match(view, /Guardar resultado/)
+  const saveButton = view.match(/<button\s+class="[^"]*"[\s\S]*?Guardar resultado[\s\S]*?<\/button>/)?.[0]
+  assert.ok(saveButton)
+  assert.match(saveButton, /bg-\[var\(--trakia-save-action\)\]/)
+  assert.match(saveButton, /hover:bg-\[var\(--trakia-save-action-hover\)\]/)
+  assert.doesNotMatch(saveButton, /C81F19|lime/i)
   assert.match(
     view,
     /Serie \{\{ flow\.plannedUnit\.value\.setIndex \}\} de \{\{ flow\.plannedUnit\.value\.appearance\.sets \}\}/,

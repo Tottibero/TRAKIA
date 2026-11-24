@@ -246,7 +246,7 @@ onBeforeUnmount(() => {
           </fieldset>
 
           <button
-            class="inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[#C81F19] px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-[#A91B16] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#FE514A] disabled:cursor-not-allowed disabled:opacity-60"
+            class="inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-[var(--trakia-save-action)] px-5 py-4 text-base font-semibold text-[var(--trakia-text)] transition-colors hover:bg-[var(--trakia-save-action-hover)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--trakia-focus)] disabled:cursor-not-allowed disabled:bg-[var(--trakia-surface-raised)] disabled:text-[var(--trakia-muted)]"
             type="submit"
             :disabled="!flow.canSave.value"
           >

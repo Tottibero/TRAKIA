@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, watch } from 'vue'
 import type { ActualMetrics, WorkoutExecution } from '@trakia/contracts'
-import { resolveExerciseTargets } from '@trakia/contracts'
-import { metricPillColorClass } from '../../../shared/utils/metric-pill-presentation'
 import { actualMetricInputConstraints } from '../metric-input-constraints'
+import { resolveAmrapRoundTargets } from '../amrap-round-targets.ts'
+import { amrapMetricInputValue } from '../amrap-result-review.js'
 
 type PartialExercise = { appearanceKey: string; actualMetrics?: ActualMetrics }
 
@@ -22,25 +22,13 @@ const selected = reactive<Record<string, boolean>>({})
 const drafts = reactive<Record<string, Partial<Record<keyof ActualMetrics, string>>>>({})
 const error = reactive<{ message: string | null }>({ message: null })
 const metricDefinitions = {
-  reps: { key: 'reps', label: 'Repeticiones', unit: 'reps' },
-  weight: { key: 'weightKg', label: 'Peso', unit: 'kg' },
-  rpe: { key: 'rpe', label: 'RPE', unit: '' },
-  duration: { key: 'durationSeconds', label: 'Duración', unit: 's' },
-  distance: { key: 'distanceMeters', label: 'Distancia', unit: 'm' },
-  calories: { key: 'calories', label: 'Calorías', unit: 'kcal' },
+  reps: { key: 'reps', metric: 'reps', label: 'Repeticiones', unit: 'reps' },
+  weight: { key: 'weightKg', metric: 'weight', label: 'Peso', unit: 'kg' },
+  rpe: { key: 'rpe', metric: 'rpe', label: 'RPE', unit: '' },
+  duration: { key: 'durationSeconds', metric: 'duration', label: 'Duración', unit: 's' },
+  distance: { key: 'distanceMeters', metric: 'distance', label: 'Distancia', unit: 'm' },
+  calories: { key: 'calories', metric: 'calories', label: 'Calorías', unit: 'kcal' },
 } as const
-
-function formatTarget(value: number, metric: string) {
-  if (metric === 'rpe') return `RPE ${value}`
-  const units: Record<string, string> = {
-    reps: 'reps',
-    weight: 'kg',
-    duration: 's',
-    distance: 'm',
-    calories: 'kcal',
-  }
-  return `${value} ${units[metric] ?? metric}`
-}
 
 const block = computed(() =>
   props.execution.snapshot.session.blocks.find(
@@ -52,7 +40,7 @@ const rows = computed(() => {
   if (block.value?.type !== 'circuit' || block.value.mode !== 'amrap') return []
   return block.value.exercises.map((appearance) => {
     const exercise = props.execution.snapshot.exercises.find(({ key }) => key === appearance.exerciseKey)!
-    const targets = resolveExerciseTargets(appearance, exercise.supportedMetrics)
+    const targets = resolveAmrapRoundTargets(appearance, exercise.supportedMetrics, props.roundIndex)
     const result = props.execution.results.find(
       (candidate) =>
         candidate.type === 'circuit' &&
@@ -101,8 +89,11 @@ function toggle(appearanceKey: string, value: boolean) {
 function toActualMetrics(appearanceKey: string): ActualMetrics | undefined {
   const metrics: Partial<Record<keyof ActualMetrics, number>> = {}
   const draft = drafts[appearanceKey] ?? {}
-  for (const field of rows.value.find(({ appearance }) => appearance.key === appearanceKey)?.fields ?? []) {
-    const value = draft[field.key]?.trim()
+  const row = rows.value.find(({ appearance }) => appearance.key === appearanceKey)
+  for (const field of row?.fields ?? []) {
+    const draftValue = draft[field.key]
+    const target = row?.targets[field.metric]
+    const value = amrapMetricInputValue(draftValue, undefined, target).trim()
     if (!value) continue
     const number = Number(value)
     if (
@@ -139,7 +130,11 @@ function submit() {
 }
 
 function inputValue(row: (typeof rows.value)[number], field: (typeof row.fields)[number]) {
-  return drafts[row.appearance.key]?.[field.key] ?? row.result?.actualMetrics?.[field.key] ?? ''
+  return amrapMetricInputValue(
+    drafts[row.appearance.key]?.[field.key],
+    row.result?.actualMetrics?.[field.key],
+    row.targets[field.metric],
+  )
 }
 </script>
 
@@ -163,21 +158,6 @@ function inputValue(row: (typeof rows.value)[number], field: (typeof row.fields)
             >Guardado</span
           >
         </label>
-        <ul
-          v-if="Object.keys(row.targets).length"
-          class="ml-8 flex max-w-full flex-wrap gap-1.5"
-          :aria-label="`Objetivos de ${row.exercise.name}`"
-        >
-          <template v-for="(target, metric) in row.targets" :key="metric">
-            <li
-              v-if="target !== undefined"
-              class="inline-flex min-h-8 max-w-full items-center rounded-full border border-[var(--trakia-border)] bg-[var(--trakia-surface-raised)] px-2.5 py-1 text-xs font-medium leading-tight text-[var(--trakia-text-strong)]"
-              :class="metricPillColorClass(metric)"
-            >
-              {{ formatTarget(target, metric) }}
-            </li>
-          </template>
-        </ul>
         <div
           v-if="selected[row.appearance.key] && !row.result && row.fields.length"
           class="ml-8 mt-2 grid grid-cols-2 gap-2"

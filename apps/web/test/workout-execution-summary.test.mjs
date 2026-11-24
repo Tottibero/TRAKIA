@@ -177,6 +177,14 @@ test('finished AMRAP hides planning content and shows only actual finish totals 
   assert.match(amrapResultsReviewView, /v-for="row in round\.exercises"/)
   assert.match(amrapResultsReviewView, /row\.result\?\.actualMetrics/)
   assert.match(amrapResultsReviewView, /inputValue\(row, field\)/)
+  assert.match(
+    amrapResultsReviewView,
+    /resolveAmrapRoundTargets\(appearance, exercise\.supportedMetrics, round\.roundIndex\)/,
+  )
+  assert.match(
+    amrapResultsReviewView,
+    /Object\.keys\(row\.targets\)\.length[\s\S]*?statusDrafts\[row\.rowKey\] !== 'performed'/,
+  )
   assert.match(amrapResultsReviewView, /metricPillColorClass\(metric\)/)
   assert.match(amrapResultsReviewView, /savingKey === row\.rowKey \? 'Guardando…' : 'Confirmar realizado'/)
   assert.match(amrapResultsReviewView, /errors\[row\.rowKey\][\s\S]*?role="alert"/)
@@ -187,13 +195,16 @@ test('finished AMRAP hides planning content and shows only actual finish totals 
   assert.doesNotMatch(amrapResultsReviewView, /lime/i)
 })
 
-test('partial AMRAP form keeps checklist, optional real metrics and shared target pills without prefill', () => {
+test('partial AMRAP form prefills editable metrics by round without duplicate target pills', () => {
   const inputValue = amrapPartialRoundView.match(/function inputValue\([\s\S]*?\n}/)?.[0]
   assert.match(amrapPartialRoundView, /Última ronda parcial/)
   assert.match(amrapPartialRoundView, /type="checkbox"/)
   assert.match(amrapPartialRoundView, /@change="toggle\(row\.appearance\.key/)
-  assert.match(amrapPartialRoundView, /v-for="\(target, metric\) in row\.targets"/)
-  assert.match(amrapPartialRoundView, /metricPillColorClass\(metric\)/)
+  assert.match(
+    amrapPartialRoundView,
+    /resolveAmrapRoundTargets\(appearance, exercise\.supportedMetrics, props\.roundIndex\)/,
+  )
+  assert.match(amrapPartialRoundView, /metric: 'reps'/)
   assert.match(amrapPartialRoundView, /actualMetricInputConstraints\(field\.key, \{ allowZeroReps: true \}\)/)
   assert.match(amrapPartialRoundView, /:value="inputValue\(row, field\)"/)
   assert.match(amrapPartialRoundView, /Boolean\(row\.result\) \|\| saving \|\| !online/)
@@ -209,7 +220,8 @@ test('partial AMRAP form keeps checklist, optional real metrics and shared targe
   assert.ok(inputValue)
   assert.match(inputValue, /drafts\[row\.appearance\.key\]/)
   assert.match(inputValue, /row\.result\?\.actualMetrics/)
-  assert.doesNotMatch(inputValue, /field\.target|row\.targets/)
+  assert.match(inputValue, /row\.targets\[field\.metric\]/)
+  assert.match(inputValue, /amrapMetricInputValue/)
   assert.match(amrapPartialRoundView, /bg-\[var\(--trakia-save-action\)\]/)
   assert.match(amrapView, /@save="flow\.savePartial"/)
   assert.match(webStyles, /--trakia-save-action: #23576a/)

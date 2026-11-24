@@ -6,6 +6,7 @@ import {
   onlineAmrapExecutionLocation,
 } from '../src/features/workout-execution/online-amrap-flow.ts'
 import {
+  amrapMetricInputValue,
   getAmrapMetricFields,
   proposedAmrapMetrics,
 } from '../src/features/workout-execution/amrap-result-review.js'
@@ -20,6 +21,14 @@ test('planned targets are explicit proposals and do not create confirmed exercis
   assert.deepEqual(proposals, { reps: 10, weightKg: 20, rpe: 8 })
   assert.equal(testFlow.flow.execution.value, null)
   assert.equal(testFlow.writes.length, 0)
+})
+
+test('AMRAP metric inputs prioritize edits and confirmed values, preserve zero, and leave missing targets empty', () => {
+  assert.equal(amrapMetricInputValue('0', 7, 12), '0')
+  assert.equal(amrapMetricInputValue(undefined, 0, 12), '0')
+  assert.equal(amrapMetricInputValue('', undefined, 12), '')
+  assert.equal(amrapMetricInputValue(undefined, undefined, 12), '12')
+  assert.equal(amrapMetricInputValue(undefined, undefined, undefined), '')
 })
 
 function execution({
@@ -166,6 +175,21 @@ test('starts once and exposes every planned exercise with its target', async () 
   assert.ok(testFlow.flow.amrap.value.startedAt)
   assert.equal(testFlow.flow.isRunning.value, true)
   assert.match(testFlow.flow.timerDisplay.value, /^\d{2}:\d{2}$/)
+})
+
+test('uses objectives specific to each AMRAP round in the active flow', async () => {
+  const planned = execution({ count: 1 })
+  planned.snapshot.session.blocks[0].exercises[0].overridesByRound = [
+    { index: 1, targetOverrides: { reps: 14 } },
+    { index: 2, targetOverrides: { reps: 11 } },
+  ]
+  const testFlow = harness({ initial: planned, count: 1 })
+  await testFlow.flow.recover()
+  assert.deepEqual(testFlow.flow.entries.value[0].targets, { reps: 14 })
+
+  await testFlow.flow.start()
+  await testFlow.flow.completeRound()
+  assert.deepEqual(testFlow.flow.entries.value[0].targets, { reps: 11 })
 })
 
 test('records consecutive rounds and timestamps once, even when requests replay', async () => {

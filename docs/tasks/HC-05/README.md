@@ -28,7 +28,7 @@
 | [HC-05-10-02](HC-05-10-02.md) | Completada | Rediseño del detalle aceptado y regla autoritativa de inicio en `Europe/Madrid`; `pnpm check`, arquitectura e integración `trakia_test` satisfactorias. Cierre autorizado por el propietario. |
 | [HC-05-10-02b](HC-05-10-02b.md) | Completada | Inicio limitado a su fecha en `Europe/Madrid`, con validación API y sin ejecución tras rechazo. `pnpm check`, arquitectura e integración `trakia_test` satisfactorias; cierre autorizado por el propietario. |
 | [HC-05-10-03a](HC-05-10-03a.md) | En revisión | Apertura online navega directamente al ejecutor; la primera acción confirma `workStartedAt` junto con el temporizador/estado inicial. Prueba manual pendiente. |
-| [HC-05-10-03b](HC-05-10-03b.md) | En revisión | Inicio y estados HIIT compactos; formulario final precarga objetivos y guarda resultados con un CTA mediante peticiones individuales, con éxito parcial reconciliable. `pnpm check` y arquitectura pasan; validación manual pendiente. |
+| [HC-05-10-03b](HC-05-10-03b.md) | En revisión | HIIT y formularios de resultados armonizados: precarga por unidad/ronda, acciones compactas y guardado según semántica deportiva; fuerza por serie, circuitos por ronda y AMRAP por ejercicio/ronda. `pnpm check` y arquitectura pasan; validación manual global pendiente. |
 | [HC-05-10-03c](HC-05-10-03c.md) | En revisión | Ejecutores online recorren bloques mixtos en orden y recuperan el primero pendiente; pruebas y auditoría pasan. Validación manual pendiente. |
 | [HC-05-10-07](HC-05-10-07.md) | En revisión | Resultados reales al cerrar y reabrir; checks y auditoría arquitectónica satisfactorios. Validación manual pendiente. |
 

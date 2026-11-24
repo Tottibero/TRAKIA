@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { ActualMetrics, CircuitResult, WorkoutExecution } from '@trakia/contracts'
-import { resolveExerciseTargets } from '@trakia/contracts'
+import { resolveAmrapRoundTargets } from '../amrap-round-targets.ts'
 import { metricPillColorClass } from '../../../shared/utils/metric-pill-presentation'
 import { getAmrapMetricFields, proposedAmrapMetrics } from '../amrap-result-review.js'
 import { recordWorkoutExecutionResult } from '../api/execution'
@@ -40,7 +40,7 @@ const rounds = computed(() => {
     isPartial: false,
     exercises: currentBlock.exercises.map((appearance) => {
       const exercise = props.execution.snapshot.exercises.find(({ key }) => key === appearance.exerciseKey)!
-      const targets = resolveExerciseTargets(appearance, exercise.supportedMetrics)
+      const targets = resolveAmrapRoundTargets(appearance, exercise.supportedMetrics, round.roundIndex)
       const result = props.execution.results.find(
         (candidate): candidate is CircuitResult =>
           candidate.type === 'circuit' &&
@@ -74,7 +74,7 @@ const rounds = computed(() => {
     const appearance = currentBlock.exercises.find(({ key }) => key === result.plannedExerciseKey)
     if (!appearance) return []
     const exercise = props.execution.snapshot.exercises.find(({ key }) => key === appearance.exerciseKey)!
-    const targets = resolveExerciseTargets(appearance, exercise.supportedMetrics)
+    const targets = resolveAmrapRoundTargets(appearance, exercise.supportedMetrics, partialRoundIndex)
     return [
       {
         rowKey: `${props.blockKey}:${partialRoundIndex}:${appearance.key}`,
@@ -261,7 +261,11 @@ function parseDraftValue(field: keyof ActualMetrics, value: string) {
               </span>
             </div>
             <ul
-              v-if="Object.keys(row.targets).length"
+              v-if="
+                Object.keys(row.targets).length &&
+                statusDrafts[row.rowKey] !== 'performed' &&
+                row.result?.status !== 'performed'
+              "
               class="mt-1 flex max-w-full flex-wrap gap-1.5"
               :aria-label="`Objetivos de ${row.exercise.name}`"
             >

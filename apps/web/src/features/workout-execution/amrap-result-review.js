@@ -21,3 +21,10 @@ export function proposedAmrapMetrics(fields) {
   }
   return proposal
 }
+
+export function amrapMetricInputValue(draft, saved, target) {
+  if (draft !== undefined) return draft
+  if (saved !== undefined) return String(saved)
+  if (target !== undefined) return String(target)
+  return ''
+}

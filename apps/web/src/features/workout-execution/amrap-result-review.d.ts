@@ -10,3 +10,9 @@ export interface AmrapMetricField {
 export function getAmrapMetricFields(supportedMetrics: readonly string[], targets: object): AmrapMetricField[]
 
 export function proposedAmrapMetrics(fields: AmrapMetricField[]): Partial<ActualMetrics>
+
+export function amrapMetricInputValue(
+  draft: string | undefined,
+  saved: number | undefined,
+  target: number | undefined,
+): string
