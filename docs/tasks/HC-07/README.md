@@ -2,4 +2,4 @@
 
 | Tarea | Estado | Objetivo |
 | --- | --- | --- |
-| [HC-07-01](HC-07-01.md) | En revisión | Catálogo productivo vacío confirmado; prueba mixta con sesión, métricas compatibles y rechazo de referencia inexistente. `quality` del nuevo commit documental pendiente. |
+| [HC-07-01](HC-07-01.md) | Completada | Catálogo productivo vacío aceptado; prueba mixta con sesión, métricas compatibles y rechazo de referencia inexistente; validaciones locales, auditoría y `quality` satisfactorios. |
