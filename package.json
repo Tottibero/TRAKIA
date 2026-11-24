@@ -14,6 +14,7 @@
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "architecture:check": "node scripts/architecture-check.mjs",
+    "exercise-catalog:validate": "pnpm --filter @trakia/contracts build && node --test packages/contracts/scripts/exercise-catalog.test.mjs && node packages/contracts/scripts/validate-exercise-catalog.mjs",
     "test": "pnpm --filter @trakia/api test",
     "test:integration": "node scripts/run-integration-tests.mjs",
     "auth:bootstrap": "pnpm --filter @trakia/api build && node apps/api/scripts/auth-admin.mjs bootstrap",
