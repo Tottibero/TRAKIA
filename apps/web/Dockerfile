@@ -15,6 +15,7 @@ FROM nginx/nginx-unprivileged:1.31.10-alpine@sha256:86628f2c9eaa5e84e3b98d25e265
 USER root
 COPY apps/web/deploy/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /workspace/apps/web/dist/ /usr/share/nginx/html/
-ENV NGINX_ENVSUBST_FILTER=^(PORT|API_UPSTREAM)$
+ENV NGINX_ENVSUBST_FILTER=^(PORT|API_UPSTREAM|NGINX_LOCAL_RESOLVERS)$ \
+    NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
 USER 101
 EXPOSE 8080
