@@ -1,6 +1,8 @@
 # Decisiones de sincronización de ejecuciones deportivas
 
-Este documento define el contrato conceptual de sincronización de ejecuciones cerradas. El transporte, la cola, el almacenamiento offline y el procesamiento del servidor se implementarán en tareas posteriores. Las formas externas Zod viven en `packages/contracts/src/workout-sync/`.
+> **Estado:** este documento conserva el protocolo histórico diseñado para HC-02/HC-05-01–08. HC-05-09-02 completada lo sustituye para el ciclo de ejecución: no hay cierre offline, cola ni reconciliación. Se conserva a continuación el historial y la semántica de correcciones auditables; no es la arquitectura objetivo vigente.
+
+Este documento define el contrato de sincronización de ejecuciones cerradas y sus correcciones posteriores. Las formas externas Zod viven en `packages/contracts/src/workout-sync/`.
 
 ## Decisiones aprobadas
 
@@ -27,4 +29,14 @@ El catálogo inicial contempla `OPERATION_CONTENT_MISMATCH`, `DEPENDENCY_PENDING
 
 ## Pendiente de implementación
 
-Quedan fuera de este contrato las transiciones y el almacenamiento local, la cola ordenada, reintentos, recuperación de `syncing`, comparación de contenido/hash, idempotencia persistida, aplicación de operaciones, detección remota de dependencias y resolución de conflictos. El backend determinará si el `resultId` corregido pertenece a la ejecución indicada y si las secuencias anteriores están confirmadas.
+HC-05-06 implementa el cierre de secuencia 1 mediante `POST /workouts/executions/:executionId/close`. El sobre aceptado se conserva en `workout_executions.close_operation`; no hay tabla ni motor remoto genérico. El backend bloquea la fila, verifica cuenta/dispositivo/snapshot, une resultados por ID con comparación exacta, rechaza colisiones de identidad o unidad, valida el conjunto completo y guarda cierre/resultados/estado en una transacción. Un cierre idéntico devuelve `already_applied`; uno contradictorio devuelve conflicto. La transición a `completed` libera la reserva parcial por cuenta.
+
+La web reutiliza el registro de cierre existente en IndexedDB y reintenta al cargar la PWA, al abrir la vista cerrada y al recuperar conexión. Solo una respuesta `applied` o `already_applied` marca el cierre y sus resultados como sincronizados y elimina `activeExecution`; el cierre local permanece disponible. Los fallos recuperables conservan la operación y los conflictos no reescriben resultados.
+
+## Correcciones posteriores al cierre
+
+HC-05-07 implementa `POST /workouts/executions/:executionId/corrections` para una operación `correct_result`. El servicio de `workouts` bloquea la ejecución, comprueba cuenta, dispositivo original, estado completado, resultado, secuencia consecutiva y valores `before`; aplica la corrección al resultado efectivo y valida la ejecución completa contra el snapshot antes de persistir.
+
+La migración `AddWorkoutExecutionCorrectionOperations1795305600000` añade `correction_operations jsonb NOT NULL DEFAULT []`. La columna conserva el sobre completo de cada operación, incluido `operationId`, secuencia y `WorkoutCorrection`. Resultado e historial se escriben de forma atómica. Un retry idéntico devuelve `already_applied`; conflictos de identidad, contenido o valores vigentes no reescriben datos. La transición de estado, `finishedAt`, `close_operation` y la reserva global no se modifican.
+
+La PWA solo permite enviar correcciones online desde el dispositivo asociado a la ejecución. La vista espera respuesta aceptada antes de actualizar el resultado mostrado y persiste localmente la corrección confirmada. Un error conserva el formulario y la identidad en la vista para reintentar; no hay cola offline. Cambios en `activeSeconds` y `windowProgressSeconds` siguen fuera de alcance porque el contrato `WorkoutCorrectionChange` no los representa.

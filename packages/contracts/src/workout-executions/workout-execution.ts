@@ -32,6 +32,15 @@ export type WorkoutPause = z.infer<typeof WorkoutPauseSchema>
 export const WorkoutStatusSchema = z.enum(['in_progress', 'paused', 'completed'])
 export type WorkoutStatus = z.infer<typeof WorkoutStatusSchema>
 
+export const WorkoutFeelingSchema = z.enum(['muy_bien', 'bien', 'regular', 'mal', 'muy_mal'])
+export type WorkoutFeeling = z.infer<typeof WorkoutFeelingSchema>
+
+export const WorkoutCompletionTypeSchema = z.enum(['planned', 'early'])
+export type WorkoutCompletionType = z.infer<typeof WorkoutCompletionTypeSchema>
+
+const FinalObservationsSchema = z.string().trim().max(1000)
+const ClosureReasonSchema = z.string().trim().min(1).max(240)
+
 export const WorkoutExerciseSnapshotSchema = z
   .object({
     key: StableKeySchema,
@@ -73,6 +82,137 @@ export const WorkoutExecutionSnapshotSchema = z
   })
 export type WorkoutExecutionSnapshot = z.infer<typeof WorkoutExecutionSnapshotSchema>
 
+export const WorkoutCircuitRoundSchema = z
+  .object({
+    blockKey: StableKeySchema,
+    roundIndex: z.number().int().positive(),
+    startedAt: ResultTimestampSchema,
+    finishedAt: ResultTimestampSchema,
+    activeSeconds: z.number().finite().positive(),
+  })
+  .strict()
+  .superRefine((round, context) => {
+    if (Date.parse(round.finishedAt) <= Date.parse(round.startedAt)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['finishedAt'],
+        message: 'Circuit round must finish after it starts',
+      })
+    }
+  })
+export type WorkoutCircuitRound = z.infer<typeof WorkoutCircuitRoundSchema>
+
+export const WorkoutAmrapRoundSchema = z
+  .object({ roundIndex: z.number().int().positive(), finishedAt: ResultTimestampSchema })
+  .strict()
+export type WorkoutAmrapRound = z.infer<typeof WorkoutAmrapRoundSchema>
+
+export const WorkoutAmrapStateSchema = z
+  .object({
+    blockKey: StableKeySchema,
+    startedAt: ResultTimestampSchema,
+    rounds: z.array(WorkoutAmrapRoundSchema),
+    finishedAt: ResultTimestampSchema.optional(),
+    finishReason: z.enum(['time_limit', 'early']).optional(),
+    activeSeconds: z.number().finite().positive().optional(),
+  })
+  .strict()
+  .superRefine((amrap, context) => {
+    amrap.rounds.forEach((round, index) => {
+      if (round.roundIndex !== index + 1) {
+        context.addIssue({
+          code: 'custom',
+          path: ['rounds', index, 'roundIndex'],
+          message: 'AMRAP rounds must be sequential and start at one',
+        })
+      }
+      if (Date.parse(round.finishedAt) < Date.parse(amrap.startedAt)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['rounds', index, 'finishedAt'],
+          message: 'AMRAP round cannot finish before it starts',
+        })
+      }
+    })
+    const hasFinishedAt = amrap.finishedAt !== undefined
+    if (
+      hasFinishedAt !== (amrap.finishReason !== undefined) ||
+      hasFinishedAt !== (amrap.activeSeconds !== undefined)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['finishedAt'],
+        message: 'Finished AMRAP state requires finish reason and effective time together',
+      })
+    }
+    if (amrap.finishedAt && Date.parse(amrap.finishedAt) < Date.parse(amrap.startedAt)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['finishedAt'],
+        message: 'AMRAP cannot finish before it starts',
+      })
+    }
+    if (
+      amrap.finishedAt &&
+      amrap.rounds.some((round) => Date.parse(round.finishedAt) > Date.parse(amrap.finishedAt!))
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['rounds'],
+        message: 'AMRAP rounds cannot finish after the AMRAP window',
+      })
+    }
+  })
+export type WorkoutAmrapState = z.infer<typeof WorkoutAmrapStateSchema>
+
+const WorkoutExecutionTimerFields = {
+  resultId: z.uuid(),
+  blockKey: StableKeySchema,
+  plannedExerciseKey: StableKeySchema,
+  unit: z.object({ kind: z.literal('planned'), setIndex: z.number().int().positive() }).strict(),
+  startedAt: ResultTimestampSchema,
+}
+
+export const WorkoutExecutionActiveTimerSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('work'), ...WorkoutExecutionTimerFields }).strict(),
+  z.object({ kind: z.literal('rest'), ...WorkoutExecutionTimerFields }).strict(),
+  z
+    .object({
+      kind: z.literal('circuitRound'),
+      blockKey: StableKeySchema,
+      roundIndex: z.number().int().positive(),
+      startedAt: ResultTimestampSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('circuitRest'),
+      blockKey: StableKeySchema,
+      roundIndex: z.number().int().positive(),
+      startedAt: ResultTimestampSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('intervalWork'),
+      blockKey: StableKeySchema,
+      cycleIndex: z.number().int().positive(),
+      phaseKey: StableKeySchema,
+      startedAt: ResultTimestampSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('intervalRest'),
+      blockKey: StableKeySchema,
+      cycleIndex: z.number().int().positive(),
+      phaseKey: StableKeySchema,
+      startedAt: ResultTimestampSchema,
+    })
+    .strict(),
+])
+export type WorkoutExecutionActiveTimer = z.infer<typeof WorkoutExecutionActiveTimerSchema>
+
 const WorkoutExecutionFields = {
   id: z.uuid(),
   planKey: StableKeySchema,
@@ -80,8 +220,16 @@ const WorkoutExecutionFields = {
   snapshot: WorkoutExecutionSnapshotSchema,
   status: WorkoutStatusSchema,
   startedAt: ResultTimestampSchema,
+  workStartedAt: ResultTimestampSchema.nullable().optional(),
   finishedAt: ResultTimestampSchema.optional(),
+  feeling: WorkoutFeelingSchema.optional(),
+  observations: FinalObservationsSchema.optional(),
+  completionType: WorkoutCompletionTypeSchema.optional(),
+  closureReason: ClosureReasonSchema.optional(),
   pauses: z.array(WorkoutPauseSchema),
+  circuitRounds: z.array(WorkoutCircuitRoundSchema).optional(),
+  amrap: WorkoutAmrapStateSchema.optional(),
+  activeTimer: WorkoutExecutionActiveTimerSchema.optional(),
   results: z.array(WorkoutResultSchema),
   corrections: z.array(WorkoutCorrectionSchema),
 }
@@ -117,6 +265,150 @@ export const WorkoutExecutionSchema = z
         code: 'custom',
         path: ['finishedAt'],
         message: 'Execution end cannot precede its start',
+      })
+    }
+    if (execution.workStartedAt && Date.parse(execution.workStartedAt) < Date.parse(execution.startedAt)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['workStartedAt'],
+        message: 'Effective workout start cannot precede execution opening',
+      })
+    }
+    if (execution.status === 'completed' && execution.workStartedAt === null) {
+      context.addIssue({
+        code: 'custom',
+        path: ['workStartedAt'],
+        message: 'Completed executions require an effective workout start',
+      })
+    }
+    if (execution.status === 'completed' && execution.activeTimer !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['activeTimer'],
+        message: 'Completed executions cannot have an active timer',
+      })
+    }
+    const activeTimer = execution.activeTimer
+    if (
+      activeTimer?.kind === 'work' &&
+      execution.results.some(
+        (result) =>
+          result.type === 'sets' &&
+          result.id === activeTimer.resultId &&
+          result.blockKey === activeTimer.blockKey &&
+          result.plannedExerciseKey === activeTimer.plannedExerciseKey &&
+          result.unit.kind === 'planned' &&
+          result.unit.setIndex === activeTimer.unit.setIndex,
+      )
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['activeTimer'],
+        message: 'An active timer cannot reference a result that is already complete',
+      })
+    }
+    if (
+      activeTimer?.kind === 'rest' &&
+      !execution.results.some(
+        (result) =>
+          result.type === 'sets' &&
+          result.id === activeTimer.resultId &&
+          result.blockKey === activeTimer.blockKey &&
+          result.plannedExerciseKey === activeTimer.plannedExerciseKey &&
+          result.unit.kind === 'planned' &&
+          result.unit.setIndex === activeTimer.unit.setIndex,
+      )
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['activeTimer'],
+        message: 'A rest timer must reference its completed result',
+      })
+    }
+    if (execution.activeTimer?.kind === 'circuitRound' || execution.activeTimer?.kind === 'circuitRest') {
+      const timer = execution.activeTimer
+      const block = execution.snapshot.session.blocks.find(
+        (candidate) =>
+          candidate.type === 'circuit' && candidate.mode === 'rounds' && candidate.key === timer.blockKey,
+      )
+      if (block?.type !== 'circuit' || block.mode !== 'rounds' || timer.roundIndex > block.rounds) {
+        context.addIssue({
+          code: 'custom',
+          path: ['activeTimer'],
+          message: 'Circuit timer must reference a planned fixed round',
+        })
+      }
+      const completed = (execution.circuitRounds ?? []).some(
+        (round) => round.blockKey === timer.blockKey && round.roundIndex === timer.roundIndex,
+      )
+      if (timer.kind === 'circuitRound' && completed) {
+        context.addIssue({
+          code: 'custom',
+          path: ['activeTimer'],
+          message: 'An active round cannot already be complete',
+        })
+      }
+      if (timer.kind === 'circuitRest' && !completed) {
+        context.addIssue({
+          code: 'custom',
+          path: ['activeTimer'],
+          message: 'Circuit rest must reference a completed round',
+        })
+      }
+    }
+    if (execution.activeTimer?.kind === 'intervalWork' || execution.activeTimer?.kind === 'intervalRest') {
+      const timer = execution.activeTimer
+      const block = execution.snapshot.session.blocks.find(
+        (candidate) => candidate.type === 'intervals' && candidate.key === timer.blockKey,
+      )
+      const phase =
+        block?.type === 'intervals' ? block.phases.find(({ key }) => key === timer.phaseKey) : undefined
+      if (
+        block?.type !== 'intervals' ||
+        timer.cycleIndex > block.cycles ||
+        !phase ||
+        (timer.kind === 'intervalWork') !== (phase.type === 'work')
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['activeTimer'],
+          message: 'Interval timer must reference a scheduled phase',
+        })
+      }
+      if (
+        execution.results.some(
+          (result) =>
+            result.type === 'intervals' &&
+            result.blockKey === timer.blockKey &&
+            result.cycleIndex === timer.cycleIndex &&
+            result.phaseKey === timer.phaseKey,
+        )
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['activeTimer'],
+          message: 'An active interval phase cannot already have a result',
+        })
+      }
+    }
+    if (execution.completionType !== 'early' && execution.closureReason !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['closureReason'],
+        message: 'A closure reason is only available for early completion',
+      })
+    }
+    if (
+      execution.status !== 'completed' &&
+      (execution.feeling !== undefined ||
+        execution.observations !== undefined ||
+        execution.completionType !== undefined ||
+        execution.closureReason !== undefined)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['completionType'],
+        message: 'Final details are only available on completed executions',
       })
     }
 
@@ -185,6 +477,90 @@ export const WorkoutExecutionSchema = z
     }
 
     validateResults(execution, context)
+    const circuitRounds = execution.circuitRounds ?? []
+    const circuitRoundKeys = new Set<string>()
+    circuitRounds.forEach((round, index) => {
+      const identity = `${round.blockKey}:${round.roundIndex}`
+      if (circuitRoundKeys.has(identity))
+        addIssue(context, ['circuitRounds', index], 'Circuit round identities must be unique')
+      circuitRoundKeys.add(identity)
+      const block = execution.snapshot.session.blocks.find(
+        (candidate) =>
+          candidate.type === 'circuit' && candidate.mode === 'rounds' && candidate.key === round.blockKey,
+      )
+      if (block?.type !== 'circuit' || block.mode !== 'rounds' || round.roundIndex > block.rounds) {
+        addIssue(context, ['circuitRounds', index], 'Circuit round must reference a planned round')
+      }
+      if (execution.status === 'completed' && block?.type === 'circuit' && block.mode === 'rounds') {
+        const complete = block.exercises.every((exercise) =>
+          execution.results.some(
+            (result) =>
+              result.type === 'circuit' &&
+              result.blockKey === round.blockKey &&
+              result.plannedExerciseKey === exercise.key &&
+              result.round.kind === 'planned' &&
+              result.round.roundIndex === round.roundIndex &&
+              result.status === 'performed',
+          ),
+        )
+        if (!complete)
+          addIssue(context, ['results'], 'Completed circuit rounds require a result for every exercise')
+      }
+    })
+    const amrap = execution.amrap
+    if (amrap) {
+      const block = execution.snapshot.session.blocks.find(
+        (candidate) =>
+          candidate.type === 'circuit' && candidate.mode === 'amrap' && candidate.key === amrap.blockKey,
+      )
+      if (block?.type !== 'circuit' || block.mode !== 'amrap') {
+        addIssue(context, ['amrap', 'blockKey'], 'AMRAP state must reference an AMRAP snapshot block')
+      } else if (amrap.activeSeconds !== undefined && amrap.activeSeconds > block.maxDurationSeconds) {
+        addIssue(context, ['amrap', 'activeSeconds'], 'AMRAP active time cannot exceed its time limit')
+      }
+      if (block?.type === 'circuit' && block.mode === 'amrap') {
+        for (const round of amrap.rounds) {
+          for (const exercise of block.exercises) {
+            const hasResult = execution.results.some(
+              (result) =>
+                result.type === 'circuit' &&
+                result.blockKey === amrap.blockKey &&
+                result.plannedExerciseKey === exercise.key &&
+                result.round.kind === 'amrap' &&
+                result.round.roundIndex === round.roundIndex &&
+                (result.status === 'performed' || result.status === 'skipped'),
+            )
+            if (execution.status === 'completed' && !hasResult)
+              addIssue(
+                context,
+                ['results'],
+                `Completed AMRAP round ${round.roundIndex} has an unresolved exercise ${exercise.key}`,
+              )
+          }
+        }
+      }
+      if (execution.status === 'completed' && !amrap.finishedAt) {
+        addIssue(context, ['amrap'], 'An AMRAP must finish before the execution can close')
+      }
+      execution.results.forEach((result, index) => {
+        if (result.type !== 'circuit' || result.round.kind !== 'amrap') return
+        if (
+          result.blockKey !== amrap.blockKey ||
+          !amrap.finishedAt ||
+          result.round.roundIndex > amrap.rounds.length + (amrap.finishedAt ? 1 : 0)
+        ) {
+          addIssue(
+            context,
+            ['results', index, 'round'],
+            'Partial AMRAP results must follow the completed rounds',
+          )
+        }
+      })
+    } else if (
+      execution.results.some((result) => result.type === 'circuit' && result.round.kind === 'amrap')
+    ) {
+      addIssue(context, ['results'], 'AMRAP results require a confirmed AMRAP state')
+    }
     validateCorrections(execution, context)
   })
 export type WorkoutExecution = z.infer<typeof WorkoutExecutionSchema>
@@ -336,9 +712,12 @@ function validateResults(
         scheduledMetrics = result.actualExerciseKey
           ? catalog.get(result.actualExerciseKey)?.supportedMetrics
           : undefined
-      } else if (result.actualExerciseKey) {
+      } else if (phase?.type === 'rest' && result.actualExerciseKey) {
         addIssue(context, [...path, 'actualExerciseKey'], 'Passive recovery cannot reference an exercise')
-      } else if (phase && (result.activeSeconds !== undefined || result.actualMetrics !== undefined)) {
+      } else if (
+        phase?.type === 'rest' &&
+        (result.activeSeconds !== undefined || result.actualMetrics !== undefined)
+      ) {
         addIssue(context, [...path], 'Passive recovery cannot record active work')
       }
       unitIdentity = `${result.blockKey}:${result.cycleIndex}:${result.phaseKey}`
@@ -386,34 +765,6 @@ function validateResults(
       }
     }
   })
-
-  for (const block of execution.snapshot.session.blocks) {
-    if (block.type !== 'circuit' || block.mode !== 'amrap') continue
-    const roundResults = execution.results.filter(
-      (result) => result.type === 'circuit' && result.blockKey === block.key,
-    )
-    const roundIndexes = [
-      ...new Set(roundResults.map((result) => (result.type === 'circuit' ? result.round.roundIndex : 0))),
-    ].sort((left, right) => left - right)
-    roundIndexes.forEach((roundIndex, index) => {
-      if (roundIndex !== index + 1) {
-        addIssue(context, ['results'], 'AMRAP started round indexes must be contiguous from one')
-      }
-      if (roundIndex < (roundIndexes.at(-1) ?? roundIndex)) {
-        for (const exercise of block.exercises) {
-          const hasResult = roundResults.some(
-            (result) =>
-              result.type === 'circuit' &&
-              result.round.roundIndex === roundIndex &&
-              result.plannedExerciseKey === exercise.key,
-          )
-          if (!hasResult) {
-            addIssue(context, ['results'], `Completed AMRAP round ${roundIndex} is missing ${exercise.key}`)
-          }
-        }
-      }
-    })
-  }
 }
 
 function validateCorrections(

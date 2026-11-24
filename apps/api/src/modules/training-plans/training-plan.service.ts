@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common'
 import { InjectDataSource } from '@nestjs/typeorm'
 import {
+  PlannedSessionSchema,
   TrainingPlanDefinitionSchema,
   type PlannedBlock,
   type TrainingPlanDefinition,
+  type PlannedSession,
 } from '@trakia/contracts'
 import { DataSource, EntityManager, QueryFailedError } from 'typeorm'
 import { ExerciseCatalogService } from '../exercises/exercises.module.js'
@@ -36,6 +38,12 @@ export interface TrainingPlanImportSnapshot {
   version: number
   definition: TrainingPlanDefinition
   unresolvedExerciseReferences: string[]
+}
+
+export interface TrainingPlanExecutionSession {
+  planKey: string
+  sessionKey: string
+  session: PlannedSession
 }
 
 @Injectable()
@@ -160,9 +168,7 @@ export class TrainingPlanService {
     const appearances = (await query(
       `SELECT a.id, a.block_id AS "blockId", a.phase_id AS "phaseId", a.key, a.position,
               a.role, a.parent_appearance_id AS "parentAppearanceId", a.exercise_id AS "exerciseId",
-              a.exercise_key AS "exerciseKey", a.targets, a.target_overrides AS "targetOverrides", a.settings,
-              COALESCE(a.exercise_key, (SELECT min(k.key) FROM exercise_catalog_keys k WHERE k.exercise_id = a.exercise_id)) AS "resolvedExerciseKey",
-              (SELECT count(*)::integer FROM exercise_catalog_keys k WHERE k.exercise_id = a.exercise_id) AS "exerciseKeyCount"
+              a.exercise_key AS "exerciseKey", a.targets, a.target_overrides AS "targetOverrides", a.settings
        FROM training_plan_appearances a JOIN training_plan_blocks b ON b.id = a.block_id
        JOIN training_plan_entries e ON e.id = b.session_id WHERE e.plan_id = $1
        ORDER BY a.position, a.key`,
@@ -175,18 +181,23 @@ export class TrainingPlanService {
       position: number
       role: 'main' | 'alternative'
       parentAppearanceId: string | null
+      exerciseId: string
       exerciseKey: string | null
       targets: Record<string, number> | null
       targetOverrides: Record<string, number | null> | null
       settings: Record<string, unknown> | null
-      resolvedExerciseKey: string | null
-      exerciseKeyCount: number
     }>
+    const exercises = await this.exercises.findSummariesByIds(
+      [...new Set(appearances.map(({ exerciseId }) => exerciseId))],
+      manager,
+    )
+    const exerciseKeys = new Map(exercises.map(({ id, catalogKeys }) => [id, catalogKeys]))
     const unresolvedExerciseReferences: string[] = []
     const appearanceValues = new Map<string, Record<string, unknown>>()
     for (const appearance of appearances) {
-      const exerciseKey = appearance.exerciseKey ?? appearance.resolvedExerciseKey
-      if (appearance.exerciseKey === null && appearance.exerciseKeyCount > 1)
+      const availableKeys = exerciseKeys.get(appearance.exerciseId) ?? []
+      const exerciseKey = appearance.exerciseKey ?? (availableKeys.length === 1 ? availableKeys[0] : null)
+      if (appearance.exerciseKey === null && availableKeys.length > 1)
         unresolvedExerciseReferences.push(appearance.key)
       const value: Record<string, unknown> = {
         key: appearance.key,
@@ -219,6 +230,34 @@ export class TrainingPlanService {
       days: [...days.values()],
     })
     return { id: plan.id, version: plan.version, definition, unresolvedExerciseReferences }
+  }
+
+  /** Public planning capability used to start an execution from the authoritative persisted session. */
+  async findExecutionSession(
+    planId: string,
+    sessionId: string,
+    manager?: EntityManager,
+  ): Promise<TrainingPlanExecutionSession | null> {
+    const query = manager ? manager.query.bind(manager) : this.dataSource.query.bind(this.dataSource)
+    const owners = (await query(
+      `SELECT p.key AS "planKey", p.origin, e.key AS "sessionKey"
+       FROM training_plans p JOIN training_plan_entries e ON e.plan_id = p.id
+       WHERE p.id = $1::uuid AND e.id = $2::uuid AND e.type = 'session'`,
+      [planId, sessionId],
+    )) as Array<{ planKey: string; origin: string; sessionKey: string }>
+    const owner = owners[0]
+    if (!owner) return null
+
+    const plan = await this.findForImport(owner.origin, owner.planKey, manager)
+    const session = plan?.definition.days.find(
+      (day) => day.type === 'session' && day.key === owner.sessionKey,
+    )
+    if (!session || session.type !== 'session') return null
+    return {
+      planKey: owner.planKey,
+      sessionKey: owner.sessionKey,
+      session: PlannedSessionSchema.parse(session),
+    }
   }
 
   async update(

@@ -122,6 +122,151 @@ describe('WorkoutExecutionSchema', () => {
     expect(WorkoutExecutionSchema.safeParse(execution()).success).toBe(true)
   })
 
+  it('accepts a reserved execution without an effective workout start', () => {
+    expect(WorkoutExecutionSchema.safeParse(execution({ workStartedAt: null })).success).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(execution({ workStartedAt: '2026-11-13T08:59:59Z' })).success,
+    ).toBe(false)
+  })
+
+  it('requires completed executions to have started effective work', () => {
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          status: 'completed',
+          finishedAt: '2026-11-13T10:00:00Z',
+          workStartedAt: null,
+        }),
+      ).success,
+    ).toBe(false)
+  })
+
+  it('accepts a server-timestamped active work timer and keeps it distinct from result time', () => {
+    const timer = {
+      kind: 'work',
+      resultId: 'e41e34c7-04d1-4e9c-8f6b-00fd73722b7d',
+      blockKey: 'strength',
+      plannedExerciseKey: 'squat',
+      unit: { kind: 'planned', setIndex: 1 },
+      startedAt: '2026-11-13T09:15:00Z',
+    }
+    expect(WorkoutExecutionSchema.safeParse(execution({ activeTimer: timer })).success).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({ activeTimer: { ...timer, kind: 'rest' }, results: [performedSet()] }),
+      ).success,
+    ).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({ status: 'completed', finishedAt: '2026-11-13T10:00:00Z', activeTimer: timer }),
+      ).success,
+    ).toBe(false)
+  })
+
+  it('stores one server-timestamped duration per fixed circuit round and accepts dynamic exercise counts', () => {
+    const circuitRounds = [
+      {
+        blockKey: 'fixed',
+        roundIndex: 1,
+        startedAt: '2026-11-13T09:15:00Z',
+        finishedAt: '2026-11-13T09:15:40Z',
+        activeSeconds: 40,
+      },
+    ]
+    const parsed = WorkoutExecutionSchema.safeParse(execution({ circuitRounds }))
+    expect(parsed.success).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(execution({ circuitRounds: [...circuitRounds, ...circuitRounds] }))
+        .success,
+    ).toBe(false)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          activeTimer: {
+            kind: 'circuitRound',
+            blockKey: 'fixed',
+            roundIndex: 1,
+            startedAt: '2026-11-13T09:15:00Z',
+          },
+        }),
+      ).success,
+    ).toBe(true)
+  })
+
+  it('validates persisted AMRAP rounds and defers exercise results until the session closes', () => {
+    const amrap = {
+      blockKey: 'amrap',
+      startedAt: '2026-11-13T09:00:00Z',
+      rounds: [
+        { roundIndex: 1, finishedAt: '2026-11-13T09:01:00Z' },
+        { roundIndex: 2, finishedAt: '2026-11-13T09:02:00Z' },
+      ],
+      finishedAt: '2026-11-13T09:03:00Z',
+      finishReason: 'early',
+      activeSeconds: 180,
+    }
+    const results = Array.from({ length: 4 }, (_, index) => ({
+      type: 'circuit',
+      id: `e41e34c7-04d1-4e9c-8f6b-${String(index + 1).padStart(12, '0')}`,
+      blockKey: 'amrap',
+      plannedExerciseKey: index % 2 === 0 ? 'burpee' : 'jump',
+      actualExerciseKey: index % 2 === 0 ? 'burpee' : 'box-jump',
+      round: { kind: 'amrap', roundIndex: Math.floor(index / 2) + 1 },
+      status: 'performed',
+    }))
+    const partial = {
+      type: 'circuit',
+      id: 'e41e34c7-04d1-4e9c-8f6b-000000000005',
+      blockKey: 'amrap',
+      plannedExerciseKey: 'burpee',
+      actualExerciseKey: 'burpee',
+      round: { kind: 'amrap', roundIndex: 3 },
+      status: 'performed',
+      actualMetrics: { reps: 4 },
+    }
+    expect(
+      WorkoutExecutionSchema.safeParse(execution({ amrap, results: [...results, partial] })).success,
+    ).toBe(true)
+    expect(WorkoutExecutionSchema.safeParse(execution({ amrap, results: results.slice(0, 3) })).success).toBe(
+      true,
+    )
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          status: 'completed',
+          finishedAt: '2026-11-13T09:04:00Z',
+          amrap,
+          results: results.slice(0, 3),
+        }),
+      ).success,
+    ).toBe(false)
+    const resolvedWithSkip = [
+      ...results.slice(0, 3),
+      { ...results[3], status: 'skipped', actualExerciseKey: undefined },
+    ]
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          status: 'completed',
+          finishedAt: '2026-11-13T09:04:00Z',
+          amrap,
+          results: resolvedWithSkip,
+        }),
+      ).success,
+    ).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({ amrap, results: [...results, { ...partial, round: { kind: 'amrap', roundIndex: 4 } }] }),
+      ).success,
+    ).toBe(false)
+    expect(
+      WorkoutExecutionSchema.safeParse({
+        ...execution({ amrap, results }),
+        amrap: { ...amrap, activeSeconds: 301 },
+      }).success,
+    ).toBe(false)
+  })
+
   it('accepts a paused execution with one open pause', () => {
     expect(
       WorkoutExecutionSchema.safeParse(
@@ -130,6 +275,22 @@ describe('WorkoutExecutionSchema', () => {
           pauses: [{ startedAt: '2026-11-13T09:20:00Z' }],
         }),
       ).success,
+    ).toBe(true)
+  })
+
+  it('validates pause transitions and requires the pause identity to resume', async () => {
+    const {
+      WorkoutExecutionPauseRequestSchema,
+      WorkoutExecutionResumeRequestSchema,
+      WorkoutExecutionPauseResponseSchema,
+    } = await import('./workout-execution-pause.js')
+    expect(WorkoutExecutionPauseRequestSchema.safeParse({}).success).toBe(true)
+    expect(
+      WorkoutExecutionResumeRequestSchema.safeParse({ pauseStartedAt: '2026-11-16T10:00:00Z' }).success,
+    ).toBe(true)
+    expect(WorkoutExecutionResumeRequestSchema.safeParse({ pauseStartedAt: 'invalid' }).success).toBe(false)
+    expect(
+      WorkoutExecutionPauseResponseSchema.safeParse({ execution: execution(), replayed: false }).success,
     ).toBe(true)
   })
 
@@ -142,6 +303,47 @@ describe('WorkoutExecutionSchema', () => {
         }),
       ).success,
     ).toBe(true)
+  })
+
+  it('accepts completed execution details and preserves legacy executions without them', () => {
+    expect(
+      WorkoutExecutionSchema.safeParse(execution({ status: 'completed', finishedAt: '2026-11-13T10:00:00Z' }))
+        .success,
+    ).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          status: 'completed',
+          finishedAt: '2026-11-13T10:00:00Z',
+          feeling: 'muy_bien',
+          observations: 'Buen ritmo.',
+          completionType: 'early',
+          closureReason: 'Me encuentro cansado.',
+        }),
+      ).success,
+    ).toBe(true)
+  })
+
+  it('limits final observation and reason lengths and only accepts a reason for an early close', () => {
+    const completed = { status: 'completed', finishedAt: '2026-11-13T10:00:00Z' }
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({ ...completed, completionType: 'planned', closureReason: 'reason' }),
+      ).success,
+    ).toBe(false)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({ ...completed, completionType: 'early', observations: 'x'.repeat(1001) }),
+      ).success,
+    ).toBe(false)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({ ...completed, completionType: 'early', closureReason: 'x'.repeat(241) }),
+      ).success,
+    ).toBe(false)
+    expect(
+      WorkoutExecutionSchema.safeParse(execution({ status: 'in_progress', feeling: 'bien' })).success,
+    ).toBe(false)
   })
 
   it('requires a snapshot', () => {
@@ -198,6 +400,18 @@ describe('WorkoutExecutionSchema', () => {
 
   it('accepts a performed planned set with actual metrics', () => {
     expect(resultArray([performedSet()]).success).toBe(true)
+  })
+
+  it('stores active work seconds separately from the exercise duration metric', () => {
+    const result = WorkoutResultSchema.parse(
+      performedSet({ activeSeconds: 42.5, actualMetrics: { durationSeconds: 12.25 } }),
+    )
+    expect(result).toMatchObject({ activeSeconds: 42.5, actualMetrics: { durationSeconds: 12.25 } })
+    expect(resultArray([performedSet({ activeSeconds: 0 })]).success).toBe(false)
+    expect(
+      resultArray([performedSet({ status: 'skipped', actualExerciseKey: undefined, activeSeconds: 5 })])
+        .success,
+    ).toBe(false)
   })
 
   it('accepts an additional set with its own identity', () => {
@@ -296,21 +510,52 @@ describe('WorkoutExecutionSchema', () => {
     ).toBe(false)
   })
 
-  it('accepts an incomplete started AMRAP round', () => {
+  it('allows zero reps only on AMRAP results and requires no fictional metrics for omissions', () => {
+    const zeroRep = {
+      type: 'circuit',
+      id: 'e41e34c7-04d1-4e9c-8f6b-00fd73722b7d',
+      blockKey: 'amrap',
+      plannedExerciseKey: 'burpee',
+      round: { kind: 'amrap', roundIndex: 1 },
+      actualExerciseKey: 'burpee',
+      status: 'performed',
+      actualMetrics: { reps: 0 },
+    }
+    const startedAmrap = {
+      blockKey: 'amrap',
+      startedAt: '2026-11-13T09:00:00Z',
+      rounds: [{ roundIndex: 1, finishedAt: '2026-11-13T09:01:00Z' }],
+      finishedAt: '2026-11-13T09:02:00Z',
+      finishReason: 'early',
+      activeSeconds: 120,
+    }
     expect(
-      resultArray([
-        {
-          type: 'circuit',
-          id: 'e41e34c7-04d1-4e9c-8f6b-00fd73722b7d',
-          blockKey: 'amrap',
-          plannedExerciseKey: 'burpee',
-          round: { kind: 'amrap', roundIndex: 1 },
-          actualExerciseKey: 'burpee',
-          status: 'performed',
-          actualMetrics: { reps: 8 },
-        },
-      ]).success,
+      WorkoutExecutionSchema.safeParse(execution({ amrap: startedAmrap, results: [zeroRep] })).success,
     ).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          amrap: startedAmrap,
+          results: [{ ...zeroRep, round: { kind: 'planned', roundIndex: 1 } }],
+        }),
+      ).success,
+    ).toBe(false)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        execution({
+          amrap: startedAmrap,
+          results: [
+            {
+              ...zeroRep,
+              status: 'skipped',
+              actualExerciseKey: undefined,
+              actualMetrics: undefined,
+            },
+          ],
+        }),
+      ).success,
+    ).toBe(true)
+    expect(WorkoutExecutionSchema.safeParse(execution({ results: [zeroRep] })).success).toBe(false)
   })
 
   it('rejects AMRAP round indexes with a gap', () => {
@@ -347,6 +592,48 @@ describe('WorkoutExecutionSchema', () => {
         },
       ]).success,
     ).toBe(true)
+  })
+
+  it('distinguishes a completed interval from interrupted and skipped work', () => {
+    const baseInterval = {
+      type: 'intervals',
+      id: 'e41e34c7-04d1-4e9c-8f6b-00fd73722b7d',
+      blockKey: 'emom',
+      cycleIndex: 1,
+      phaseKey: 'minute-work',
+    }
+    expect(resultArray([{ ...baseInterval, status: 'completed', activeSeconds: 60 }]).success).toBe(true)
+    expect(resultArray([{ ...baseInterval, status: 'interrupted', activeSeconds: 18 }]).success).toBe(true)
+    expect(resultArray([{ ...baseInterval, status: 'skipped' }]).success).toBe(true)
+  })
+
+  it('validates online interval timers against the confirmed phase schedule', () => {
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        base({
+          activeTimer: {
+            kind: 'intervalWork',
+            blockKey: 'emom',
+            cycleIndex: 2,
+            phaseKey: 'minute-work',
+            startedAt: '2026-11-13T09:00:00Z',
+          },
+        }),
+      ).success,
+    ).toBe(true)
+    expect(
+      WorkoutExecutionSchema.safeParse(
+        base({
+          activeTimer: {
+            kind: 'intervalWork',
+            blockKey: 'emom',
+            cycleIndex: 2,
+            phaseKey: 'active-recovery',
+            startedAt: '2026-11-13T09:00:00Z',
+          },
+        }),
+      ).success,
+    ).toBe(false)
   })
 
   it('accepts an omitted interval without work values', () => {
@@ -512,5 +799,18 @@ describe('WorkoutExecutionSchema', () => {
     const publicExecution: WorkoutExecution = WorkoutExecutionSchema.parse(base())
     expect(WorkoutExecutionSchema.safeParse(publicExecution).success).toBe(true)
     expect(ActualMetricsSchema.safeParse({ reps: 0 }).success).toBe(false)
+    expect(ActualMetricsSchema.safeParse({ reps: 10, weightKg: 40.25 }).success).toBe(true)
+    expect(ActualMetricsSchema.safeParse({ reps: 10.5 }).success).toBe(false)
+    expect(
+      ActualMetricsSchema.safeParse({
+        weightKg: 40.25,
+        durationSeconds: 10.497,
+        distanceMeters: 75.5,
+        calories: 8.25,
+        rpe: 7.5,
+      }).success,
+    ).toBe(true)
+    expect(ActualMetricsSchema.safeParse({ weightKg: Number.POSITIVE_INFINITY }).success).toBe(false)
+    expect(ActualMetricsSchema.safeParse({ calories: Number.NaN }).success).toBe(false)
   })
 })

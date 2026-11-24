@@ -6,30 +6,35 @@ import {
   NotFoundException,
   Param,
   Query,
+  Req,
+  UnauthorizedException,
 } from '@nestjs/common'
+import { TrainingPlanCalendarQuerySchema, TrainingPlanSessionPathParamsSchema } from '@trakia/contracts'
 import {
-  TrainingPlanCalendarQuerySchema,
-  TrainingPlanCalendarResponseSchema,
-  TrainingPlanSessionDetailSchema,
-  TrainingPlanSessionPathParamsSchema,
-} from '@trakia/contracts'
-import { TrainingPlanReadService, TrainingPlanSessionNotFoundError } from './training-plan-read.service.js'
+  TrainingPlanSessionNotFoundError,
+  WorkoutPlanningReadService,
+} from './workout-planning-read.service.js'
+
+interface AuthenticatedPlanningRequest {
+  authUserId?: string
+}
 
 @Controller('training-plans')
-export class TrainingPlansController {
-  constructor(private readonly reads: TrainingPlanReadService) {}
+export class WorkoutPlanningReadController {
+  constructor(private readonly reads: WorkoutPlanningReadService) {}
 
   @Get('calendar')
-  async getCalendar(@Query() query: unknown) {
+  async getCalendar(@Req() request: AuthenticatedPlanningRequest, @Query() query: unknown) {
     const parsed = TrainingPlanCalendarQuerySchema.safeParse(query)
     if (!parsed.success)
       throw new BadRequestException({
         code: 'INVALID_REQUEST',
         message: 'El intervalo debe contener una semana válida de lunes a domingo.',
       })
+    const userId = authenticatedUserId(request)
 
     try {
-      return TrainingPlanCalendarResponseSchema.parse(await this.reads.findCalendar(parsed.data))
+      return await this.reads.findCalendar(parsed.data, userId)
     } catch {
       throw new InternalServerErrorException({
         code: 'INTERNAL_ERROR',
@@ -39,18 +44,17 @@ export class TrainingPlansController {
   }
 
   @Get(':planId/sessions/:sessionId')
-  async getSession(@Param() params: unknown) {
+  async getSession(@Req() request: AuthenticatedPlanningRequest, @Param() params: unknown) {
     const parsed = TrainingPlanSessionPathParamsSchema.safeParse(params)
     if (!parsed.success)
       throw new BadRequestException({
         code: 'INVALID_REQUEST',
         message: 'Los identificadores de plan y sesión deben ser UUID válidos.',
       })
+    const userId = authenticatedUserId(request)
 
     try {
-      return TrainingPlanSessionDetailSchema.parse(
-        await this.reads.findSession(parsed.data.planId, parsed.data.sessionId),
-      )
+      return await this.reads.findSession(parsed.data.planId, parsed.data.sessionId, userId)
     } catch (error) {
       if (error instanceof TrainingPlanSessionNotFoundError)
         throw new NotFoundException({ code: 'NOT_FOUND', message: 'No se encontró la sesión solicitada.' })
@@ -60,4 +64,9 @@ export class TrainingPlansController {
       })
     }
   }
+}
+
+function authenticatedUserId(request: AuthenticatedPlanningRequest): string {
+  if (!request.authUserId) throw new UnauthorizedException('Authentication required.')
+  return request.authUserId
 }

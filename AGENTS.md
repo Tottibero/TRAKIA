@@ -48,11 +48,14 @@
 ## Diseño frontend de TRAKIA
 
 - Desde HC-03-07, aplica este flujo a tareas HC que cambien la interfaz o la experiencia de usuario; reutilízalo en los bloques posteriores que tengan alcance frontend. No se aplica a cambios exclusivamente de backend, contratos o infraestructura.
+- Antes de implementar cambios visuales, consulta `DESIGN.md` y prepara una propuesta de la superficie afectada en una maqueta HTML/CSS aislada o una vista de demostración sin conexiones reales. Muestra los estados y tamaños móviles relevantes y registra las decisiones pendientes.
+- No modifiques componentes productivos de una nueva pantalla o rediseño hasta que el propietario apruebe la propuesta visual correspondiente. La aprobación de la dirección global no sustituye la revisión de la superficie específica. Conserva los cambios de trabajo existentes durante esta pausa; no los reviertas como parte del proceso de diseño.
 - Usa las cuatro skills de diseño de forma complementaria, respetando sus instrucciones propias y el alcance de la tarea. No sustituyen `trakia-task`, la auditoría de `trakia-architecture` ni las decisiones de ADR-015.
 - Para nuevas superficies o decisiones visuales amplias, consulta `ui-ux-pro-max` con `--design-system`; para cambios acotados, usa solo las búsquedas de dominio o stack que resuelvan la cuestión concreta. Comprueba que los resultados encajan con TRAKIA antes de aplicarlos y no persistas propuestas sin validar.
 - Usa `frontend-design` para convertir la dirección aprobada en una interfaz funcional, accesible, adaptable y coherente con la arquitectura existente.
 - Recurre a `ui-design-system` cuando la tarea cree o cambie tokens, componentes compartidos o documentación de sistema. Parte de los tokens y componentes vigentes; no generes ni sustituyas un sistema paralelo preventivamente.
 - Usa Impeccable para cargar el contexto visual y la guía de calidad aplicable, y para la revisión/refinamiento final. En refinamientos conserva la identidad existente fuera del alcance; cualquier rediseño debe estar autorizado por la tarea.
+- Para HC-05-10, la propuesta del calendario está aprobada y su implementación se autorizó. El detalle de sesión requiere una aprobación visual específica antes de futuros rediseños, salvo autorización expresa del propietario para el cambio concreto.
 - La inspección visual y las comprobaciones de calidad se ajustan a la superficie y al alcance definidos por la tarea. Las recomendaciones de las skills no amplían ese alcance ni prevalecen sobre requisitos, ADR o convenciones del repositorio.
 
 ## Arquitectura modular
@@ -70,6 +73,16 @@
 - Opera los comandos Docker Compose únicamente sobre el proyecto TRAKIA (`compose.yaml`, nombre `trakia`).
 - Inicia el entorno solo cuando el usuario lo solicite; no configures arranque automático.
 - Antes de iniciar, reconstruir o detener, consulta `docker compose ps` y limita las acciones a los recursos de TRAKIA.
+- Cuando se cree un endpoint nuevo en NestJS, comprueba que el contenedor API carga y registra la ruta y verifícala con una petición HTTP. Una respuesta `401` por falta de autenticación confirma que una ruta protegida existe; `404` no. Si hace falta, reinicia o reconstruye únicamente `api`, siguiendo la skill `trakia-docker`; no reinicies Docker por cambios en la lógica de un endpoint existente. No declares completado el endpoint hasta verificar su registro.
 - Para apagar, usa `docker compose down` sin `-v`; el volumen PostgreSQL debe conservarse.
 - No detengas servicios de otros proyectos ni ejecutes `docker system prune`, `docker volume prune` u otra limpieza global.
 - No elimines el volumen PostgreSQL salvo autorización expresa.
+
+## Migraciones PostgreSQL
+
+- Toda tarea que añada migraciones debe aplicarlas primero en `trakia_test` mediante el procedimiento de integración existente y también en `trakia_dev` si son aditivas y no destructivas. Antes de ejecutar cada migración, comprueba con el mismo DataSource/comando que la ejecutará que `SELECT current_database()` devuelve exactamente la base autorizada. Revisa qué migraciones están pendientes.
+- Confirma después que las migraciones figuran como aplicadas. Registra en la ficha HC la base efectiva y las migraciones aplicadas.
+- Para `trakia_dev`, comprueba el estado de Compose del proyecto TRAKIA y ejecuta las migraciones versionadas de forma explícita (`db:migration:run`). No habilites `synchronize`/`dropSchema`, no reviertas migraciones ni limpies datos como parte de este paso.
+- Mantén las pruebas de integración restringidas a `trakia_test`; nunca las apuntes a `trakia_dev`. No ejecutes migraciones en producción.
+- Las migraciones destructivas o que modifiquen datos existentes requieren autorización expresa antes de ejecutarse.
+- Si una base autorizada no está disponible o el destino efectivo no coincide, no ejecutes la migración ni cambies de base para sortear la comprobación; informa del bloqueo concreto.

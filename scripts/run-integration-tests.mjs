@@ -71,6 +71,22 @@ try {
     '--test',
     'test/training-plan-read.integration.test.mjs',
   ])
+  await run('pnpm', [
+    '--filter',
+    '@trakia/api',
+    'exec',
+    'node',
+    '--test',
+    'test/workout-execution-start.integration.test.mjs',
+  ])
+  await run('pnpm', [
+    '--filter',
+    '@trakia/api',
+    'exec',
+    'node',
+    '--test',
+    'test/workout-executions-online-http.integration.test.mjs',
+  ])
   await run('pnpm', ['--filter', '@trakia/api', 'exec', 'node', '--test', 'test/users.integration.test.mjs'])
   await run('pnpm', [
     '--filter',

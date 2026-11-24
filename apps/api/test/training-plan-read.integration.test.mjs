@@ -15,7 +15,7 @@ import { ExerciseCatalogKey } from '../dist/modules/exercises/exercise-catalog-k
 import { Exercise } from '../dist/modules/exercises/exercise.entity.js'
 import { TrainingPlanService } from '../dist/modules/training-plans/training-plan.service.js'
 import { TrainingPlanReadService } from '../dist/modules/training-plans/training-plan-read.service.js'
-import { TrainingPlansModule } from '../dist/modules/training-plans/training-plans.module.js'
+import { WorkoutsModule } from '../dist/modules/workouts/workouts.module.js'
 import { getIntegrationProcessEnvironment } from '../../../scripts/integration-database.mjs'
 
 const jwtSecret = 'integration-test-secret-at-least-thirty-two-bytes'
@@ -33,6 +33,7 @@ let planA
 let planB
 let sessionId
 let catalog
+let userId
 
 process.env.JWT_SECRET = jwtSecret
 
@@ -171,7 +172,7 @@ async function startApi() {
         autoLoadEntities: true,
       }),
       AuthModule,
-      TrainingPlansModule,
+      WorkoutsModule,
     ],
   })(ReadHttpIntegrationModule)
   const api = await NestFactory.create(ReadHttpIntegrationModule, { logger: false })
@@ -189,7 +190,8 @@ async function tableCounts() {
       (SELECT count(*)::integer FROM training_plan_phases) AS phases,
       (SELECT count(*)::integer FROM training_plan_appearances) AS appearances,
       (SELECT count(*)::integer FROM exercises) AS exercises,
-      (SELECT count(*)::integer FROM exercise_catalog_keys) AS catalog_keys`)
+      (SELECT count(*)::integer FROM exercise_catalog_keys) AS catalog_keys,
+      (SELECT count(*)::integer FROM workout_executions) AS workout_executions`)
   return counts
 }
 
@@ -210,7 +212,7 @@ before(async () => {
   await dataSource.initialize()
   await dataSource.runMigrations()
 
-  const userId = randomUUID()
+  userId = randomUUID()
   await dataSource.query(
     'INSERT INTO users (id, email, password_hash, session_version) VALUES ($1, $2, $3, 0)',
     [userId, `weekly-read-${userId}@example.test`, 'unused-test-password-hash'],
@@ -281,6 +283,117 @@ test('calendar and session HTTP reads are authenticated, complete, deterministic
     [sessionId],
   )
 
+  const [{ id: wednesdaySessionId }] = await dataSource.query(
+    `SELECT id FROM training_plan_entries WHERE plan_id = $1 AND key = 'wednesday-session'`,
+    [planB.id],
+  )
+  const exerciseSnapshots = [
+    {
+      key: 'barbell-squat',
+      name: 'Sentadilla con barra',
+      category: 'strength',
+      supportedMetrics: ['reps', 'weight', 'duration'],
+    },
+    {
+      key: 'goblet-squat',
+      name: 'Sentadilla goblet',
+      category: 'strength',
+      supportedMetrics: ['reps', 'weight', 'duration'],
+    },
+  ]
+  const completedSnapshot = {
+    session: planAInput().days.find((day) => day.type === 'session' && day.key === 'morning-session'),
+    exercises: exerciseSnapshots,
+  }
+  const openSnapshot = {
+    session: planBInput().days.find((day) => day.type === 'session' && day.key === 'wednesday-session'),
+    exercises: exerciseSnapshots,
+  }
+  const insertExecution = async ({
+    id,
+    ownerId,
+    planId,
+    planKey,
+    sessionId: targetSessionId,
+    snapshot,
+    status,
+    results,
+    finishedAt,
+  }) => {
+    const startedAt =
+      snapshot.session.date === '2026-12-30' ? '2026-12-30T10:00:00.000Z' : '2026-12-28T10:00:00.000Z'
+    await dataSource.query(
+      `INSERT INTO workout_executions
+         (id, user_id, request_id, plan_id, session_id, plan_key, session_key, snapshot,
+          status, started_at, work_started_at, finished_at, results)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $10, $11, $12::jsonb)`,
+      [
+        id,
+        ownerId,
+        randomUUID(),
+        planId,
+        targetSessionId,
+        planKey,
+        snapshot.session.key,
+        JSON.stringify(snapshot),
+        status,
+        startedAt,
+        finishedAt,
+        JSON.stringify(results),
+      ],
+    )
+  }
+  const completedExecutionId = randomUUID()
+  const activeSet = {
+    type: 'sets',
+    id: randomUUID(),
+    blockKey: 'sets-block',
+    plannedExerciseKey: 'main-squat',
+    actualExerciseKey: 'barbell-squat',
+    status: 'performed',
+    activeSeconds: 52.041,
+    actualMetrics: { reps: 7, weightKg: 40 },
+    unit: { kind: 'planned', setIndex: 1 },
+  }
+  await insertExecution({
+    id: completedExecutionId,
+    ownerId: userId,
+    planId: planA.id,
+    planKey: 'plan-a',
+    sessionId,
+    snapshot: completedSnapshot,
+    status: 'completed',
+    results: [activeSet],
+    finishedAt: '2026-12-28T10:30:00.000Z',
+  })
+  await insertExecution({
+    id: randomUUID(),
+    ownerId: userId,
+    planId: planB.id,
+    planKey: 'plan-b',
+    sessionId: wednesdaySessionId,
+    snapshot: openSnapshot,
+    status: 'in_progress',
+    results: [],
+    finishedAt: null,
+  })
+  const otherUserId = randomUUID()
+  await dataSource.query(
+    'INSERT INTO users (id, email, password_hash, session_version) VALUES ($1, $2, $3, 0)',
+    [otherUserId, `weekly-read-other-${otherUserId}@example.test`, 'unused-test-password-hash'],
+  )
+  await insertExecution({
+    id: randomUUID(),
+    ownerId: otherUserId,
+    planId: planA.id,
+    planKey: 'plan-a',
+    sessionId,
+    snapshot: completedSnapshot,
+    status: 'completed',
+    results: [],
+    finishedAt: '2026-12-28T11:00:00.000Z',
+  })
+
   const invalidWeek = await fetch(`${url}/training-plans/calendar?from=2026-12-29&to=2027-01-04`, {
     headers: { cookie },
   })
@@ -317,6 +430,18 @@ test('calendar and session HTTP reads are authenticated, complete, deterministic
   const calendarMorning = calendar.days[0].entries.find(
     ({ type, sessionKey }) => type === 'session' && sessionKey === 'morning-session',
   )
+  const calendarEvening = calendar.days[0].entries.find(
+    ({ type, sessionKey }) => type === 'session' && sessionKey === 'evening-session',
+  )
+  assert.equal(calendarEvening.execution, null)
+  assert.equal(calendarMorning.execution.status, 'completed')
+  assert.equal(calendarMorning.execution.id, completedExecutionId)
+  assert.equal(calendarMorning.execution.summary.performedResults, 1)
+  assert.equal(calendarMorning.execution.summary.activeSeconds, 52.041)
+  const calendarWednesday = calendar.days[2].entries.find(
+    ({ type, sessionKey }) => type === 'session' && sessionKey === 'wednesday-session',
+  )
+  assert.equal(calendarWednesday.execution.status, 'in_progress')
   assert.deepEqual(
     calendarMorning.blocks.map(({ type }) => type),
     ['sets', 'circuit', 'circuit', 'intervals'],
@@ -351,6 +476,10 @@ test('calendar and session HTTP reads are authenticated, complete, deterministic
   })
   assert.equal(detailResponse.status, 200)
   const detail = await detailResponse.json()
+  assert.equal(detail.session.execution.id, completedExecutionId)
+  assert.equal(detail.session.execution.status, 'completed')
+  assert.equal(detail.session.execution.results[0].activeSeconds, 52.041)
+  assert.deepEqual(detail.session.execution.results[0].actualMetrics, { reps: 7, weightKg: 40 })
   assert.deepEqual(
     detail.session.blocks.map(({ type }) => type),
     ['sets', 'circuit', 'circuit', 'intervals'],
@@ -400,6 +529,7 @@ test('calendar and session HTTP reads are authenticated, complete, deterministic
     const freshDetail = await freshReader.findSession(planA.id, sessionId)
     assert.equal(freshDetail.session.id, sessionId)
     assert.equal(freshDetail.session.blocks[0].exercises[0].exercise.catalogKeyResolution, 'ambiguous')
+    assert.equal(freshDetail.session.execution, null)
   } finally {
     await freshDataSource.destroy()
   }

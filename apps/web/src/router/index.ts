@@ -5,11 +5,18 @@ import { ApiError } from '../shared/api/http'
 import { queryClient } from '../app/queryClient'
 import { TrainingPlanImportView } from '@/features/training-plan-imports'
 import { TrainingPlanSessionDetailView, WeeklyHomeView } from '@/features/training-plan-calendar'
+import WorkoutExecutionRouteView from '@/features/workout-execution/views/WorkoutExecutionRouteView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', name: 'login', component: LoginView },
+    {
+      path: '/workouts/executions/:executionId',
+      name: 'workout-execution',
+      component: WorkoutExecutionRouteView,
+      meta: { requiresAuth: true },
+    },
     { path: '/', name: 'home', component: WeeklyHomeView, meta: { requiresAuth: true } },
     {
       path: '/training-plans/:planId/sessions/:sessionId',

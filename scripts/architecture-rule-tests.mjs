@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { ESLint } from 'eslint'
-import { spawn } from 'node:child_process'
+import { cruise } from 'dependency-cruiser'
+import extractDepcruiseOptions from 'dependency-cruiser/config-utl/extract-depcruise-options'
 import { join, relative, resolve } from 'node:path'
 
 const root = process.cwd()
@@ -22,27 +23,16 @@ async function lintFixture(filePath, code, expectError) {
   )
 }
 
-function cruiseFixture(fixtureRoot) {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(
-      process.execPath,
-      [
-        resolve(root, 'node_modules/dependency-cruiser/bin/dependency-cruiser.mjs'),
-        '--config',
-        '.dependency-cruiser.cjs',
-        '--output-type',
-        'err-long',
-        relative(root, fixtureRoot),
-      ],
-      { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] },
-    )
-    let stdout = ''
-    let stderr = ''
-    child.stdout.setEncoding('utf8').on('data', (chunk) => (stdout += chunk))
-    child.stderr.setEncoding('utf8').on('data', (chunk) => (stderr += chunk))
-    child.once('error', reject)
-    child.once('close', (status, signal) => resolvePromise({ status, signal, stdout, stderr }))
-  })
+async function cruiseFixture(fixtureRoot) {
+  const options = await extractDepcruiseOptions(resolve(root, '.dependency-cruiser.cjs'))
+  const result = await cruise([relative(root, fixtureRoot)], { ...options, outputType: 'json' })
+  return { status: result.exitCode, report: result.output }
+}
+
+function dependencyCruiserViolationNames(result) {
+  assert.equal(result.status, 0, 'dependency-cruiser could not analyze the architecture fixture')
+  const report = typeof result.report === 'string' ? JSON.parse(result.report) : result.report
+  return report.summary.violations.map(({ rule }) => rule.name)
 }
 
 async function verifyEslintRestrictions() {
@@ -119,8 +109,10 @@ async function verifyDependencyCruiserRestrictions() {
   try {
     writeFileSync(join(domainDirectory, 'http.ts'), "import 'node:http'\n")
     let result = await cruiseFixture(fixtureRoot)
-    assert.notEqual(result.status, 0, 'dependency-cruiser must reject HTTP imports from domain')
-    assert.match(`${result.stdout}\n${result.stderr}`, /domain-no-http/)
+    assert.ok(
+      dependencyCruiserViolationNames(result).includes('domain-no-http'),
+      'dependency-cruiser must reject HTTP imports from domain',
+    )
 
     rmSync(join(domainDirectory, 'http.ts'))
     writeFileSync(join(domainDirectory, 'allowed.ts'), "import 'node:path'\n")
@@ -138,13 +130,15 @@ async function verifyDependencyCruiserRestrictions() {
       "import { ExampleRepository } from './infrastructure/example.repository.js'\nvoid ExampleRepository\n",
     )
     result = await cruiseFixture(fixtureRoot)
-    assert.notEqual(
-      result.status,
-      0,
+    const violations = dependencyCruiserViolationNames(result)
+    assert.ok(
+      violations.includes('presentation-no-persistence'),
       'dependency-cruiser must reject presentation imports from infrastructure',
     )
-    assert.match(`${result.stdout}\n${result.stderr}`, /presentation-no-persistence/)
-    assert.match(`${result.stdout}\n${result.stderr}`, /controller-no-infrastructure/)
+    assert.ok(
+      violations.includes('controller-no-infrastructure'),
+      'dependency-cruiser must reject controller imports from infrastructure',
+    )
 
     rmSync(join(presentationDirectory, 'private.ts'))
     rmSync(join(fixtureRoot, 'private.controller.ts'))
@@ -153,7 +147,7 @@ async function verifyDependencyCruiserRestrictions() {
       "import { execute } from '../application/use-case.js'\nimport type { HealthResponse } from '@trakia/contracts'\nvoid [execute, null as HealthResponse | null]\n",
     )
     result = await cruiseFixture(fixtureRoot)
-    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.deepEqual(dependencyCruiserViolationNames(result), [])
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true })
   }
@@ -171,8 +165,10 @@ async function verifyWebCircularDependencyRestriction() {
       "import { first } from './first.js'\nexport const second = first\n",
     )
     const result = await cruiseFixture(fixtureRoot)
-    assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`)
-    assert.match(`${result.stdout}\n${result.stderr}`, /no-circular/)
+    assert.ok(
+      dependencyCruiserViolationNames(result).includes('no-circular'),
+      'dependency-cruiser must reject circular imports in the web fixture',
+    )
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true })
   }

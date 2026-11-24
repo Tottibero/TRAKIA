@@ -2,12 +2,12 @@ import { z } from 'zod'
 
 const StableKeySchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
 const PositiveIntegerSchema = z.number().int().positive()
-const PositiveMeasurementSchema = z.number().positive()
+const PositiveMeasurementSchema = z.number().finite().positive()
 
 /** Actual values use the canonical exercise metrics and their established units. */
 export const ActualMetricsSchema = z
   .object({
-    reps: PositiveMeasurementSchema.optional(),
+    reps: PositiveIntegerSchema.optional(),
     weightKg: PositiveMeasurementSchema.optional(),
     durationSeconds: PositiveMeasurementSchema.optional(),
     distanceMeters: PositiveMeasurementSchema.optional(),
@@ -16,6 +16,17 @@ export const ActualMetricsSchema = z
   })
   .strict()
 export type ActualMetrics = z.infer<typeof ActualMetricsSchema>
+
+const AmrapActualMetricsSchema = z
+  .object({
+    reps: z.number().int().nonnegative().optional(),
+    weightKg: PositiveMeasurementSchema.optional(),
+    durationSeconds: PositiveMeasurementSchema.optional(),
+    distanceMeters: PositiveMeasurementSchema.optional(),
+    rpe: PositiveMeasurementSchema.optional(),
+    calories: PositiveMeasurementSchema.optional(),
+  })
+  .strict()
 
 export const ResultStatusSchema = z.enum(['performed', 'skipped'])
 export type ResultStatus = z.infer<typeof ResultStatusSchema>
@@ -26,6 +37,7 @@ const ResultFields = {
   plannedExerciseKey: StableKeySchema,
   actualExerciseKey: StableKeySchema.optional(),
   status: ResultStatusSchema,
+  activeSeconds: PositiveMeasurementSchema.optional(),
   actualMetrics: ActualMetricsSchema.optional(),
 }
 
@@ -65,6 +77,13 @@ const SetResultSchema = z
         message: 'Skipped work has no exercise actually used',
       })
     }
+    if (result.status === 'skipped' && result.activeSeconds !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['activeSeconds'],
+        message: 'Skipped sets cannot contain active time',
+      })
+    }
   })
 
 const CircuitRoundSchema = z.discriminatedUnion('kind', [
@@ -76,7 +95,12 @@ const CircuitRoundSchema = z.discriminatedUnion('kind', [
 ])
 
 const CircuitResultSchema = z
-  .object({ type: z.literal('circuit'), ...ResultFields, round: CircuitRoundSchema })
+  .object({
+    type: z.literal('circuit'),
+    ...ResultFields,
+    actualMetrics: AmrapActualMetricsSchema.optional(),
+    round: CircuitRoundSchema,
+  })
   .strict()
   .superRefine((result, context) => {
     if (result.status === 'performed' && result.actualExerciseKey === undefined) {
@@ -100,6 +124,20 @@ const CircuitResultSchema = z
         message: 'Skipped work has no exercise actually used',
       })
     }
+    if (result.status === 'skipped' && result.activeSeconds !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['activeSeconds'],
+        message: 'Skipped circuit work cannot contain active time',
+      })
+    }
+    if (result.round.kind !== 'amrap' && result.actualMetrics?.reps === 0) {
+      context.addIssue({
+        code: 'custom',
+        path: ['actualMetrics', 'reps'],
+        message: 'Zero repetitions are only valid for AMRAP results',
+      })
+    }
   })
 
 const IntervalResultSchema = z
@@ -109,7 +147,7 @@ const IntervalResultSchema = z
     blockKey: StableKeySchema,
     cycleIndex: PositiveIntegerSchema,
     phaseKey: StableKeySchema,
-    status: ResultStatusSchema,
+    status: z.enum(['performed', 'skipped', 'completed', 'interrupted']),
     actualExerciseKey: StableKeySchema.optional(),
     activeSeconds: PositiveMeasurementSchema.optional(),
     windowProgressSeconds: PositiveMeasurementSchema.optional(),

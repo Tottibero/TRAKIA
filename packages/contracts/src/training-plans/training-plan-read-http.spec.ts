@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   TrainingPlanCalendarQuerySchema,
   TrainingPlanCalendarResponseSchema,
+  TrainingPlanCalendarExecutionSummarySchema,
   TrainingPlanReadBlockSchema,
   TrainingPlanReadExerciseSchema,
   TrainingPlanSessionDetailSchema,
@@ -120,6 +121,28 @@ describe('training plan read HTTP contracts', () => {
     ).toBe(false)
   })
 
+  it('keeps calendar execution data to an id, persisted status and lightweight summary', () => {
+    expect(
+      TrainingPlanCalendarExecutionSummarySchema.safeParse({
+        id: 'c3485999-b73a-4c54-877a-3990e3517b90',
+        status: 'completed',
+        summary: {
+          finishedAt: '2026-12-28T10:30:00.000Z',
+          performedResults: 1,
+          activeSeconds: 52.041,
+        },
+      }).success,
+    ).toBe(true)
+    expect(
+      TrainingPlanCalendarExecutionSummarySchema.safeParse({
+        id: 'c3485999-b73a-4c54-877a-3990e3517b90',
+        status: 'in_progress',
+        summary: { finishedAt: null, performedResults: 0, activeSeconds: 0 },
+        results: [],
+      }).success,
+    ).toBe(false)
+  })
+
   it('preserves set, fixed circuit, AMRAP and interval objectives and alternatives in strict detail DTOs', () => {
     const detail = {
       plan: { id: planId, origin: 'trakia-json-v1', key: 'strength-plan', name: 'Plan de fuerza' },
@@ -127,6 +150,7 @@ describe('training plan read HTTP contracts', () => {
         id: sessionId,
         key: 'monday-session',
         date: '2026-12-28',
+        execution: null,
         blocks: [
           {
             type: 'sets',
