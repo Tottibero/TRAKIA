@@ -9,6 +9,7 @@ import {
 } from '@trakia/contracts'
 import { DataSource, EntityManager, QueryFailedError } from 'typeorm'
 import { ExerciseCatalogService } from '../exercises/exercises.module.js'
+import { getMadridCivilDate } from '../../shared/madrid-civil-date.js'
 
 export class TrainingPlanVersionConflictError extends Error {
   readonly code = 'TRAINING_PLAN_VERSION_CONFLICT'
@@ -24,6 +25,58 @@ export class TrainingPlanKeyConflictError extends Error {
     super(`Training plan key "${key}" is already assigned in the shared plan-key space.`)
     this.name = 'TrainingPlanKeyConflictError'
   }
+}
+
+export class TrainingPlanMoveSessionNotFoundError extends Error {
+  constructor() {
+    super('No se encontró la sesión pendiente del plan indicado.')
+    this.name = 'TrainingPlanMoveSessionNotFoundError'
+  }
+}
+
+export class TrainingPlanMoveSessionChangedError extends Error {
+  constructor() {
+    super('La fecha de esta sesión cambió. Actualiza el detalle e inténtalo de nuevo.')
+    this.name = 'TrainingPlanMoveSessionChangedError'
+  }
+}
+
+export class TrainingPlanMoveWeekError extends Error {
+  constructor() {
+    super('El destino debe pertenecer a la misma semana de lunes a domingo.')
+    this.name = 'TrainingPlanMoveWeekError'
+  }
+}
+
+export class TrainingPlanMovePastDateError extends Error {
+  constructor() {
+    super('El destino debe ser hoy o una fecha futura.')
+    this.name = 'TrainingPlanMovePastDateError'
+  }
+}
+
+export class TrainingPlanMoveTargetUnavailableError extends Error {
+  constructor() {
+    super('Ese día ya tiene una sesión planificada. Elige otro día libre o de descanso.')
+    this.name = 'TrainingPlanMoveTargetUnavailableError'
+  }
+}
+
+export class TrainingPlanWeeklyInconsistencyError extends Error {
+  constructor() {
+    super(
+      'El día elegido contiene datos de otra planificación. Actualiza el calendario antes de mover la sesión.',
+    )
+    this.name = 'TrainingPlanWeeklyInconsistencyError'
+  }
+}
+
+export interface TrainingPlanSessionMoveIdentity {
+  planId: string
+  planKey: string
+  sessionId: string
+  sessionKey: string
+  date: string
 }
 
 export interface PersistedTrainingPlan {
@@ -61,6 +114,95 @@ export class TrainingPlanService {
     } catch (error) {
       if (isPlanKeyConflict(error)) throw new TrainingPlanKeyConflictError(plan.key)
       throw error
+    }
+  }
+
+  async findSessionMoveIdentity(
+    planId: string,
+    sessionId: string,
+    manager: EntityManager,
+  ): Promise<TrainingPlanSessionMoveIdentity | null> {
+    const rows = (await manager.query(
+      `SELECT p.id AS "planId", p.key AS "planKey", e.id AS "sessionId", e.key AS "sessionKey",
+              to_char(e.date, 'YYYY-MM-DD') AS date
+       FROM training_plans p JOIN training_plan_entries e ON e.plan_id = p.id
+       WHERE p.id = $1::uuid AND e.id = $2::uuid AND e.type = 'session'`,
+      [planId, sessionId],
+    )) as TrainingPlanSessionMoveIdentity[]
+    return rows[0] ?? null
+  }
+
+  /**
+   * Changes only the scheduled date of an existing entry. The caller must hold the shared
+   * plan/session execution lock and verify that the session has no protected execution.
+   */
+  async moveSessionDate(
+    manager: EntityManager,
+    planId: string,
+    sessionId: string,
+    expectedDate: string,
+    newDate: string,
+    clock: () => Date = () => new Date(),
+  ) {
+    const planRows = (await manager.query(
+      'SELECT id, version FROM training_plans WHERE id = $1::uuid FOR UPDATE',
+      [planId],
+    )) as Array<{ id: string; version: number }>
+    const plan = planRows[0]
+    if (!plan) throw new TrainingPlanMoveSessionNotFoundError()
+
+    // The database does not enforce one plan per week. Keep the destination check stable
+    // against concurrent writes for other plans that do not share the session lock.
+    await manager.query('LOCK TABLE training_plan_entries IN SHARE ROW EXCLUSIVE MODE')
+
+    const sessions = (await manager.query(
+      `SELECT e.id AS "sessionId", e.key AS "sessionKey", p.key AS "planKey",
+              to_char(e.date, 'YYYY-MM-DD') AS date
+       FROM training_plans p JOIN training_plan_entries e ON e.plan_id = p.id
+       WHERE p.id = $1::uuid AND e.id = $2::uuid AND e.type = 'session'
+       FOR UPDATE OF e`,
+      [planId, sessionId],
+    )) as Array<{ sessionId: string; sessionKey: string; planKey: string; date: string }>
+    const session = sessions[0]
+    if (!session) throw new TrainingPlanMoveSessionNotFoundError()
+    if (session.date !== expectedDate) throw new TrainingPlanMoveSessionChangedError()
+    if (session.date === newDate) throw new TrainingPlanMoveTargetUnavailableError()
+    if (mondayOfCivilWeek(session.date) !== mondayOfCivilWeek(newDate)) throw new TrainingPlanMoveWeekError()
+    if (newDate < getMadridCivilDate(clock())) throw new TrainingPlanMovePastDateError()
+
+    const targetRows = (await manager.query(
+      `SELECT id, plan_id AS "planId", type
+       FROM training_plan_entries WHERE date = $1::date ORDER BY id FOR UPDATE`,
+      [newDate],
+    )) as Array<{ id: string; planId: string; type: 'session' | 'rest' }>
+    if (targetRows.some(({ planId: targetPlanId }) => targetPlanId !== planId))
+      throw new TrainingPlanWeeklyInconsistencyError()
+    if (targetRows.some(({ type }) => type === 'session')) throw new TrainingPlanMoveTargetUnavailableError()
+
+    const rests = targetRows.filter(({ type }) => type === 'rest')
+    if (rests.length > 1) throw new TrainingPlanWeeklyInconsistencyError()
+    const removedRestId = rests[0]?.id
+    if (removedRestId) {
+      await manager.query('DELETE FROM training_plan_entries WHERE id = $1::uuid', [removedRestId])
+    }
+
+    const movedRows = (await manager.query(
+      'UPDATE training_plan_entries SET date = $2::date WHERE id = $1::uuid AND date = $3::date RETURNING id',
+      [session.sessionId, newDate, session.date],
+    )) as Array<{ id: string }>
+    if (!movedRows[0]) throw new TrainingPlanMoveSessionChangedError()
+    const versionRows = (await manager.query(
+      `UPDATE training_plans SET version = version + 1 WHERE id = $1::uuid AND version = $2
+       RETURNING version`,
+      [plan.id, plan.version],
+    )) as Array<{ version: number }>
+    if (!versionRows[0]) throw new TrainingPlanMoveSessionChangedError()
+
+    return {
+      sessionId: session.sessionId,
+      previousDate: session.date,
+      newDate,
+      restRemoved: Boolean(removedRestId),
     }
   }
 
@@ -631,6 +773,13 @@ function firstRow(result: unknown): Record<string, string | number> {
   while (Array.isArray(rows) && Array.isArray(rows[0])) rows = rows[0]
   if (!Array.isArray(rows) || !rows[0]) throw new Error('Expected PostgreSQL to return a row.')
   return rows[0] as Record<string, string | number>
+}
+
+function mondayOfCivilWeek(value: string): string {
+  const date = new Date(`${value}T00:00:00.000Z`)
+  const daysSinceMonday = (date.getUTCDay() + 6) % 7
+  date.setUTCDate(date.getUTCDate() - daysSinceMonday)
+  return date.toISOString().slice(0, 10)
 }
 
 function appearanceKeys(block: PlannedBlock): Set<string> {

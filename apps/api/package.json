@@ -17,7 +17,7 @@
     "db:migration:revert": "typeorm migration:revert -d ${TRAKIA_DB_DIST:-dist}/database/data-source.js",
     "db:migration:generate": "typeorm migration:generate src/database/migrations/$npm_config_name -d ${TRAKIA_DB_DIST:-dist}/database/data-source.js",
     "typecheck": "tsc --noEmit --incremental false -p tsconfig.build.json",
-    "test": "pnpm build && node --test test/auth-token.test.mjs test/database-config.test.mjs test/exercise-catalog.test.mjs test/http-security.test.mjs test/integration-database.test.mjs test/runtime-config.test.mjs test/training-plan-import-confirmation.test.mjs test/training-plan-import-review.test.mjs test/training-plan-imports-controller.test.mjs test/training-plan-imports-http.e2e.test.mjs test/training-plan-read.test.mjs test/training-plans.test.mjs test/users.test.mjs test/workout-execution-start.test.mjs test/workouts-controller.test.mjs"
+    "test": "pnpm build && node --test test/auth-token.test.mjs test/database-config.test.mjs test/exercise-catalog.test.mjs test/http-security.test.mjs test/integration-database.test.mjs test/runtime-config.test.mjs test/training-plan-import-confirmation.test.mjs test/training-plan-import-review.test.mjs test/training-plan-imports-controller.test.mjs test/training-plan-imports-http.e2e.test.mjs test/training-plan-read.test.mjs test/training-plans.test.mjs test/users.test.mjs test/workout-execution-start.test.mjs test/workout-plan-rescheduling.test.mjs test/workouts-controller.test.mjs"
   },
   "dependencies": {
     "@nestjs/common": "12.4.2",

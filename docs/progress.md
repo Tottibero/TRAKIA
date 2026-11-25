@@ -1,5 +1,9 @@
 # Progreso
 
+## HC-08 — Flexibilidad de planificación semanal
+
+La planificación deportiva se organiza por semanas naturales y los días asignados son flexibles. [HC-08-01](tasks/HC-08/HC-08-01.md) está completada: reprogramación individual de una sesión pendiente dentro de su semana; pruebas locales e integración en `trakia_test` satisfactorias, auditoría arquitectónica sin hallazgos y smoke manual de jueves a domingo aceptado por el propietario. El modelo no garantiza una sola planificación por semana; el cambio protege frente a entradas de otros planes en el destino.
+
 ## HC-05 — Cierre del bloque
 
 El propietario confirmó el 2026-11-24 que completó las validaciones manuales pendientes de HC-05; no se detallaron escenarios ni viewports por tarea. `pnpm test:integration` pasó 23 casos en 11 grupos tras verificar que la base efectiva era `trakia_test`; no había migraciones pendientes. En el cierre pasaron `pnpm check`, `pnpm architecture:check` independiente (242 módulos) y `git diff --check`. Todas las tareas del bloque están cerradas documentalmente. Publicación, PR y CI remoto `quality` siguen pendientes.

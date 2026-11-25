@@ -1,4 +1,8 @@
-import { TrainingPlanImportHttpErrorSchema, WorkoutExecutionStartErrorSchema } from '@trakia/contracts'
+import {
+  TrainingPlanImportHttpErrorSchema,
+  TrainingPlanSessionRescheduleErrorSchema,
+  WorkoutExecutionStartErrorSchema,
+} from '@trakia/contracts'
 
 export class ApiError extends Error {
   constructor(
@@ -65,6 +69,9 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     const executionError = WorkoutExecutionStartErrorSchema.safeParse(payload)
     if (executionError.success)
       throw new ApiError(response.status, executionError.data.message, executionError.data.code)
+    const rescheduleError = TrainingPlanSessionRescheduleErrorSchema.safeParse(payload)
+    if (rescheduleError.success)
+      throw new ApiError(response.status, rescheduleError.data.message, rescheduleError.data.code)
     throw new ApiError(response.status, 'No se pudo completar la solicitud.', defaultCode)
   }
 
