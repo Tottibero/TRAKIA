@@ -77,6 +77,14 @@ try {
     'exec',
     'node',
     '--test',
+    'test/workout-plan-rescheduling.integration.test.mjs',
+  ])
+  await run('pnpm', [
+    '--filter',
+    '@trakia/api',
+    'exec',
+    'node',
+    '--test',
     'test/workout-execution-start.integration.test.mjs',
   ])
   await run('pnpm', [

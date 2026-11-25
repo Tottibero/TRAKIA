@@ -88,6 +88,20 @@ export type {
   TrainingPlanSessionDetail,
 } from './training-plans/training-plan-read-http.js'
 export {
+  TrainingPlanSessionRescheduleErrorCodeSchema,
+  TrainingPlanSessionRescheduleErrorSchema,
+  TrainingPlanSessionReschedulePathParamsSchema,
+  TrainingPlanSessionRescheduleRequestSchema,
+  TrainingPlanSessionRescheduleResponseSchema,
+} from './training-plans/training-plan-rescheduling-http.js'
+export type {
+  TrainingPlanSessionRescheduleError,
+  TrainingPlanSessionRescheduleErrorCode,
+  TrainingPlanSessionReschedulePathParams,
+  TrainingPlanSessionRescheduleRequest,
+  TrainingPlanSessionRescheduleResponse,
+} from './training-plans/training-plan-rescheduling-http.js'
+export {
   WorkoutCompletionTypeSchema,
   WorkoutExecutionSchema,
   WorkoutExecutionActiveTimerSchema,

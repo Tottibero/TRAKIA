@@ -101,6 +101,7 @@ async function startSession() {
         <p v-if="startAction === 'scheduled-date'" class="workout-action-bar__message">
           Solo puede iniciarse en su fecha programada.
         </p>
+        <slot v-if="execution === null" name="pending-action" />
       </div>
     </div>
   </section>

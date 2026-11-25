@@ -8,10 +8,9 @@ export class WorkoutExecutionProtectionService {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
   /**
-   * Shared cross-version protocol: writers lock each `planKey/sessionKey` pair
-   * with a PostgreSQL transaction-scoped advisory lock, in sorted order. The
-   * future online-start use case must call this inside its own transaction
-   * before inserting the execution row.
+   * Shared protocol for online starts, plan imports, and individual rescheduling:
+   * writers lock each `planKey/sessionKey` pair in sorted order inside the same
+   * PostgreSQL transaction as the protected change.
    */
   async acquireSessionLocks(
     manager: EntityManager,

@@ -14,6 +14,13 @@ import { TrainingPlanReadService } from './training-plan-read.service.js'
 export {
   TrainingPlanKeyConflictError,
   TrainingPlanService,
+  TrainingPlanMovePastDateError,
+  TrainingPlanMoveSessionChangedError,
+  TrainingPlanMoveSessionNotFoundError,
+  TrainingPlanMoveTargetUnavailableError,
+  TrainingPlanMoveWeekError,
+  TrainingPlanWeeklyInconsistencyError,
+  type TrainingPlanSessionMoveIdentity,
   type TrainingPlanExecutionSession,
   TrainingPlanVersionConflictError,
 } from './training-plan.service.js'

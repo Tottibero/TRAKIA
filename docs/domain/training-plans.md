@@ -5,18 +5,21 @@ Este documento conserva las decisiones aprobadas que gobiernan la planificación
 ## Decisiones aprobadas
 
 1. **Identidad de planes y sesiones.** Cada plan y sesión tiene una clave estable, independiente de fechas y posiciones. Las claves de sesión son únicas dentro del plan.
-2. **Superseries e hiperseries.** Se representan como circuitos; no introducen tipos de bloque adicionales.
-3. **Modalidades de bloque.** Solo se admiten `sets`, `circuit` e `intervals`.
-4. **Objetivos de series.** Un ejercicio planificado puede tener objetivos generales y ajustes específicos por serie. La serie se identifica con un índice positivo, comenzando en 1.
-5. **Objetivos de rondas.** Los circuitos de rondas fijas admiten ajustes opcionales por ronda, con índices positivos comenzando en 1. AMRAP no admite ajustes por ronda numerada.
-6. **Selección y precedencia.** Se elige primero el ejercicio principal o una alternativa. Después se filtran los objetivos heredados incompatibles, se aplican los ajustes de la alternativa y, por último, los ajustes específicos de serie o ronda.
-7. **Herencia de objetivos.** Las métricas compatibles se heredan del ejercicio principal. En un ajuste, la propiedad ausente hereda, un número sobrescribe y `null` elimina el objetivo. Los objetivos efectivos no contienen `null`.
-8. **Descanso entre bloques.** `restAfterSeconds` es opcional y expresa un descanso orientativo al terminar un bloque.
-9. **Identidad de bloques y apariciones.** Cada bloque y aparición planificada de ejercicio tiene una clave estable independiente de su posición. El orden se obtiene de los arrays.
-10. **Recuperación activa opcional.** Una fase `rest` puede incluir un ejercicio para representar recuperación activa; si se omite, representa recuperación pasiva.
-11. **Fases de trabajo.** Una fase `work` requiere ejercicio y ventana temporal positiva. Sus objetivos deportivos son opcionales. La ventana no afirma cuánto trabajo se realizó. EMOM se expresa mediante intervalos con trabajo asignado.
-12. **Días de descanso.** Un descanso es una entrada explícita con identidad propia; no se crea una sesión ejecutable vacía para representarlo.
-13. **Calendario del plan.** Se permiten varias sesiones en una fecha. En un mismo plan, las sesiones y descansos comparten un espacio de claves únicas. Puede haber como máximo un descanso por fecha y un descanso programado no coexiste con sesiones en esa fecha.
+2. **Unidad semanal flexible.** La semana natural de lunes a domingo (`Europe/Madrid`) es la unidad funcional de planificación. Los días asignados organizan visualmente las sesiones, pero son flexibles dentro de esa semana; mover una sesión no cambia su identidad ni su contenido.
+3. **Superseries e hiperseries.** Se representan como circuitos; no introducen tipos de bloque adicionales.
+4. **Modalidades de bloque.** Solo se admiten `sets`, `circuit` e `intervals`.
+5. **Objetivos de series.** Un ejercicio planificado puede tener objetivos generales y ajustes específicos por serie. La serie se identifica con un índice positivo, comenzando en 1.
+6. **Objetivos de rondas.** Los circuitos de rondas fijas admiten ajustes opcionales por ronda, con índices positivos comenzando en 1. AMRAP no admite ajustes por ronda numerada.
+7. **Selección y precedencia.** Se elige primero el ejercicio principal o una alternativa. Después se filtran los objetivos heredados incompatibles, se aplican los ajustes de la alternativa y, por último, los ajustes específicos de serie o ronda.
+8. **Herencia de objetivos.** Las métricas compatibles se heredan del ejercicio principal. En un ajuste, la propiedad ausente hereda, un número sobrescribe y `null` elimina el objetivo. Los objetivos efectivos no contienen `null`.
+9. **Descanso entre bloques.** `restAfterSeconds` es opcional y expresa un descanso orientativo al terminar un bloque.
+10. **Identidad de bloques y apariciones.** Cada bloque y aparición planificada de ejercicio tiene una clave estable independiente de su posición. El orden se obtiene de los arrays.
+11. **Recuperación activa opcional.** Una fase `rest` puede incluir un ejercicio para representar recuperación activa; si se omite, representa recuperación pasiva.
+12. **Fases de trabajo.** Una fase `work` requiere ejercicio y ventana temporal positiva. Sus objetivos deportivos son opcionales. La ventana no afirma cuánto trabajo se realizó. EMOM se expresa mediante intervalos con trabajo asignado.
+13. **Días de descanso.** Un descanso es una entrada explícita con identidad propia; no se crea una sesión ejecutable vacía para representarlo.
+14. **Calendario del plan.** Se permiten varias sesiones en una fecha. En un mismo plan, las sesiones y descansos comparten un espacio de claves únicas. Puede haber como máximo un descanso por fecha y un descanso programado no coexiste con sesiones en esa fecha.
+
+La unicidad semanal es una regla funcional, no una restricción del modelo actual: `training_plans` garantiza unicidad de clave, y `training_plan_entries` garantiza la unicidad de la clave y de descansos por fecha dentro de cada plan, pero no limita a un plan por semana. Las operaciones que dependen de un destino semanal deben detectar entradas ajenas y proteger los datos sin reorganizar múltiples planes.
 
 ## Ciclos de intervalos
 

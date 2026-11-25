@@ -8,6 +8,7 @@ import { TrainingPlanSessionPathParamsSchema } from '@trakia/contracts'
 import { useTrainingPlanSession } from '../useTrainingPlanSession'
 import { WorkoutExecutionSummary, WorkoutStartAction } from '@/features/workout-execution'
 import SessionBlockDetail from '../components/SessionBlockDetail.vue'
+import SessionRescheduleAction from '../components/SessionRescheduleAction.vue'
 import { formatSessionDate } from '../session-detail-presentation.js'
 import { getMadridCivilDate, parseWeekStart, resolveExpandedDates } from '../calendar-dates.js'
 
@@ -69,6 +70,7 @@ const initialErrorMessage = computed(() =>
     </template>
     <main
       class="session-detail-page bg-[var(--trakia-background)] px-4 py-4 text-[var(--trakia-text)] sm:px-8 sm:py-6"
+      :class="{ 'session-detail-page--pending': sessionQuery.data.value?.session.execution === null }"
     >
       <div class="mx-auto max-w-3xl">
         <nav class="pt-6" aria-label="Navegación de la sesión">
@@ -216,7 +218,15 @@ const initialErrorMessage = computed(() =>
               :planned-date="sessionQuery.data.value.session.date"
               :execution="sessionQuery.data.value.session.execution"
               @start-error="startErrorMessage = $event"
-            />
+            >
+              <template #pending-action>
+                <SessionRescheduleAction
+                  :plan-id="sessionQuery.data.value.plan.id"
+                  :session-id="sessionQuery.data.value.session.id"
+                  :original-date="sessionQuery.data.value.session.date"
+                />
+              </template>
+            </WorkoutStartAction>
           </template>
         </template>
       </div>
@@ -227,6 +237,10 @@ const initialErrorMessage = computed(() =>
 <style scoped>
 .session-detail-page {
   padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+}
+
+.session-detail-page--pending {
+  padding-bottom: calc(12.5rem + env(safe-area-inset-bottom));
 }
 
 .session-detail-blocks > ol {
